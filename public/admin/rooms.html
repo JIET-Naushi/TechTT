@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rooms — Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="logo">🎓 <span>College</span> Timetable — Admin</div>
+    <nav>
+      <a href="/index.html">Home</a>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </nav>
+  </header>
+  <div class="admin-layout">
+    <nav class="sidebar">
+      <div class="sidebar-title">Main</div>
+      <a href="/admin/dashboard.html"><span class="icon">📊</span> Dashboard</a>
+      <div class="sidebar-title">Manage</div>
+      <a href="/admin/sections.html"><span class="icon">🏛️</span> Years & Sections</a>
+      <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
+      <a href="/admin/faculty.html"><span class="icon">👨‍🏫</span> Faculty</a>
+      <a href="/admin/rooms.html" class="active"><span class="icon">🏫</span> Rooms</a>
+      <div class="sidebar-title">Timetable</div>
+      <a href="/admin/generate.html"><span class="icon">⚡</span> Generate</a>
+      <a href="/admin/editor.html"><span class="icon">✏️</span> Editor</a>
+      <div class="sidebar-title">Views</div>
+      <a href="/views/class-timetable.html"><span class="icon">📅</span> Class View</a>
+      <a href="/views/faculty-timetable.html"><span class="icon">👤</span> Faculty View</a>
+      <a href="/views/location-timetable.html"><span class="icon">📍</span> Location View</a>
+    </nav>
+    <main class="admin-content">
+      <div class="page-title">Rooms & Locations</div>
+      <div id="alertBox"></div>
+      <div class="card">
+        <div class="toolbar">
+          <span id="roomCount" class="text-muted"></span>
+          <button class="btn btn-primary" onclick="openModal()">+ Add Room</button>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Room Name</th><th>Type</th><th>Capacity</th><th>Actions</th></tr>
+            </thead>
+            <tbody id="roomsTable"><tr><td colspan="5" class="text-center text-muted">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="modalTitle">Add Room</div>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <form id="roomForm">
+        <input type="hidden" id="roomId">
+        <div class="form-group">
+          <label>Room Name *</label>
+          <input type="text" id="roomName" class="form-control" required placeholder="e.g. Room 101">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Type</label>
+            <select id="roomType" class="form-control">
+              <option value="classroom">Classroom</option>
+              <option value="lab">Lab</option>
+              <option value="seminar">Seminar Hall</option>
+              <option value="conference">Conference Room</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Capacity</label>
+            <input type="number" id="roomCapacity" class="form-control" value="60" min="1">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Room</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    fetch('/api/auth/status').then(r => r.json()).then(d => { if (!d.loggedIn) location.href = '/login.html'; });
+
+    let rooms = [];
+
+    async function loadRooms() {
+      const res = await fetch('/api/rooms');
+      rooms = await res.json();
+      renderTable();
+    }
+
+    const typeIcons = { classroom: '🏫', lab: '🔬', seminar: '🎤', conference: '🤝' };
+    const typeBadgeColors = { classroom: '#e3f2fd', lab: '#e8f5e9', seminar: '#fff3e0', conference: '#f3e5f5' };
+
+    function renderTable() {
+      document.getElementById('roomCount').textContent = `${rooms.length} rooms/locations`;
+      const tbody = document.getElementById('roomsTable');
+      if (rooms.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No rooms found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rooms.map((r, i) => `
+        <tr>
+          <td>${i + 1}</td>
+          <td><strong>${typeIcons[r.type] || '🏢'} ${r.name}</strong></td>
+          <td><span style="background:${typeBadgeColors[r.type] || '#eee'};padding:2px 8px;border-radius:12px;font-size:0.78rem;font-weight:600;">${r.type}</span></td>
+          <td>${r.capacity}</td>
+          <td>
+            <button class="btn btn-outline btn-sm" onclick="editRoom(${r.id})">Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteRoom(${r.id}, '${r.name.replace(/'/g, "\\'")}')">Delete</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function openModal(r = null) {
+      document.getElementById('roomId').value = '';
+      document.getElementById('roomForm').reset();
+      document.getElementById('modalTitle').textContent = 'Add Room';
+      document.getElementById('roomCapacity').value = 60;
+      if (r) {
+        document.getElementById('modalTitle').textContent = 'Edit Room';
+        document.getElementById('roomId').value = r.id;
+        document.getElementById('roomName').value = r.name;
+        document.getElementById('roomType').value = r.type;
+        document.getElementById('roomCapacity').value = r.capacity;
+      }
+      document.getElementById('modalOverlay').classList.add('active');
+    }
+
+    function closeModal() { document.getElementById('modalOverlay').classList.remove('active'); }
+
+    function editRoom(id) {
+      const r = rooms.find(r => r.id === id);
+      if (r) openModal(r);
+    }
+
+    async function deleteRoom(id, name) {
+      if (!confirm(`Delete room "${name}"?`)) return;
+      const res = await fetch(`/api/admin/rooms/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      showAlert(data.message, 'success');
+      loadRooms();
+    }
+
+    document.getElementById('roomForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('roomId').value;
+      const body = {
+        name: document.getElementById('roomName').value,
+        type: document.getElementById('roomType').value,
+        capacity: parseInt(document.getElementById('roomCapacity').value)
+      };
+      const url = id ? `/api/admin/rooms/${id}` : '/api/admin/rooms';
+      const method = id ? 'PUT' : 'POST';
+      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (res.ok) {
+        showAlert(data.message, 'success');
+        closeModal();
+        loadRooms();
+      } else {
+        showAlert(data.error || 'Error', 'error');
+      }
+    });
+
+    function showAlert(msg, type) {
+      const box = document.getElementById('alertBox');
+      box.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+      setTimeout(() => box.innerHTML = '', 3000);
+    }
+
+    async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
+
+    loadRooms();
+  </script>
+</body>
+</html>

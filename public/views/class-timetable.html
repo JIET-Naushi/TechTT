@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Class Timetable</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="header no-print">
+    <div class="logo">🎓 <span>College</span> Timetable System</div>
+    <nav>
+      <a href="/index.html">Home</a>
+      <a href="/views/class-timetable.html" class="active">Class</a>
+      <a href="/views/faculty-timetable.html">Faculty</a>
+      <a href="/views/location-timetable.html">Location</a>
+      <a href="/admin/dashboard.html" id="adminLink" style="display:none;">Admin</a>
+    </nav>
+  </header>
+
+  <div class="container">
+    <div class="page-title">Class Timetable <small>Department of Technology</small></div>
+
+    <div class="card no-print">
+      <div class="filter-bar">
+        <div class="form-group">
+          <label>Year</label>
+          <select id="yearSelect" class="form-control" onchange="loadSections()">
+            <option value="">Select Year</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Section</label>
+          <select id="sectionSelect" class="form-control" onchange="loadTimetable()">
+            <option value="">Select Section</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="loadTimetable()">View</button>
+        <button class="btn btn-secondary" onclick="window.print()">🖨️ Print</button>
+      </div>
+    </div>
+
+    <div id="timetableArea" style="display:none;">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;" class="no-print">
+          <div class="card-title" id="tableTitle" style="margin:0;border:none;padding:0;"></div>
+        </div>
+        <div style="text-align:center;margin-bottom:12px;display:none;" id="printHeader">
+          <h2 style="color:#1a237e;">Department of Technology</h2>
+          <h3 id="printTitle"></h3>
+          <p style="color:#666;">Academic Timetable</p>
+        </div>
+        <div class="timetable-grid">
+          <table class="timetable-table" id="timetableTable"></table>
+        </div>
+        <div id="legend" style="margin-top:16px;display:flex;flex-wrap:wrap;gap:8px;" class="no-print"></div>
+      </div>
+    </div>
+
+    <div id="emptyState" class="empty-state">
+      <div class="empty-icon">📅</div>
+      <p>Select a year and section to view the timetable</p>
+    </div>
+  </div>
+
+  <script>
+    const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const COLORS = ['color-0','color-1','color-2','color-3','color-4','color-5','color-6','color-7','color-8','color-9','color-10','color-11'];
+    const subjectColorMap = {};
+    let slots = [], entries = [];
+
+    function getSubjectColor(subjectId) {
+      if (!subjectColorMap[subjectId]) {
+        const keys = Object.keys(subjectColorMap).length;
+        subjectColorMap[subjectId] = COLORS[keys % COLORS.length];
+      }
+      return subjectColorMap[subjectId];
+    }
+
+    async function init() {
+      // Check admin
+      fetch('/api/auth/status').then(r => r.json()).then(d => {
+        if (d.loggedIn) document.getElementById('adminLink').style.display = 'inline';
+      });
+
+      const [yRes, slRes] = await Promise.all([fetch('/api/years'), fetch('/api/timeslots')]);
+      const years = await yRes.json();
+      slots = await slRes.json();
+
+      const sel = document.getElementById('yearSelect');
+      years.forEach(y => sel.innerHTML += `<option value="${y.id}">${y.display_name}</option>`);
+
+      // Auto-load from URL params
+      const params = new URLSearchParams(location.search);
+      if (params.get('section_id')) {
+        // Find year for this section
+        const sRes = await fetch('/api/sections');
+        const sections = await sRes.json();
+        const sec = sections.find(s => s.id == params.get('section_id'));
+        if (sec) {
+          sel.value = sec.year_id;
+          await loadSections();
+          document.getElementById('sectionSelect').value = sec.id;
+          await loadTimetable();
+        }
+      }
+    }
+
+    async function loadSections() {
+      const yearId = document.getElementById('yearSelect').value;
+      if (!yearId) return;
+      const res = await fetch(`/api/sections?year_id=${yearId}`);
+      const sections = await res.json();
+      const sel = document.getElementById('sectionSelect');
+      sel.innerHTML = '<option value="">Select Section</option>' +
+        sections.map(s => `<option value="${s.id}">Section ${s.name}</option>`).join('');
+    }
+
+    async function loadTimetable() {
+      const sectionId = document.getElementById('sectionSelect').value;
+      if (!sectionId) return;
+
+      const res = await fetch(`/api/timetable/class?section_id=${sectionId}`);
+      entries = await res.json();
+
+      const yearText = document.getElementById('yearSelect').options[document.getElementById('yearSelect').selectedIndex].text;
+      const secText = document.getElementById('sectionSelect').options[document.getElementById('sectionSelect').selectedIndex].text;
+      const title = `${yearText} — ${secText}`;
+      document.getElementById('tableTitle').textContent = title;
+      document.getElementById('printTitle').textContent = title;
+
+      renderTable();
+      document.getElementById('timetableArea').style.display = 'block';
+      document.getElementById('emptyState').style.display = 'none';
+    }
+
+    function renderTable() {
+      const teachingSlots = slots.filter(s => !s.is_break);
+      const allSlots = slots;
+      const table = document.getElementById('timetableTable');
+
+      let html = '<thead><tr><th class="day-header">Day / Time</th>';
+      allSlots.forEach(s => {
+        if (s.is_break) {
+          html += `<th class="slot-header" style="background:#f57c00;">LUNCH<br><small>${s.start_time}–${s.end_time}</small></th>`;
+        } else {
+          html += `<th class="slot-header">Slot ${s.slot_number}<br><small>${s.start_time}–${s.end_time}</small></th>`;
+        }
+      });
+      html += '</tr></thead><tbody>';
+
+      DAYS.forEach(day => {
+        html += `<tr><td class="day-cell">${day}</td>`;
+        allSlots.forEach(slot => {
+          if (slot.is_break) {
+            html += `<td class="break-cell">🍽️ LUNCH</td>`;
+            return;
+          }
+          const entry = entries.find(e => e.day_of_week === day && e.time_slot_id === slot.id);
+          if (entry && entry.subject_id) {
+            const color = getSubjectColor(entry.subject_id);
+            html += `<td>
+              <div class="timetable-cell ${color}">
+                <div class="cell-subject">${entry.subject_name || '?'}</div>
+                <div class="cell-faculty">${entry.faculty_name || ''}</div>
+                <div class="cell-room">${entry.room_name || ''}</div>
+              </div>
+            </td>`;
+          } else {
+            html += `<td><div class="timetable-cell empty-cell">—</div></td>`;
+          }
+        });
+        html += '</tr>';
+      });
+
+      html += '</tbody>';
+      table.innerHTML = html;
+
+      // Legend
+      const legend = document.getElementById('legend');
+      const usedSubjects = [...new Set(entries.filter(e => e.subject_id).map(e => e.subject_id))];
+      legend.innerHTML = '<strong style="margin-right:8px;">Legend:</strong>' +
+        usedSubjects.map(id => {
+          const e = entries.find(e => e.subject_id === id);
+          const color = getSubjectColor(id);
+          return `<span class="${color}" style="padding:3px 10px;border-radius:12px;font-size:0.78rem;">${e.subject_name} (${e.subject_code || ''})</span>`;
+        }).join('');
+    }
+
+    init();
+  </script>
+</body>
+</html>

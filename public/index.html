@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>College Timetable System</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="logo">🎓 <span>College</span> Timetable System</div>
+    <nav>
+      <a href="/index.html" class="active">Home</a>
+      <a href="/views/class-timetable.html">Class View</a>
+      <a href="/views/faculty-timetable.html">Faculty View</a>
+      <a href="/views/location-timetable.html">Location View</a>
+      <a href="/login.html" id="adminLink">Admin</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <h1>Department of Technology</h1>
+    <p>B.Tech Timetable Management System — View class schedules, faculty timetables, and room allocations.</p>
+    <a href="/views/class-timetable.html" class="btn btn-primary btn-lg" style="margin-right:12px;">View Timetables</a>
+    <a href="/login.html" class="btn btn-outline btn-lg" style="border-color:white;color:white;">Admin Panel</a>
+  </div>
+
+  <div class="view-cards">
+    <div class="view-card" onclick="location.href='/views/class-timetable.html'">
+      <div class="icon">📚</div>
+      <h3>Class Timetable</h3>
+      <p>View the weekly schedule for any B.Tech year and section (A, B, C)</p>
+    </div>
+    <div class="view-card" onclick="location.href='/views/faculty-timetable.html'">
+      <div class="icon">👨‍🏫</div>
+      <h3>Faculty Timetable</h3>
+      <p>View the complete weekly teaching schedule for any faculty member</p>
+    </div>
+    <div class="view-card" onclick="location.href='/views/location-timetable.html'">
+      <div class="icon">🏫</div>
+      <h3>Location / Room</h3>
+      <p>View what's scheduled in any classroom, lab, or seminar hall</p>
+    </div>
+  </div>
+
+  <div style="text-align:center; padding: 20px; color:#999; font-size:0.85rem;">
+    Department of Technology &bull; B.Tech I, II &amp; III Year &bull; Sections A, B, C
+  </div>
+
+  <script>
+    // Check if admin is logged in and update link
+    fetch('/api/auth/status').then(r => r.json()).then(data => {
+      if (data.loggedIn) {
+        document.getElementById('adminLink').href = '/admin/dashboard.html';
+        document.getElementById('adminLink').textContent = 'Dashboard';
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Timetable Editor — Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .editor-table td { cursor: pointer; }
+    .editor-table td:hover { background: #e8eaf6 !important; }
+    .cell-content { padding: 6px; min-height: 60px; font-size: 0.78rem; }
+    .cell-content .subj { font-weight: 700; color: #1a237e; }
+    .cell-content .fac { color: #555; font-size: 0.72rem; }
+    .cell-content .rm { color: #777; font-size: 0.7rem; }
+    .cell-content.empty { color: #ccc; text-align: center; padding-top: 20px; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="logo">🎓 <span>College</span> Timetable — Admin</div>
+    <nav>
+      <a href="/index.html">Home</a>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </nav>
+  </header>
+  <div class="admin-layout">
+    <nav class="sidebar">
+      <div class="sidebar-title">Main</div>
+      <a href="/admin/dashboard.html"><span class="icon">📊</span> Dashboard</a>
+      <div class="sidebar-title">Manage</div>
+      <a href="/admin/sections.html"><span class="icon">🏛️</span> Years & Sections</a>
+      <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
+      <a href="/admin/faculty.html"><span class="icon">👨‍🏫</span> Faculty</a>
+      <a href="/admin/rooms.html"><span class="icon">🏫</span> Rooms</a>
+      <div class="sidebar-title">Timetable</div>
+      <a href="/admin/generate.html"><span class="icon">⚡</span> Generate</a>
+      <a href="/admin/editor.html" class="active"><span class="icon">✏️</span> Editor</a>
+      <div class="sidebar-title">Views</div>
+      <a href="/views/class-timetable.html"><span class="icon">📅</span> Class View</a>
+      <a href="/views/faculty-timetable.html"><span class="icon">👤</span> Faculty View</a>
+      <a href="/views/location-timetable.html"><span class="icon">📍</span> Location View</a>
+    </nav>
+    <main class="admin-content">
+      <div class="page-title">Timetable Editor</div>
+      <div id="alertBox"></div>
+
+      <div class="card no-print">
+        <div class="filter-bar">
+          <div class="form-group">
+            <label>Year</label>
+            <select id="yearSelect" class="form-control" onchange="loadSections()">
+              <option value="">Select Year</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Section</label>
+            <select id="sectionSelect" class="form-control" onchange="loadTimetable()">
+              <option value="">Select Section</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" onclick="loadTimetable()">Load</button>
+          <button class="btn btn-secondary" onclick="window.print()">🖨️ Print</button>
+        </div>
+      </div>
+
+      <div id="timetableArea" style="display:none;">
+        <div class="card">
+          <div class="card-title" id="tableTitle">Timetable</div>
+          <div class="timetable-grid">
+            <table class="timetable-table editor-table" id="editorTable"></table>
+          </div>
+        </div>
+      </div>
+      <div id="emptyState" class="empty-state">
+        <div class="empty-icon">📅</div>
+        <p>Select a year and section to edit the timetable</p>
+      </div>
+    </main>
+  </div>
+
+  <!-- Edit Cell Modal -->
+  <div class="modal-overlay" id="editModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="editModalTitle">Edit Slot</div>
+        <button class="modal-close" onclick="closeEditModal()">×</button>
+      </div>
+      <div id="editModalInfo" style="background:#f5f5f5;padding:10px;border-radius:6px;margin-bottom:16px;font-size:0.85rem;"></div>
+      <form id="editForm">
+        <input type="hidden" id="editSectionId">
+        <input type="hidden" id="editSlotId">
+        <input type="hidden" id="editDay">
+        <input type="hidden" id="editEntryId">
+        <div class="form-group">
+          <label>Subject</label>
+          <select id="editSubject" class="form-control">
+            <option value="">— Free Period —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Faculty</label>
+          <select id="editFaculty" class="form-control">
+            <option value="">— No Faculty —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Room</label>
+          <select id="editRoom" class="form-control">
+            <option value="">— No Room —</option>
+          </select>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-danger btn-sm" onclick="clearEntry()">Clear Slot</button>
+          <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    fetch('/api/auth/status').then(r => r.json()).then(d => { if (!d.loggedIn) location.href = '/login.html'; });
+
+    const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    let slots = [], entries = [], subjects = [], faculty = [], rooms = [];
+    let currentSectionId = null;
+
+    async function init() {
+      const [yRes, slRes, subRes, fRes, rRes] = await Promise.all([
+        fetch('/api/years'), fetch('/api/timeslots'), fetch('/api/subjects'),
+        fetch('/api/faculty'), fetch('/api/rooms')
+      ]);
+      const years = await yRes.json();
+      slots = await slRes.json();
+      subjects = await subRes.json();
+      faculty = await fRes.json();
+      rooms = await rRes.json();
+
+      const sel = document.getElementById('yearSelect');
+      years.forEach(y => sel.innerHTML += `<option value="${y.id}">${y.display_name}</option>`);
+
+      // Populate edit modal dropdowns
+      const subSel = document.getElementById('editSubject');
+      subjects.forEach(s => subSel.innerHTML += `<option value="${s.id}">[${s.year_name || 'Y' + s.year_id}] ${s.name}</option>`);
+
+      const facSel = document.getElementById('editFaculty');
+      faculty.forEach(f => facSel.innerHTML += `<option value="${f.id}">${f.name}</option>`);
+
+      const roomSel = document.getElementById('editRoom');
+      rooms.forEach(r => roomSel.innerHTML += `<option value="${r.id}">${r.name} (${r.type})</option>`);
+    }
+
+    async function loadSections() {
+      const yearId = document.getElementById('yearSelect').value;
+      if (!yearId) return;
+      const res = await fetch(`/api/sections?year_id=${yearId}`);
+      const sections = await res.json();
+      const sel = document.getElementById('sectionSelect');
+      sel.innerHTML = '<option value="">Select Section</option>' +
+        sections.map(s => `<option value="${s.id}">Section ${s.name}</option>`).join('');
+    }
+
+    async function loadTimetable() {
+      const sectionId = document.getElementById('sectionSelect').value;
+      if (!sectionId) return;
+      currentSectionId = sectionId;
+
+      const res = await fetch(`/api/timetable/class?section_id=${sectionId}`);
+      entries = await res.json();
+
+      const yearName = document.getElementById('yearSelect').options[document.getElementById('yearSelect').selectedIndex].text;
+      const secName = document.getElementById('sectionSelect').options[document.getElementById('sectionSelect').selectedIndex].text;
+      document.getElementById('tableTitle').textContent = `${yearName} — ${secName}`;
+
+      renderTable();
+      document.getElementById('timetableArea').style.display = 'block';
+      document.getElementById('emptyState').style.display = 'none';
+    }
+
+    const COLORS = ['color-0','color-1','color-2','color-3','color-4','color-5','color-6','color-7','color-8','color-9','color-10','color-11'];
+    const subjectColorMap = {};
+    function getSubjectColor(subjectId) {
+      if (!subjectColorMap[subjectId]) {
+        const keys = Object.keys(subjectColorMap).length;
+        subjectColorMap[subjectId] = COLORS[keys % COLORS.length];
+      }
+      return subjectColorMap[subjectId];
+    }
+
+    function renderTable() {
+      const teachingSlots = slots.filter(s => !s.is_break);
+      const table = document.getElementById('editorTable');
+
+      // Header row
+      let html = '<thead><tr><th class="day-header">Day</th>';
+      teachingSlots.forEach(s => {
+        html += `<th class="slot-header">Slot ${s.slot_number}<br><small>${s.start_time}–${s.end_time}</small></th>`;
+      });
+      html += '</tr></thead><tbody>';
+
+      DAYS.forEach(day => {
+        html += `<tr><td class="day-cell">${day}</td>`;
+        teachingSlots.forEach(slot => {
+          const entry = entries.find(e => e.day_of_week === day && e.time_slot_id === slot.id);
+          if (entry && entry.subject_id) {
+            const color = getSubjectColor(entry.subject_id);
+            html += `<td onclick="openEditModal('${day}', ${slot.id}, ${entry.id || 'null'})">
+              <div class="cell-content ${color}">
+                <div class="subj">${entry.subject_name || '?'}</div>
+                <div class="fac">${entry.faculty_name || ''}</div>
+                <div class="rm">${entry.room_name || ''}</div>
+              </div>
+            </td>`;
+          } else {
+            html += `<td onclick="openEditModal('${day}', ${slot.id}, null)">
+              <div class="cell-content empty">+ Add</div>
+            </td>`;
+          }
+        });
+        html += '</tr>';
+      });
+
+      html += '</tbody>';
+      table.innerHTML = html;
+    }
+
+    function openEditModal(day, slotId, entryId) {
+      if (!currentSectionId) return;
+      const slot = slots.find(s => s.id === slotId);
+      document.getElementById('editModalTitle').textContent = `Edit: ${day} ${slot.start_time}–${slot.end_time}`;
+      document.getElementById('editModalInfo').textContent = `${day} | ${slot.start_time} – ${slot.end_time}`;
+      document.getElementById('editSectionId').value = currentSectionId;
+      document.getElementById('editSlotId').value = slotId;
+      document.getElementById('editDay').value = day;
+      document.getElementById('editEntryId').value = entryId || '';
+
+      // Pre-fill if entry exists
+      const entry = entryId ? entries.find(e => e.id === entryId) : null;
+      document.getElementById('editSubject').value = entry ? (entry.subject_id || '') : '';
+      document.getElementById('editFaculty').value = entry ? (entry.faculty_id || '') : '';
+      document.getElementById('editRoom').value = entry ? (entry.room_id || '') : '';
+
+      document.getElementById('editModal').classList.add('active');
+    }
+
+    function closeEditModal() { document.getElementById('editModal').classList.remove('active'); }
+
+    async function clearEntry() {
+      const entryId = document.getElementById('editEntryId').value;
+      if (entryId) {
+        await fetch(`/api/admin/timetable/entry/${entryId}`, { method: 'DELETE' });
+      }
+      closeEditModal();
+      await loadTimetable();
+      showAlert('Slot cleared', 'success');
+    }
+
+    document.getElementById('editForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = {
+        section_id: parseInt(document.getElementById('editSectionId').value),
+        time_slot_id: parseInt(document.getElementById('editSlotId').value),
+        day_of_week: document.getElementById('editDay').value,
+        subject_id: document.getElementById('editSubject').value || null,
+        faculty_id: document.getElementById('editFaculty').value || null,
+        room_id: document.getElementById('editRoom').value || null
+      };
+      const res = await fetch('/api/admin/timetable/entry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showAlert(data.message, 'success');
+        closeEditModal();
+        await loadTimetable();
+      } else {
+        showAlert(data.error || 'Error saving', 'error');
+      }
+    });
+
+    function showAlert(msg, type) {
+      const box = document.getElementById('alertBox');
+      box.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+      setTimeout(() => box.innerHTML = '', 3000);
+    }
+
+    async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
+
+    init();
+  </script>
+</body>
+</html>

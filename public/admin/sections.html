@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Years & Sections — Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="logo">🎓 <span>College</span> Timetable — Admin</div>
+    <nav>
+      <a href="/index.html">Home</a>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </nav>
+  </header>
+  <div class="admin-layout">
+    <nav class="sidebar">
+      <div class="sidebar-title">Main</div>
+      <a href="/admin/dashboard.html"><span class="icon">📊</span> Dashboard</a>
+      <div class="sidebar-title">Manage</div>
+      <a href="/admin/sections.html" class="active"><span class="icon">🏛️</span> Years & Sections</a>
+      <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
+      <a href="/admin/faculty.html"><span class="icon">👨‍🏫</span> Faculty</a>
+      <a href="/admin/rooms.html"><span class="icon">🏫</span> Rooms</a>
+      <div class="sidebar-title">Timetable</div>
+      <a href="/admin/generate.html"><span class="icon">⚡</span> Generate</a>
+      <a href="/admin/editor.html"><span class="icon">✏️</span> Editor</a>
+      <div class="sidebar-title">Views</div>
+      <a href="/views/class-timetable.html"><span class="icon">📅</span> Class View</a>
+      <a href="/views/faculty-timetable.html"><span class="icon">👤</span> Faculty View</a>
+      <a href="/views/location-timetable.html"><span class="icon">📍</span> Location View</a>
+    </nav>
+    <main class="admin-content">
+      <div class="page-title">Years & Sections</div>
+      <div id="alertBox"></div>
+      <div id="yearsContainer"></div>
+
+      <div class="card">
+        <div class="card-title">Add Section</div>
+        <form id="addSectionForm" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+          <div class="form-group" style="margin:0;min-width:180px;">
+            <label>Year</label>
+            <select id="sectionYear" class="form-control" required>
+              <option value="">Select Year</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0;min-width:120px;">
+            <label>Section Name</label>
+            <input type="text" id="sectionName" class="form-control" placeholder="e.g. D" required maxlength="5">
+          </div>
+          <button type="submit" class="btn btn-primary">Add Section</button>
+        </form>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    fetch('/api/auth/status').then(r => r.json()).then(d => { if (!d.loggedIn) location.href = '/login.html'; });
+
+    let years = [];
+    let sections = [];
+
+    async function init() {
+      const [yRes, sRes] = await Promise.all([fetch('/api/years'), fetch('/api/sections')]);
+      years = await yRes.json();
+      sections = await sRes.json();
+      renderYears();
+      const sel = document.getElementById('sectionYear');
+      sel.innerHTML = '<option value="">Select Year</option>' + years.map(y => `<option value="${y.id}">${y.display_name}</option>`).join('');
+    }
+
+    function renderYears() {
+      const container = document.getElementById('yearsContainer');
+      container.innerHTML = years.map(y => {
+        const ySections = sections.filter(s => s.year_id === y.id);
+        return `
+          <div class="card">
+            <div class="card-title">${y.display_name} <small style="font-weight:400;color:#666;">(${y.name})</small></div>
+            <div style="display:flex;flex-wrap:wrap;gap:10px;">
+              ${ySections.map(s => `
+                <div id="sec-chip-${s.id}" style="display:flex;align-items:center;gap:6px;background:#e8eaf6;padding:6px 12px;border-radius:8px;">
+                  <span id="sec-label-${s.id}" style="color:#1a237e;font-weight:700;min-width:60px;">Section ${s.name}</span>
+                  <input id="sec-input-${s.id}" type="text" value="${s.name}" maxlength="5"
+                    style="display:none;width:60px;padding:3px 6px;border:1.5px solid #1a237e;border-radius:4px;font-size:0.85rem;font-weight:700;color:#1a237e;text-align:center;"
+                    onkeydown="handleEditKey(event, ${s.id})" />
+                  <button class="btn btn-outline btn-sm" title="Rename" onclick="startEdit(${s.id})" id="sec-edit-btn-${s.id}" style="padding:3px 8px;">✏️</button>
+                  <button class="btn btn-success btn-sm" title="Save" onclick="saveEdit(${s.id})" id="sec-save-btn-${s.id}" style="display:none;padding:3px 8px;">✔</button>
+                  <button class="btn btn-secondary btn-sm" title="Cancel" onclick="cancelEdit(${s.id})" id="sec-cancel-btn-${s.id}" style="display:none;padding:3px 8px;">✖</button>
+                  <button class="btn btn-danger btn-sm" title="Delete" onclick="deleteSection(${s.id}, '${y.display_name} - Section ${s.name}')" id="sec-del-btn-${s.id}" style="padding:3px 8px;">🗑</button>
+                </div>
+              `).join('')}
+              ${ySections.length === 0 ? '<span class="text-muted">No sections</span>' : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function startEdit(id) {
+      document.getElementById(`sec-label-${id}`).style.display = 'none';
+      document.getElementById(`sec-input-${id}`).style.display = 'inline-block';
+      document.getElementById(`sec-edit-btn-${id}`).style.display = 'none';
+      document.getElementById(`sec-save-btn-${id}`).style.display = 'inline-flex';
+      document.getElementById(`sec-cancel-btn-${id}`).style.display = 'inline-flex';
+      document.getElementById(`sec-del-btn-${id}`).style.display = 'none';
+      const input = document.getElementById(`sec-input-${id}`);
+      input.focus();
+      input.select();
+    }
+
+    function cancelEdit(id) {
+      const sec = sections.find(s => s.id === id);
+      document.getElementById(`sec-input-${id}`).value = sec ? sec.name : '';
+      document.getElementById(`sec-label-${id}`).style.display = 'inline';
+      document.getElementById(`sec-input-${id}`).style.display = 'none';
+      document.getElementById(`sec-edit-btn-${id}`).style.display = 'inline-flex';
+      document.getElementById(`sec-save-btn-${id}`).style.display = 'none';
+      document.getElementById(`sec-cancel-btn-${id}`).style.display = 'none';
+      document.getElementById(`sec-del-btn-${id}`).style.display = 'inline-flex';
+    }
+
+    function handleEditKey(event, id) {
+      if (event.key === 'Enter') saveEdit(id);
+      if (event.key === 'Escape') cancelEdit(id);
+    }
+
+    async function saveEdit(id) {
+      const newName = document.getElementById(`sec-input-${id}`).value.trim().toUpperCase();
+      if (!newName) { showAlert('Section name cannot be empty', 'error'); return; }
+
+      const res = await fetch(`/api/admin/sections/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showAlert(`Section renamed to ${newName}`, 'success');
+        const sRes = await fetch('/api/sections');
+        sections = await sRes.json();
+        renderYears();
+      } else {
+        showAlert(data.error || 'Error renaming section', 'error');
+        cancelEdit(id);
+      }
+    }
+
+    document.getElementById('addSectionForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const year_id = document.getElementById('sectionYear').value;
+      const name = document.getElementById('sectionName').value.trim().toUpperCase();
+      if (!year_id || !name) return;
+      const res = await fetch('/api/admin/sections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year_id, name })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showAlert(`Section ${name} added`, 'success');
+        document.getElementById('sectionName').value = '';
+        const sRes = await fetch('/api/sections');
+        sections = await sRes.json();
+        renderYears();
+      } else {
+        showAlert(data.error || 'Error', 'error');
+      }
+    });
+
+    async function deleteSection(id, label) {
+      if (!confirm(`Delete "${label}"? This will remove all timetable entries for this section.`)) return;
+      const res = await fetch(`/api/admin/sections/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      showAlert(data.message, 'success');
+      const sRes = await fetch('/api/sections');
+      sections = await sRes.json();
+      renderYears();
+    }
+
+    function showAlert(msg, type) {
+      const box = document.getElementById('alertBox');
+      box.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+      setTimeout(() => box.innerHTML = '', 3000);
+    }
+
+    async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
+
+    init();
+  </script>
+</body>
+</html>

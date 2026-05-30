@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Subjects — Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="logo">🎓 <span>College</span> Timetable — Admin</div>
+    <nav>
+      <a href="/index.html">Home</a>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </nav>
+  </header>
+  <div class="admin-layout">
+    <nav class="sidebar">
+      <div class="sidebar-title">Main</div>
+      <a href="/admin/dashboard.html"><span class="icon">📊</span> Dashboard</a>
+      <div class="sidebar-title">Manage</div>
+      <a href="/admin/sections.html"><span class="icon">🏛️</span> Years & Sections</a>
+      <a href="/admin/subjects.html" class="active"><span class="icon">📚</span> Subjects</a>
+      <a href="/admin/faculty.html"><span class="icon">👨‍🏫</span> Faculty</a>
+      <a href="/admin/rooms.html"><span class="icon">🏫</span> Rooms</a>
+      <div class="sidebar-title">Timetable</div>
+      <a href="/admin/generate.html"><span class="icon">⚡</span> Generate</a>
+      <a href="/admin/editor.html"><span class="icon">✏️</span> Editor</a>
+      <div class="sidebar-title">Views</div>
+      <a href="/views/class-timetable.html"><span class="icon">📅</span> Class View</a>
+      <a href="/views/faculty-timetable.html"><span class="icon">👤</span> Faculty View</a>
+      <a href="/views/location-timetable.html"><span class="icon">📍</span> Location View</a>
+    </nav>
+    <main class="admin-content">
+      <div class="page-title">Subjects Management</div>
+      <div id="alertBox"></div>
+      <div class="card">
+        <div class="toolbar">
+          <div class="filter-bar">
+            <div class="form-group">
+              <label>Filter by Year</label>
+              <select id="yearFilter" class="form-control" onchange="loadSubjects()">
+                <option value="">All Years</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="openModal()">+ Add Subject</button>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th><th>Subject Name</th><th>Code</th><th>Year</th>
+                <th>Type</th><th>Credits</th><th>Hrs/Week</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="subjectsTable"><tr><td colspan="8" class="text-center text-muted">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="modalTitle">Add Subject</div>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <form id="subjectForm">
+        <input type="hidden" id="subjectId">
+        <div class="form-group">
+          <label>Year *</label>
+          <select id="subjectYear" class="form-control" required>
+            <option value="">Select Year</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Subject Name *</label>
+          <input type="text" id="subjectName" class="form-control" required placeholder="e.g. Engineering Mathematics-I">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Subject Code</label>
+            <input type="text" id="subjectCode" class="form-control" placeholder="e.g. MA101">
+          </div>
+          <div class="form-group">
+            <label>Type</label>
+            <select id="subjectType" class="form-control">
+              <option value="theory">Theory</option>
+              <option value="lab">Lab</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Credits</label>
+            <input type="number" id="subjectCredits" class="form-control" value="3" min="1" max="6">
+          </div>
+          <div class="form-group">
+            <label>Hours per Week</label>
+            <input type="number" id="subjectHours" class="form-control" value="3" min="1" max="7">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="saveBtn">Save Subject</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    fetch('/api/auth/status').then(r => r.json()).then(d => { if (!d.loggedIn) location.href = '/login.html'; });
+
+    let years = [];
+    let subjects = [];
+
+    async function init() {
+      const res = await fetch('/api/years');
+      years = await res.json();
+      const yearFilter = document.getElementById('yearFilter');
+      const subjectYear = document.getElementById('subjectYear');
+      years.forEach(y => {
+        yearFilter.innerHTML += `<option value="${y.id}">${y.display_name}</option>`;
+        subjectYear.innerHTML += `<option value="${y.id}">${y.display_name}</option>`;
+      });
+      loadSubjects();
+    }
+
+    async function loadSubjects() {
+      const yearId = document.getElementById('yearFilter').value;
+      const url = yearId ? `/api/subjects?year_id=${yearId}` : '/api/subjects';
+      const res = await fetch(url);
+      subjects = await res.json();
+      renderTable();
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('subjectsTable');
+      if (subjects.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No subjects found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = subjects.map((s, i) => `
+        <tr>
+          <td>${i + 1}</td>
+          <td><strong>${s.name}</strong></td>
+          <td>${s.code || '—'}</td>
+          <td>${s.year_name || getYearName(s.year_id)}</td>
+          <td><span class="badge badge-${s.type}">${s.type}</span></td>
+          <td>${s.credits}</td>
+          <td>${s.hours_per_week}</td>
+          <td>
+            <button class="btn btn-outline btn-sm" onclick="editSubject(${s.id})">Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteSubject(${s.id}, '${s.name.replace(/'/g, "\\'")}')">Delete</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function getYearName(id) {
+      const y = years.find(y => y.id == id);
+      return y ? y.display_name : '—';
+    }
+
+    function openModal(subject = null) {
+      document.getElementById('subjectId').value = '';
+      document.getElementById('subjectForm').reset();
+      document.getElementById('modalTitle').textContent = 'Add Subject';
+      document.getElementById('saveBtn').textContent = 'Save Subject';
+      if (subject) {
+        document.getElementById('modalTitle').textContent = 'Edit Subject';
+        document.getElementById('subjectId').value = subject.id;
+        document.getElementById('subjectYear').value = subject.year_id;
+        document.getElementById('subjectName').value = subject.name;
+        document.getElementById('subjectCode').value = subject.code || '';
+        document.getElementById('subjectType').value = subject.type;
+        document.getElementById('subjectCredits').value = subject.credits;
+        document.getElementById('subjectHours').value = subject.hours_per_week;
+      }
+      document.getElementById('modalOverlay').classList.add('active');
+    }
+
+    function closeModal() { document.getElementById('modalOverlay').classList.remove('active'); }
+
+    function editSubject(id) {
+      const s = subjects.find(s => s.id === id);
+      if (s) openModal(s);
+    }
+
+    async function deleteSubject(id, name) {
+      if (!confirm(`Delete subject "${name}"? This will also remove related timetable entries.`)) return;
+      const res = await fetch(`/api/admin/subjects/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      showAlert(data.message || 'Deleted', 'success');
+      loadSubjects();
+    }
+
+    document.getElementById('subjectForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('subjectId').value;
+      const body = {
+        year_id: document.getElementById('subjectYear').value,
+        name: document.getElementById('subjectName').value,
+        code: document.getElementById('subjectCode').value,
+        type: document.getElementById('subjectType').value,
+        credits: parseInt(document.getElementById('subjectCredits').value),
+        hours_per_week: parseInt(document.getElementById('subjectHours').value)
+      };
+      const url = id ? `/api/admin/subjects/${id}` : '/api/admin/subjects';
+      const method = id ? 'PUT' : 'POST';
+      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (res.ok) {
+        showAlert(data.message, 'success');
+        closeModal();
+        loadSubjects();
+      } else {
+        showAlert(data.error || 'Error', 'error');
+      }
+    });
+
+    function showAlert(msg, type) {
+      const box = document.getElementById('alertBox');
+      box.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+      setTimeout(() => box.innerHTML = '', 3000);
+    }
+
+    async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
+
+    init();
+  </script>
+</body>
+</html>

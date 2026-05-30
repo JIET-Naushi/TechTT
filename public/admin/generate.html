@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Generate Timetable — Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="logo">🎓 <span>College</span> Timetable — Admin</div>
+    <nav>
+      <a href="/index.html">Home</a>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </nav>
+  </header>
+  <div class="admin-layout">
+    <nav class="sidebar">
+      <div class="sidebar-title">Main</div>
+      <a href="/admin/dashboard.html"><span class="icon">📊</span> Dashboard</a>
+      <div class="sidebar-title">Manage</div>
+      <a href="/admin/sections.html"><span class="icon">🏛️</span> Years & Sections</a>
+      <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
+      <a href="/admin/faculty.html"><span class="icon">👨‍🏫</span> Faculty</a>
+      <a href="/admin/rooms.html"><span class="icon">🏫</span> Rooms</a>
+      <div class="sidebar-title">Timetable</div>
+      <a href="/admin/generate.html" class="active"><span class="icon">⚡</span> Generate</a>
+      <a href="/admin/editor.html"><span class="icon">✏️</span> Editor</a>
+      <div class="sidebar-title">Views</div>
+      <a href="/views/class-timetable.html"><span class="icon">📅</span> Class View</a>
+      <a href="/views/faculty-timetable.html"><span class="icon">👤</span> Faculty View</a>
+      <a href="/views/location-timetable.html"><span class="icon">📍</span> Location View</a>
+    </nav>
+    <main class="admin-content">
+      <div class="page-title">Auto-Generate Timetable</div>
+      <div id="alertBox"></div>
+
+      <div class="card">
+        <div class="card-title">Generation Scope</div>
+        <div class="generate-options" id="scopeOptions">
+          <div class="generate-option selected" data-scope="all" onclick="selectScope('all')">
+            <h4>🌐 All Sections</h4>
+            <p>Generate timetable for all years and sections</p>
+          </div>
+          <div class="generate-option" data-scope="year" onclick="selectScope('year')">
+            <h4>📅 By Year</h4>
+            <p>Generate for all sections of a specific year</p>
+          </div>
+          <div class="generate-option" data-scope="section" onclick="selectScope('section')">
+            <h4>🎯 Single Section</h4>
+            <p>Generate for one specific section only</p>
+          </div>
+        </div>
+
+        <div id="yearSelector" style="display:none;" class="form-group">
+          <label>Select Year</label>
+          <select id="yearSelect" class="form-control" onchange="loadSections()">
+            <option value="">Select Year</option>
+          </select>
+        </div>
+        <div id="sectionSelector" style="display:none;" class="form-group">
+          <label>Select Section</label>
+          <select id="sectionSelect" class="form-control">
+            <option value="">Select Section</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Actions</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-lg" onclick="generateTimetable()" id="generateBtn">
+            ⚡ Generate Timetable
+          </button>
+          <button class="btn btn-warning btn-lg" onclick="clearTimetable()" id="clearBtn">
+            🗑️ Clear Timetable
+          </button>
+          <button class="btn btn-success btn-lg" onclick="resetAndGenerate()" id="resetBtn">
+            🔄 Reset & Regenerate
+          </button>
+        </div>
+        <div id="progressArea" style="display:none;margin-top:16px;">
+          <p id="progressMsg" class="text-muted" style="margin-bottom:8px;">Generating...</p>
+          <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <div class="card" id="resultCard" style="display:none;">
+        <div class="card-title">Result</div>
+        <div id="resultContent"></div>
+        <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;">
+          <a href="/views/class-timetable.html" class="btn btn-primary">📅 View Class Timetable</a>
+          <a href="/admin/editor.html" class="btn btn-outline">✏️ Edit Timetable</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Generation Notes</div>
+        <ul style="padding-left:20px;line-height:2;color:#555;font-size:0.88rem;">
+          <li>The algorithm distributes subjects evenly across the week (Mon–Sat)</li>
+          <li>Same subject is not scheduled twice in the same day for a section</li>
+          <li>Faculty are assigned based on their "subjects can teach" list</li>
+          <li>Theory subjects → Classrooms; Lab subjects → Labs</li>
+          <li>No faculty or room is double-booked at the same time</li>
+          <li>Lunch break (11:30–12:30) is automatically excluded</li>
+          <li>Use the Editor to make manual adjustments after generation</li>
+        </ul>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    fetch('/api/auth/status').then(r => r.json()).then(d => { if (!d.loggedIn) location.href = '/login.html'; });
+
+    let selectedScope = 'all';
+    let years = [];
+
+    async function init() {
+      const res = await fetch('/api/years');
+      years = await res.json();
+      const sel = document.getElementById('yearSelect');
+      years.forEach(y => sel.innerHTML += `<option value="${y.id}">${y.display_name}</option>`);
+    }
+
+    function selectScope(scope) {
+      selectedScope = scope;
+      document.querySelectorAll('.generate-option').forEach(el => el.classList.remove('selected'));
+      document.querySelector(`[data-scope="${scope}"]`).classList.add('selected');
+      document.getElementById('yearSelector').style.display = (scope === 'year' || scope === 'section') ? 'block' : 'none';
+      document.getElementById('sectionSelector').style.display = scope === 'section' ? 'block' : 'none';
+    }
+
+    async function loadSections() {
+      const yearId = document.getElementById('yearSelect').value;
+      if (!yearId) return;
+      const res = await fetch(`/api/sections?year_id=${yearId}`);
+      const sections = await res.json();
+      const sel = document.getElementById('sectionSelect');
+      sel.innerHTML = '<option value="">Select Section</option>' +
+        sections.map(s => `<option value="${s.id}">${s.year_name} - Section ${s.name}</option>`).join('');
+    }
+
+    function getRequestBody() {
+      const body = { scope: selectedScope };
+      if (selectedScope === 'year' || selectedScope === 'section') {
+        body.year_id = parseInt(document.getElementById('yearSelect').value);
+      }
+      if (selectedScope === 'section') {
+        body.section_id = parseInt(document.getElementById('sectionSelect').value);
+      }
+      return body;
+    }
+
+    async function generateTimetable() {
+      const body = getRequestBody();
+      if (body.scope === 'year' && !body.year_id) { showAlert('Please select a year', 'error'); return; }
+      if (body.scope === 'section' && !body.section_id) { showAlert('Please select a section', 'error'); return; }
+
+      setLoading(true, 'Generating timetable...');
+      animateProgress();
+
+      try {
+        const res = await fetch('/api/admin/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        setLoading(false);
+        if (res.ok && data.success) {
+          showResult(`<div class="alert alert-success">✅ ${data.message}</div>`);
+        } else {
+          showResult(`<div class="alert alert-error">❌ ${data.error || 'Generation failed'}</div>`);
+        }
+      } catch (err) {
+        setLoading(false);
+        showResult(`<div class="alert alert-error">❌ Server error: ${err.message}</div>`);
+      }
+    }
+
+    async function clearTimetable() {
+      const body = getRequestBody();
+      if (!confirm('Clear the timetable for the selected scope?')) return;
+      const res = await fetch('/api/admin/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      showResult(`<div class="alert alert-info">🗑️ ${data.message}</div>`);
+    }
+
+    async function resetAndGenerate() {
+      const body = getRequestBody();
+      if (body.scope === 'year' && !body.year_id) { showAlert('Please select a year', 'error'); return; }
+      if (body.scope === 'section' && !body.section_id) { showAlert('Please select a section', 'error'); return; }
+      if (!confirm('This will clear the existing timetable and regenerate. Continue?')) return;
+
+      setLoading(true, 'Clearing and regenerating...');
+      animateProgress();
+
+      try {
+        // Clear first
+        await fetch('/api/admin/clear', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        // Then generate
+        const res = await fetch('/api/admin/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        setLoading(false);
+        if (res.ok && data.success) {
+          showResult(`<div class="alert alert-success">✅ Reset & Regenerated! ${data.message}</div>`);
+        } else {
+          showResult(`<div class="alert alert-error">❌ ${data.error || 'Failed'}</div>`);
+        }
+      } catch (err) {
+        setLoading(false);
+        showResult(`<div class="alert alert-error">❌ ${err.message}</div>`);
+      }
+    }
+
+    let progressInterval;
+    function animateProgress() {
+      let pct = 0;
+      const fill = document.getElementById('progressFill');
+      fill.style.width = '0%';
+      clearInterval(progressInterval);
+      progressInterval = setInterval(() => {
+        pct = Math.min(pct + Math.random() * 15, 90);
+        fill.style.width = pct + '%';
+      }, 200);
+    }
+
+    function setLoading(loading, msg = '') {
+      const btns = ['generateBtn', 'clearBtn', 'resetBtn'];
+      btns.forEach(id => document.getElementById(id).disabled = loading);
+      const area = document.getElementById('progressArea');
+      if (loading) {
+        area.style.display = 'block';
+        document.getElementById('progressMsg').textContent = msg;
+      } else {
+        clearInterval(progressInterval);
+        document.getElementById('progressFill').style.width = '100%';
+        setTimeout(() => { area.style.display = 'none'; }, 500);
+        btns.forEach(id => document.getElementById(id).disabled = false);
+      }
+    }
+
+    function showResult(html) {
+      const card = document.getElementById('resultCard');
+      card.style.display = 'block';
+      document.getElementById('resultContent').innerHTML = html;
+      card.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function showAlert(msg, type) {
+      const box = document.getElementById('alertBox');
+      box.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+      setTimeout(() => box.innerHTML = '', 3000);
+    }
+
+    async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
+
+    init();
+  </script>
+</body>
+</html>

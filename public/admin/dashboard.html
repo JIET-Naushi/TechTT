@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="logo">🎓 <span>College</span> Timetable — Admin</div>
+    <nav>
+      <a href="/index.html">Home</a>
+      <a href="/views/class-timetable.html">View Timetables</a>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </nav>
+  </header>
+  <div class="admin-layout">
+    <nav class="sidebar">
+      <div class="sidebar-title">Main</div>
+      <a href="/admin/dashboard.html" class="active"><span class="icon">📊</span> Dashboard</a>
+      <div class="sidebar-title">Manage</div>
+      <a href="/admin/sections.html"><span class="icon">🏛️</span> Years & Sections</a>
+      <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
+      <a href="/admin/faculty.html"><span class="icon">👨‍🏫</span> Faculty</a>
+      <a href="/admin/rooms.html"><span class="icon">🏫</span> Rooms</a>
+      <div class="sidebar-title">Timetable</div>
+      <a href="/admin/generate.html"><span class="icon">⚡</span> Generate</a>
+      <a href="/admin/editor.html"><span class="icon">✏️</span> Editor</a>
+      <div class="sidebar-title">Views</div>
+      <a href="/views/class-timetable.html"><span class="icon">📅</span> Class View</a>
+      <a href="/views/faculty-timetable.html"><span class="icon">👤</span> Faculty View</a>
+      <a href="/views/location-timetable.html"><span class="icon">📍</span> Location View</a>
+    </nav>
+    <main class="admin-content">
+      <div class="page-title">Dashboard</div>
+      <div class="stats-grid" id="statsGrid">
+        <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">Years</div></div>
+        <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">Sections</div></div>
+        <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">Subjects</div></div>
+        <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">Faculty</div></div>
+        <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">Rooms</div></div>
+        <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">Timetable Entries</div></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;flex-wrap:wrap;">
+        <div class="card">
+          <div class="card-title">Quick Actions</div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <a href="/admin/generate.html" class="btn btn-primary">⚡ Generate Timetable</a>
+            <a href="/admin/editor.html" class="btn btn-outline">✏️ Edit Timetable</a>
+            <a href="/views/class-timetable.html" class="btn btn-secondary">📅 View Class Timetable</a>
+            <a href="/views/faculty-timetable.html" class="btn btn-secondary">👤 View Faculty Timetable</a>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Conflict Check</div>
+          <div id="conflictBox"><p class="text-muted">Loading conflicts...</p></div>
+          <button class="btn btn-outline mt-2" onclick="loadConflicts()">🔄 Refresh</button>
+        </div>
+      </div>
+
+      <div class="card mt-3">
+        <div class="card-title">System Info</div>
+        <table>
+          <tr><td style="width:200px;color:#666;">Department</td><td><strong>Department of Technology</strong></td></tr>
+          <tr><td style="color:#666;">Programs</td><td>B.Tech I Year, II Year, III Year</td></tr>
+          <tr><td style="color:#666;">Sections per Year</td><td>A, B, C</td></tr>
+          <tr><td style="color:#666;">Working Days</td><td>Monday to Saturday</td></tr>
+          <tr><td style="color:#666;">Teaching Periods/Day</td><td>7 (08:00 – 15:00, Lunch 11:30–12:30)</td></tr>
+          <tr><td style="color:#666;">Admin Login</td><td>admin / admin123</td></tr>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // Auth check
+    fetch('/api/auth/status').then(r => r.json()).then(d => {
+      if (!d.loggedIn) location.href = '/login.html';
+    });
+
+    async function loadStats() {
+      const res = await fetch('/api/admin/stats');
+      const s = await res.json();
+      const grid = document.getElementById('statsGrid');
+      const vals = [s.years, s.sections, s.subjects, s.faculty, s.rooms, s.timetable_entries];
+      const cards = grid.querySelectorAll('.stat-card .stat-value');
+      cards.forEach((c, i) => c.textContent = vals[i]);
+    }
+
+    async function loadConflicts() {
+      const box = document.getElementById('conflictBox');
+      box.innerHTML = '<p class="text-muted">Checking...</p>';
+      const res = await fetch('/api/admin/conflicts');
+      const conflicts = await res.json();
+      if (conflicts.length === 0) {
+        box.innerHTML = '<div class="alert alert-success">✅ No conflicts detected!</div>';
+      } else {
+        box.innerHTML = `<div class="alert alert-error">⚠️ ${conflicts.length} conflict(s) found:</div>` +
+          conflicts.slice(0, 5).map(c => `<div class="alert alert-warning" style="margin-bottom:6px;font-size:0.82rem;">${c.message}</div>`).join('') +
+          (conflicts.length > 5 ? `<p class="text-muted">...and ${conflicts.length - 5} more</p>` : '');
+      }
+    }
+
+    async function logout() {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      location.href = '/login.html';
+    }
+
+    loadStats();
+    loadConflicts();
+  </script>
+</body>
+</html>

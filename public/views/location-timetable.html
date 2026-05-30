@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Location Timetable</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="header no-print">
+    <div class="logo">🎓 <span>College</span> Timetable System</div>
+    <nav>
+      <a href="/index.html">Home</a>
+      <a href="/views/class-timetable.html">Class</a>
+      <a href="/views/faculty-timetable.html">Faculty</a>
+      <a href="/views/location-timetable.html" class="active">Location</a>
+      <a href="/admin/dashboard.html" id="adminLink" style="display:none;">Admin</a>
+    </nav>
+  </header>
+
+  <div class="container">
+    <div class="page-title">Location / Room Timetable <small>Department of Technology</small></div>
+
+    <div class="card no-print">
+      <div class="filter-bar">
+        <div class="form-group" style="min-width:240px;">
+          <label>Select Room / Location</label>
+          <select id="roomSelect" class="form-control" onchange="loadTimetable()">
+            <option value="">Select Room</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="loadTimetable()">View</button>
+        <button class="btn btn-secondary" onclick="window.print()">🖨️ Print</button>
+      </div>
+    </div>
+
+    <div id="timetableArea" style="display:none;">
+      <div class="card">
+        <div class="card-title" id="tableTitle"></div>
+        <div style="text-align:center;margin-bottom:12px;display:none;" id="printHeader">
+          <h2 style="color:#1a237e;">Department of Technology</h2>
+          <h3 id="printTitle"></h3>
+          <p style="color:#666;">Room Allocation Schedule</p>
+        </div>
+        <div class="timetable-grid">
+          <table class="timetable-table" id="timetableTable"></table>
+        </div>
+        <div id="summaryArea" style="margin-top:16px;"></div>
+      </div>
+    </div>
+
+    <div id="emptyState" class="empty-state">
+      <div class="empty-icon">🏫</div>
+      <p>Select a room or location to view its schedule</p>
+    </div>
+  </div>
+
+  <script>
+    const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const COLORS = ['color-0','color-1','color-2','color-3','color-4','color-5','color-6','color-7','color-8','color-9','color-10','color-11'];
+    const sectionColorMap = {};
+    let slots = [], entries = [];
+
+    function getSectionColor(sectionId) {
+      if (!sectionColorMap[sectionId]) {
+        const keys = Object.keys(sectionColorMap).length;
+        sectionColorMap[sectionId] = COLORS[keys % COLORS.length];
+      }
+      return sectionColorMap[sectionId];
+    }
+
+    async function init() {
+      fetch('/api/auth/status').then(r => r.json()).then(d => {
+        if (d.loggedIn) document.getElementById('adminLink').style.display = 'inline';
+      });
+
+      const [rRes, slRes] = await Promise.all([fetch('/api/rooms'), fetch('/api/timeslots')]);
+      const rooms = await rRes.json();
+      slots = await slRes.json();
+
+      const sel = document.getElementById('roomSelect');
+      const types = [...new Set(rooms.map(r => r.type))];
+      types.forEach(type => {
+        const group = document.createElement('optgroup');
+        group.label = type.charAt(0).toUpperCase() + type.slice(1) + 's';
+        rooms.filter(r => r.type === type).forEach(r => {
+          const opt = document.createElement('option');
+          opt.value = r.id;
+          opt.textContent = `${r.name} (cap: ${r.capacity})`;
+          group.appendChild(opt);
+        });
+        sel.appendChild(group);
+      });
+
+      const params = new URLSearchParams(location.search);
+      if (params.get('room_id')) {
+        sel.value = params.get('room_id');
+        await loadTimetable();
+      }
+    }
+
+    async function loadTimetable() {
+      const roomId = document.getElementById('roomSelect').value;
+      if (!roomId) return;
+
+      const res = await fetch(`/api/timetable/location?room_id=${roomId}`);
+      entries = await res.json();
+
+      const roomName = document.getElementById('roomSelect').options[document.getElementById('roomSelect').selectedIndex].text;
+      document.getElementById('tableTitle').textContent = `${roomName} — Weekly Schedule`;
+      document.getElementById('printTitle').textContent = roomName;
+
+      renderTable();
+      renderSummary();
+      document.getElementById('timetableArea').style.display = 'block';
+      document.getElementById('emptyState').style.display = 'none';
+    }
+
+    function renderTable() {
+      const allSlots = slots;
+      const table = document.getElementById('timetableTable');
+
+      let html = '<thead><tr><th class="day-header">Day / Time</th>';
+      allSlots.forEach(s => {
+        if (s.is_break) {
+          html += `<th class="slot-header" style="background:#f57c00;">LUNCH<br><small>${s.start_time}–${s.end_time}</small></th>`;
+        } else {
+          html += `<th class="slot-header">Slot ${s.slot_number}<br><small>${s.start_time}–${s.end_time}</small></th>`;
+        }
+      });
+      html += '</tr></thead><tbody>';
+
+      DAYS.forEach(day => {
+        html += `<tr><td class="day-cell">${day}</td>`;
+        allSlots.forEach(slot => {
+          if (slot.is_break) {
+            html += `<td class="break-cell">🍽️ LUNCH</td>`;
+            return;
+          }
+          const entry = entries.find(e => e.day_of_week === day && e.time_slot_id === slot.id);
+          if (entry && entry.subject_id) {
+            const color = getSectionColor(entry.section_id);
+            html += `<td>
+              <div class="timetable-cell ${color}">
+                <div class="cell-subject">${entry.subject_name || '?'}</div>
+                <div class="cell-faculty">${entry.faculty_name || ''}</div>
+                <div class="cell-room" style="font-weight:600;">${entry.year_name || ''} - Sec ${entry.section_name || ''}</div>
+              </div>
+            </td>`;
+          } else {
+            html += `<td><div class="timetable-cell empty-cell">—</div></td>`;
+          }
+        });
+        html += '</tr>';
+      });
+
+      html += '</tbody>';
+      table.innerHTML = html;
+    }
+
+    function renderSummary() {
+      const totalPeriods = entries.filter(e => e.subject_id).length;
+      const totalSlots = 7 * 6; // 7 teaching slots × 6 days
+      const utilization = Math.round((totalPeriods / totalSlots) * 100);
+      const uniqueSections = [...new Set(entries.filter(e => e.section_id).map(e => `${e.year_name} Sec ${e.section_name}`))];
+
+      document.getElementById('summaryArea').innerHTML = `
+        <div style="display:flex;gap:16px;flex-wrap:wrap;" class="no-print">
+          <div style="background:#e8eaf6;padding:12px 20px;border-radius:8px;text-align:center;">
+            <div style="font-size:1.5rem;font-weight:700;color:#1a237e;">${totalPeriods}</div>
+            <div style="font-size:0.78rem;color:#666;">Periods Used/Week</div>
+          </div>
+          <div style="background:#e8f5e9;padding:12px 20px;border-radius:8px;text-align:center;">
+            <div style="font-size:1.5rem;font-weight:700;color:#2e7d32;">${utilization}%</div>
+            <div style="font-size:0.78rem;color:#666;">Utilization</div>
+          </div>
+          <div style="background:#fff3e0;padding:12px 20px;border-radius:8px;text-align:center;">
+            <div style="font-size:1.5rem;font-weight:700;color:#e65100;">${totalSlots - totalPeriods}</div>
+            <div style="font-size:0.78rem;color:#666;">Free Periods</div>
+          </div>
+        </div>
+        ${uniqueSections.length > 0 ? `<p style="margin-top:12px;font-size:0.85rem;color:#555;" class="no-print"><strong>Used by:</strong> ${uniqueSections.join(', ')}</p>` : ''}
+      `;
+    }
+
+    init();
+  </script>
+</body>
+</html>

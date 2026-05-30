@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Faculty — Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="logo">🎓 <span>College</span> Timetable — Admin</div>
+    <nav>
+      <a href="/index.html">Home</a>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </nav>
+  </header>
+  <div class="admin-layout">
+    <nav class="sidebar">
+      <div class="sidebar-title">Main</div>
+      <a href="/admin/dashboard.html"><span class="icon">📊</span> Dashboard</a>
+      <div class="sidebar-title">Manage</div>
+      <a href="/admin/sections.html"><span class="icon">🏛️</span> Years & Sections</a>
+      <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
+      <a href="/admin/faculty.html" class="active"><span class="icon">👨‍🏫</span> Faculty</a>
+      <a href="/admin/rooms.html"><span class="icon">🏫</span> Rooms</a>
+      <div class="sidebar-title">Timetable</div>
+      <a href="/admin/generate.html"><span class="icon">⚡</span> Generate</a>
+      <a href="/admin/editor.html"><span class="icon">✏️</span> Editor</a>
+      <div class="sidebar-title">Views</div>
+      <a href="/views/class-timetable.html"><span class="icon">📅</span> Class View</a>
+      <a href="/views/faculty-timetable.html"><span class="icon">👤</span> Faculty View</a>
+      <a href="/views/location-timetable.html"><span class="icon">📍</span> Location View</a>
+    </nav>
+    <main class="admin-content">
+      <div class="page-title">Faculty Management</div>
+      <div id="alertBox"></div>
+      <div class="card">
+        <div class="toolbar">
+          <span id="facultyCount" class="text-muted"></span>
+          <button class="btn btn-primary" onclick="openModal()">+ Add Faculty</button>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Name</th><th>Designation</th><th>Role</th><th>Email</th><th>Subjects Can Teach</th><th>Actions</th></tr>
+            </thead>
+            <tbody id="facultyTable"><tr><td colspan="7" class="text-center text-muted">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal" style="max-width:600px;">
+      <div class="modal-header">
+        <div class="modal-title" id="modalTitle">Add Faculty</div>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <form id="facultyForm">
+        <input type="hidden" id="facultyId">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Full Name *</label>
+            <input type="text" id="facultyName" class="form-control" required placeholder="e.g. Dr. Rajesh Kumar">
+          </div>
+          <div class="form-group">
+            <label>Designation</label>
+            <select id="facultyDesig" class="form-control">
+              <option>Professor</option>
+              <option>Associate Professor</option>
+              <option>Assistant Professor</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Role</label>
+            <select id="facultyRole" class="form-control">
+              <option value="faculty">Faculty</option>
+              <option value="hod_mentor">HOD (Mentor)</option>
+              <option value="hod_admin">HOD (Admin)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="facultyEmail" class="form-control" placeholder="email@college.edu">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Subjects Can Teach (select multiple)</label>
+          <div id="subjectCheckboxes" style="max-height:200px;overflow-y:auto;border:1.5px solid #ddd;border-radius:6px;padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:6px;"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Faculty</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    fetch('/api/auth/status').then(r => r.json()).then(d => { if (!d.loggedIn) location.href = '/login.html'; });
+
+    let faculty = [];
+    let allSubjects = [];
+
+    async function init() {
+      const [fRes, sRes] = await Promise.all([fetch('/api/faculty'), fetch('/api/subjects')]);
+      faculty = await fRes.json();
+      allSubjects = await sRes.json();
+      renderSubjectCheckboxes();
+      renderTable();
+    }
+
+    function renderSubjectCheckboxes(selected = []) {
+      const container = document.getElementById('subjectCheckboxes');
+      container.innerHTML = allSubjects.map(s => `
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer;">
+          <input type="checkbox" value="${s.id}" ${selected.includes(s.id) ? 'checked' : ''} style="cursor:pointer;">
+          <span>${s.name} <small style="color:#888;">(${s.year_name || 'Y' + s.year_id})</small></span>
+        </label>
+      `).join('');
+    }
+
+    function getSelectedSubjects() {
+      return Array.from(document.querySelectorAll('#subjectCheckboxes input:checked')).map(cb => parseInt(cb.value));
+    }
+
+    function renderTable() {
+      document.getElementById('facultyCount').textContent = `${faculty.length} faculty members`;
+      const tbody = document.getElementById('facultyTable');
+      if (faculty.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No faculty found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = faculty.map((f, i) => {
+        let canTeach = [];
+        try { canTeach = JSON.parse(f.subjects_can_teach || '[]'); } catch {}
+        const subjectNames = canTeach.map(id => {
+          const s = allSubjects.find(s => s.id === id);
+          return s ? s.name : '';
+        }).filter(Boolean);
+        const roleLabel = f.role === 'hod_mentor' ? 'HOD (Mentor)' : f.role === 'hod_admin' ? 'HOD (Admin)' : 'Faculty';
+        const roleBadge = f.role !== 'faculty' ? 'badge-hod' : 'badge-faculty';
+        return `
+          <tr>
+            <td>${i + 1}</td>
+            <td><strong>${f.name}</strong></td>
+            <td>${f.designation || '—'}</td>
+            <td><span class="badge ${roleBadge}">${roleLabel}</span></td>
+            <td>${f.email || '—'}</td>
+            <td style="max-width:200px;font-size:0.78rem;">${subjectNames.length > 0 ? subjectNames.slice(0, 3).join(', ') + (subjectNames.length > 3 ? ` +${subjectNames.length - 3} more` : '') : '<span class="text-muted">None assigned</span>'}</td>
+            <td>
+              <button class="btn btn-outline btn-sm" onclick="editFaculty(${f.id})">Edit</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteFaculty(${f.id}, '${f.name.replace(/'/g, "\\'")}')">Delete</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function openModal(f = null) {
+      document.getElementById('facultyId').value = '';
+      document.getElementById('facultyForm').reset();
+      document.getElementById('modalTitle').textContent = 'Add Faculty';
+      renderSubjectCheckboxes([]);
+      if (f) {
+        document.getElementById('modalTitle').textContent = 'Edit Faculty';
+        document.getElementById('facultyId').value = f.id;
+        document.getElementById('facultyName').value = f.name;
+        document.getElementById('facultyDesig').value = f.designation || 'Assistant Professor';
+        document.getElementById('facultyRole').value = f.role || 'faculty';
+        document.getElementById('facultyEmail').value = f.email || '';
+        let canTeach = [];
+        try { canTeach = JSON.parse(f.subjects_can_teach || '[]'); } catch {}
+        renderSubjectCheckboxes(canTeach);
+      }
+      document.getElementById('modalOverlay').classList.add('active');
+    }
+
+    function closeModal() { document.getElementById('modalOverlay').classList.remove('active'); }
+
+    function editFaculty(id) {
+      const f = faculty.find(f => f.id === id);
+      if (f) openModal(f);
+    }
+
+    async function deleteFaculty(id, name) {
+      if (!confirm(`Delete faculty "${name}"?`)) return;
+      const res = await fetch(`/api/admin/faculty/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      showAlert(data.message, 'success');
+      const fRes = await fetch('/api/faculty');
+      faculty = await fRes.json();
+      renderTable();
+    }
+
+    document.getElementById('facultyForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('facultyId').value;
+      const body = {
+        name: document.getElementById('facultyName').value,
+        designation: document.getElementById('facultyDesig').value,
+        role: document.getElementById('facultyRole').value,
+        email: document.getElementById('facultyEmail').value,
+        subjects_can_teach: getSelectedSubjects()
+      };
+      const url = id ? `/api/admin/faculty/${id}` : '/api/admin/faculty';
+      const method = id ? 'PUT' : 'POST';
+      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (res.ok) {
+        showAlert(data.message, 'success');
+        closeModal();
+        const fRes = await fetch('/api/faculty');
+        faculty = await fRes.json();
+        renderTable();
+      } else {
+        showAlert(data.error || 'Error', 'error');
+      }
+    });
+
+    function showAlert(msg, type) {
+      const box = document.getElementById('alertBox');
+      box.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+      setTimeout(() => box.innerHTML = '', 3000);
+    }
+
+    async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
+
+    init();
+  </script>
+</body>
+</html>
