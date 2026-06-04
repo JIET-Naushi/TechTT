@@ -1,16 +1,16 @@
 {
   "name": "college-timetable",
   "version": "1.0.0",
-  "description": "College Timetable Management System",
+  "description": "College Timetable Management System - Dept. of Technology",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js"
   },
   "dependencies": {
-    "better-sqlite3": "^9.4.3",
     "cookie-parser": "^1.4.6",
     "express": "^4.18.2",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "sql.js": "^1.10.3"
   }
 }

@@ -1,44 +1,141 @@
-const Database = require('better-sqlite3');
+/**
+ * database.js
+ * Uses sql.js (pure JavaScript SQLite) so it works on Vercel / any serverless platform.
+ * Data is stored in /tmp/timetable.db when a writable filesystem is available.
+ * On cold starts the DB is re-seeded from the in-memory seed data.
+ */
+
+const initSqlJs = require('sql.js');
+const fs = require('fs');
 const path = require('path');
 
-const DB_PATH = '/tmp/timetable.db';
+const DB_PATH = process.env.DB_PATH || path.join(require('os').tmpdir(), 'timetable.db');
 
-let db;
+let _db = null;
 
-function getDb() {
-  if (!db) {
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
+async function getDb() {
+  if (_db) return _db;
+  const SQL = await initSqlJs();
+
+  // Try to load from disk (persists within the same serverless instance lifetime)
+  if (fs.existsSync(DB_PATH)) {
+    const buf = fs.readFileSync(DB_PATH);
+    _db = new SQL.Database(buf);
+  } else {
+    _db = new SQL.Database();
   }
-  return db;
+  return _db;
 }
 
-function initializeDatabase() {
-  const db = getDb();
+function saveDb() {
+  if (!_db) return;
+  try {
+    const data = _db.export();
+    fs.writeFileSync(DB_PATH, Buffer.from(data));
+  } catch (e) {
+    // /tmp may not always be writable — ignore silently
+  }
+}
+
+// ─── Synchronous wrapper ──────────────────────────────────────────────────────
+// sql.js is synchronous once initialised; we expose a sync API identical to
+// better-sqlite3 so no routes need to change.
+
+let _syncDb = null;
+let _SQL = null;
+
+function initSync() {
+  // sql.js init is async, but we call this once at startup with await
+  throw new Error('Call initializeDatabase() and await it before using getDb()');
+}
+
+function getDbSync() {
+  if (!_syncDb) throw new Error('DB not initialised. Call initializeDatabase() first.');
+  return _syncDb;
+}
+
+// Thin wrapper that makes sql.js look like better-sqlite3
+class SyncDB {
+  constructor(sqlDb) {
+    this._db = sqlDb;
+  }
+
+  prepare(sql) {
+    const db = this._db;
+    return {
+      run(...params) {
+        db.run(sql, params);
+        // get lastInsertRowid
+        const [[rowid]] = db.exec('SELECT last_insert_rowid()')[0]?.values || [[0]];
+        return { lastInsertRowid: rowid, changes: 1 };
+      },
+      get(...params) {
+        const res = db.exec(sql, params);
+        if (!res.length || !res[0].values.length) return undefined;
+        const cols = res[0].columns;
+        const row = res[0].values[0];
+        const obj = {};
+        cols.forEach((c, i) => obj[c] = row[i]);
+        return obj;
+      },
+      all(...params) {
+        const res = db.exec(sql, params);
+        if (!res.length) return [];
+        const cols = res[0].columns;
+        return res[0].values.map(row => {
+          const obj = {};
+          cols.forEach((c, i) => obj[c] = row[i]);
+          return obj;
+        });
+      }
+    };
+  }
+
+  exec(sql) {
+    this._db.run(sql);
+    return this;
+  }
+
+  pragma(str) {
+    try { this._db.run(`PRAGMA ${str}`); } catch {}
+    return this;
+  }
+}
+
+async function initializeDatabase() {
+  if (_syncDb) return _syncDb;
+
+  _SQL = await initSqlJs();
+
+  let rawDb;
+  if (fs.existsSync(DB_PATH)) {
+    const buf = fs.readFileSync(DB_PATH);
+    rawDb = new _SQL.Database(buf);
+  } else {
+    rawDb = new _SQL.Database();
+  }
+
+  _syncDb = new SyncDB(rawDb);
 
   // Create tables
-  db.exec(`
+  rawDb.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'admin'
     );
-
     CREATE TABLE IF NOT EXISTS years (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       display_name TEXT NOT NULL
     );
-
     CREATE TABLE IF NOT EXISTS sections (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       year_id INTEGER NOT NULL,
       name TEXT NOT NULL,
       FOREIGN KEY (year_id) REFERENCES years(id) ON DELETE CASCADE
     );
-
     CREATE TABLE IF NOT EXISTS subjects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       year_id INTEGER NOT NULL,
@@ -49,7 +146,6 @@ function initializeDatabase() {
       hours_per_week INTEGER DEFAULT 3,
       FOREIGN KEY (year_id) REFERENCES years(id) ON DELETE CASCADE
     );
-
     CREATE TABLE IF NOT EXISTS faculty (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -58,14 +154,12 @@ function initializeDatabase() {
       email TEXT,
       subjects_can_teach TEXT DEFAULT '[]'
     );
-
     CREATE TABLE IF NOT EXISTS rooms (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       type TEXT NOT NULL DEFAULT 'classroom',
       capacity INTEGER DEFAULT 60
     );
-
     CREATE TABLE IF NOT EXISTS time_slots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       slot_number INTEGER NOT NULL,
@@ -73,7 +167,6 @@ function initializeDatabase() {
       end_time TEXT NOT NULL,
       is_break INTEGER NOT NULL DEFAULT 0
     );
-
     CREATE TABLE IF NOT EXISTS timetable_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       section_id INTEGER NOT NULL,
@@ -91,166 +184,102 @@ function initializeDatabase() {
     );
   `);
 
-  // Only seed if ALL core tables are empty (truly first run)
-  const userCount   = db.prepare('SELECT COUNT(*) as cnt FROM users').get().cnt;
-  const roomCount   = db.prepare('SELECT COUNT(*) as cnt FROM rooms').get().cnt;
-  const facultyCount = db.prepare('SELECT COUNT(*) as cnt FROM faculty').get().cnt;
+  // Seed only on truly first run
+  const userCount    = _syncDb.prepare('SELECT COUNT(*) as cnt FROM users').get().cnt;
+  const roomCount    = _syncDb.prepare('SELECT COUNT(*) as cnt FROM rooms').get().cnt;
+  const facultyCount = _syncDb.prepare('SELECT COUNT(*) as cnt FROM faculty').get().cnt;
   if (userCount === 0 && roomCount === 0 && facultyCount === 0) {
-    seedDatabase(db);
+    seedDatabase(_syncDb);
   }
 
-  return db;
+  // Persist to /tmp
+  saveDb();
+  return _syncDb;
+}
+
+// Auto-save after every mutating request
+function saveAfterWrite() {
+  saveDb();
 }
 
 function seedDatabase(db) {
-  // Insert admin user
-  db.prepare(`INSERT INTO users (username, password, role) VALUES (?, ?, ?)`).run('admin', 'admin123', 'admin');
+  db.prepare('INSERT INTO users (username, password, role) VALUES (?, ?, ?)').run('admin', 'admin123', 'admin');
 
-  // Insert years
   const years = [
     { name: 'year1', display_name: 'B.Tech I Year' },
     { name: 'year2', display_name: 'B.Tech II Year' },
     { name: 'year3', display_name: 'B.Tech III Year' }
   ];
-  const insertYear = db.prepare(`INSERT INTO years (name, display_name) VALUES (?, ?)`);
-  for (const y of years) {
-    insertYear.run(y.name, y.display_name);
-  }
+  for (const y of years) db.prepare('INSERT INTO years (name, display_name) VALUES (?, ?)').run(y.name, y.display_name);
 
-  // Insert sections A, B, C for each year
-  const insertSection = db.prepare(`INSERT INTO sections (year_id, name) VALUES (?, ?)`);
-  for (let yearId = 1; yearId <= 3; yearId++) {
-    for (const sec of ['A', 'B', 'C']) {
-      insertSection.run(yearId, sec);
+  for (let yearId = 1; yearId <= 3; yearId++)
+    for (const sec of ['A', 'B', 'C'])
+      db.prepare('INSERT INTO sections (year_id, name) VALUES (?, ?)').run(yearId, sec);
+
+  const subjects = [
+    [1,'Engineering Mathematics-I','MA101','theory',4,4],[1,'Engineering Physics','PH101','theory',3,3],
+    [1,'Engineering Chemistry','CH101','theory',3,3],[1,'Basic Electrical Engineering','EE101','theory',3,3],
+    [1,'Programming in C','CS101','theory',3,3],[1,'Engineering Drawing','ME101','lab',2,2],
+    [1,'English Communication','EN101','theory',2,2],[1,'Environmental Science','ES101','theory',2,2],
+    [2,'Engineering Mathematics-III','MA201','theory',4,4],[2,'Data Structures','CS201','theory',4,4],
+    [2,'Digital Electronics','EC201','theory',3,3],[2,'Object Oriented Programming','CS202','theory',3,3],
+    [2,'Computer Organization','CS203','theory',3,3],[2,'Discrete Mathematics','MA202','theory',3,3],
+    [2,'Database Management Systems','CS204','theory',3,3],[2,'Operating Systems','CS205','theory',3,3],
+    [3,'Design and Analysis of Algorithms','CS301','theory',4,4],[3,'Computer Networks','CS302','theory',3,3],
+    [3,'Software Engineering','CS303','theory',3,3],[3,'Compiler Design','CS304','theory',3,3],
+    [3,'Artificial Intelligence','CS305','theory',3,3],[3,'Web Technologies','CS306','lab',2,2],
+    [3,'Machine Learning','CS307','theory',3,3],[3,'Cloud Computing','CS308','theory',3,3]
+  ];
+  for (const s of subjects)
+    db.prepare('INSERT INTO subjects (year_id, name, code, type, credits, hours_per_week) VALUES (?,?,?,?,?,?)').run(...s);
+
+  const faculty = [
+    ['Dr. Rajesh Kumar','Professor','faculty'],['Dr. Priya Sharma','Professor','faculty'],
+    ['Dr. Amit Singh','Associate Professor','faculty'],['Dr. Sunita Patel','Associate Professor','faculty'],
+    ['Dr. Vikram Rao','Professor','faculty'],['Dr. Meena Joshi','Associate Professor','faculty'],
+    ['Dr. Suresh Nair','Professor','faculty'],['Dr. Kavitha Reddy','Associate Professor','faculty'],
+    ['Dr. Arun Mehta','Associate Professor','faculty'],['Dr. Pooja Gupta','Assistant Professor','faculty'],
+    ['Prof. Ravi Tiwari','Assistant Professor','faculty'],['Prof. Anita Desai','Assistant Professor','faculty'],
+    ['Prof. Manoj Verma','Assistant Professor','faculty'],['Prof. Shalini Mishra','Assistant Professor','faculty'],
+    ['Prof. Deepak Jain','Assistant Professor','faculty'],['Prof. Rekha Pillai','Assistant Professor','faculty'],
+    ['Prof. Sanjay Bhatt','Assistant Professor','faculty'],['Prof. Nisha Agarwal','Assistant Professor','faculty'],
+    ['Prof. Kiran Yadav','Assistant Professor','faculty'],['Prof. Rohit Saxena','Assistant Professor','faculty'],
+    ['Prof. Divya Nair','Assistant Professor','faculty'],['Prof. Sunil Patil','Assistant Professor','faculty'],
+    ['Prof. Geeta Sharma','Assistant Professor','faculty'],['Prof. Harish Chandra','Assistant Professor','faculty'],
+    ['Prof. Lalitha Devi','Assistant Professor','faculty'],
+    ['Dr. Venkat Raman','Professor','hod_mentor'],['Dr. Savitha Krishnan','Professor','hod_admin']
+  ];
+  const allIds = Array.from({length:24},(_,i)=>i+1);
+  for (let i = 0; i < faculty.length; i++) {
+    const [name, desig, role] = faculty[i];
+    let canTeach = [];
+    if (role === 'faculty') {
+      const s = (i*3) % allIds.length;
+      canTeach = [allIds[s], allIds[(s+1)%24], allIds[(s+2)%24]];
     }
+    db.prepare('INSERT INTO faculty (name, designation, role, subjects_can_teach) VALUES (?,?,?,?)').run(name, desig, role, JSON.stringify(canTeach));
   }
 
-  // Insert subjects
-  const subjectsData = [
-    // Year 1
-    { year_id: 1, name: 'Engineering Mathematics-I', code: 'MA101', type: 'theory', credits: 4, hours_per_week: 4 },
-    { year_id: 1, name: 'Engineering Physics', code: 'PH101', type: 'theory', credits: 3, hours_per_week: 3 },
-    { year_id: 1, name: 'Engineering Chemistry', code: 'CH101', type: 'theory', credits: 3, hours_per_week: 3 },
-    { year_id: 1, name: 'Basic Electrical Engineering', code: 'EE101', type: 'theory', credits: 3, hours_per_week: 3 },
-    { year_id: 1, name: 'Programming in C', code: 'CS101', type: 'theory', credits: 3, hours_per_week: 3 },
-    { year_id: 1, name: 'Engineering Drawing', code: 'ME101', type: 'lab', credits: 2, hours_per_week: 2 },
-    { year_id: 1, name: 'English Communication', code: 'EN101', type: 'theory', credits: 2, hours_per_week: 2 },
-    { year_id: 1, name: 'Environmental Science', code: 'ES101', type: 'theory', credits: 2, hours_per_week: 2 },
-    // Year 2
-    { year_id: 2, name: 'Engineering Mathematics-III', code: 'MA201', type: 'theory', credits: 4, hours_per_week: 4 },
-    { year_id: 2, name: 'Data Structures', code: 'CS201', type: 'theory', credits: 4, hours_per_week: 4 },
-    { year_id: 2, name: 'Digital Electronics', code: 'EC201', type: 'theory', credits: 3, hours_per_week: 3 },
-    { year_id: 2, name: 'Object Oriented Programming', code: 'CS202', type: 'theory', credits: 3, hours_per_week: 3 },
-    { year_id: 2, name: 'Computer Organization', code: 'CS203', type: 'theory', credits: 3, hours_per_week: 3 },
-    { year_id: 2, name: 'Discrete Mathematics', code: 'MA202', type: 'theory', credits: 3, hours_per_week: 3 },
-    { year_id: 2, name: 'Database Management Systems', code: 'CS204', type: 'theory', credits: 3, hours_per_week: 3 },
-    { year_id: 2, name: 'Operating Systems', code: 'CS205', type: 'theory', credits: 3, hours_per_week: 3 },
-    // Year 3
-    { year_id: 3, name: 'Design and Analysis of Algorithms', code: 'CS301', type: 'theory', credits: 4, hours_per_week: 4 },
-    { year_id: 3, name: 'Computer Networks', code: 'CS302', type: 'theory', credits: 3, hours_per_week: 3 },
-    { year_id: 3, name: 'Software Engineering', code: 'CS303', type: 'theory', credits: 3, hours_per_week: 3 },
-    { year_id: 3, name: 'Compiler Design', code: 'CS304', type: 'theory', credits: 3, hours_per_week: 3 },
-    { year_id: 3, name: 'Artificial Intelligence', code: 'CS305', type: 'theory', credits: 3, hours_per_week: 3 },
-    { year_id: 3, name: 'Web Technologies', code: 'CS306', type: 'lab', credits: 2, hours_per_week: 2 },
-    { year_id: 3, name: 'Machine Learning', code: 'CS307', type: 'theory', credits: 3, hours_per_week: 3 },
-    { year_id: 3, name: 'Cloud Computing', code: 'CS308', type: 'theory', credits: 3, hours_per_week: 3 }
+  const rooms = [
+    ['Room 101','classroom',60],['Room 102','classroom',60],['Room 103','classroom',60],
+    ['Room 104','classroom',60],['Room 105','classroom',60],['Room 106','classroom',60],
+    ['Room 107','classroom',60],['Room 108','classroom',60],['Room 109','classroom',60],
+    ['Computer Lab 1','lab',40],['Computer Lab 2','lab',40],['Computer Lab 3','lab',40],
+    ['Physics Lab','lab',30],['Chemistry Lab','lab',30],['Electronics Lab','lab',30],
+    ['Seminar Hall','seminar',150],['Conference Room','conference',30]
   ];
-  const insertSubject = db.prepare(`INSERT INTO subjects (year_id, name, code, type, credits, hours_per_week) VALUES (?, ?, ?, ?, ?, ?)`);
-  for (const s of subjectsData) {
-    insertSubject.run(s.year_id, s.name, s.code, s.type, s.credits, s.hours_per_week);
-  }
+  for (const r of rooms)
+    db.prepare('INSERT INTO rooms (name, type, capacity) VALUES (?,?,?)').run(...r);
 
-  // Insert faculty
-  const facultyData = [
-    { name: 'Dr. Rajesh Kumar', designation: 'Professor', role: 'faculty' },
-    { name: 'Dr. Priya Sharma', designation: 'Professor', role: 'faculty' },
-    { name: 'Dr. Amit Singh', designation: 'Associate Professor', role: 'faculty' },
-    { name: 'Dr. Sunita Patel', designation: 'Associate Professor', role: 'faculty' },
-    { name: 'Dr. Vikram Rao', designation: 'Professor', role: 'faculty' },
-    { name: 'Dr. Meena Joshi', designation: 'Associate Professor', role: 'faculty' },
-    { name: 'Dr. Suresh Nair', designation: 'Professor', role: 'faculty' },
-    { name: 'Dr. Kavitha Reddy', designation: 'Associate Professor', role: 'faculty' },
-    { name: 'Dr. Arun Mehta', designation: 'Associate Professor', role: 'faculty' },
-    { name: 'Dr. Pooja Gupta', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Prof. Ravi Tiwari', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Prof. Anita Desai', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Prof. Manoj Verma', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Prof. Shalini Mishra', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Prof. Deepak Jain', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Prof. Rekha Pillai', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Prof. Sanjay Bhatt', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Prof. Nisha Agarwal', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Prof. Kiran Yadav', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Prof. Rohit Saxena', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Prof. Divya Nair', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Prof. Sunil Patil', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Prof. Geeta Sharma', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Prof. Harish Chandra', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Prof. Lalitha Devi', designation: 'Assistant Professor', role: 'faculty' },
-    { name: 'Dr. Venkat Raman', designation: 'Professor', role: 'hod_mentor' },
-    { name: 'Dr. Savitha Krishnan', designation: 'Professor', role: 'hod_admin' }
+  const slots = [
+    [1,'08:00','09:00',0],[2,'09:00','09:50',0],[3,'09:50','10:40',0],[4,'10:40','11:30',0],
+    [5,'11:30','12:30',1],[6,'12:30','13:20',0],[7,'13:20','14:10',0],[8,'14:10','15:00',0]
   ];
-
-  // Assign subjects to faculty (distribute subjects among faculty)
-  // All 24 subjects, 25 teaching faculty
-  const allSubjectIds = Array.from({ length: 24 }, (_, i) => i + 1);
-  const insertFaculty = db.prepare(`INSERT INTO faculty (name, designation, role, subjects_can_teach) VALUES (?, ?, ?, ?)`);
-
-  for (let i = 0; i < facultyData.length; i++) {
-    const f = facultyData[i];
-    let subjectsCanTeach = [];
-    if (f.role === 'faculty') {
-      // Each faculty gets ~3-4 subjects, cycling through all subjects
-      const startIdx = (i * 3) % allSubjectIds.length;
-      for (let j = 0; j < 3; j++) {
-        subjectsCanTeach.push(allSubjectIds[(startIdx + j) % allSubjectIds.length]);
-      }
-    }
-    insertFaculty.run(f.name, f.designation, f.role, JSON.stringify(subjectsCanTeach));
-  }
-
-  // Insert rooms
-  const roomsData = [
-    { name: 'Room 101', type: 'classroom', capacity: 60 },
-    { name: 'Room 102', type: 'classroom', capacity: 60 },
-    { name: 'Room 103', type: 'classroom', capacity: 60 },
-    { name: 'Room 104', type: 'classroom', capacity: 60 },
-    { name: 'Room 105', type: 'classroom', capacity: 60 },
-    { name: 'Room 106', type: 'classroom', capacity: 60 },
-    { name: 'Room 107', type: 'classroom', capacity: 60 },
-    { name: 'Room 108', type: 'classroom', capacity: 60 },
-    { name: 'Room 109', type: 'classroom', capacity: 60 },
-    { name: 'Computer Lab 1', type: 'lab', capacity: 40 },
-    { name: 'Computer Lab 2', type: 'lab', capacity: 40 },
-    { name: 'Computer Lab 3', type: 'lab', capacity: 40 },
-    { name: 'Physics Lab', type: 'lab', capacity: 30 },
-    { name: 'Chemistry Lab', type: 'lab', capacity: 30 },
-    { name: 'Electronics Lab', type: 'lab', capacity: 30 },
-    { name: 'Seminar Hall', type: 'seminar', capacity: 150 },
-    { name: 'Conference Room', type: 'conference', capacity: 30 }
-  ];
-  const insertRoom = db.prepare(`INSERT INTO rooms (name, type, capacity) VALUES (?, ?, ?)`);
-  for (const r of roomsData) {
-    insertRoom.run(r.name, r.type, r.capacity);
-  }
-
-  // Insert time slots
-  const timeSlots = [
-    { slot_number: 1, start_time: '08:00', end_time: '09:00', is_break: 0 },
-    { slot_number: 2, start_time: '09:00', end_time: '09:50', is_break: 0 },
-    { slot_number: 3, start_time: '09:50', end_time: '10:40', is_break: 0 },
-    { slot_number: 4, start_time: '10:40', end_time: '11:30', is_break: 0 },
-    { slot_number: 5, start_time: '11:30', end_time: '12:30', is_break: 1 },
-    { slot_number: 6, start_time: '12:30', end_time: '13:20', is_break: 0 },
-    { slot_number: 7, start_time: '13:20', end_time: '14:10', is_break: 0 },
-    { slot_number: 8, start_time: '14:10', end_time: '15:00', is_break: 0 }
-  ];
-  const insertSlot = db.prepare(`INSERT INTO time_slots (slot_number, start_time, end_time, is_break) VALUES (?, ?, ?, ?)`);
-  for (const ts of timeSlots) {
-    insertSlot.run(ts.slot_number, ts.start_time, ts.end_time, ts.is_break);
-  }
+  for (const s of slots)
+    db.prepare('INSERT INTO time_slots (slot_number, start_time, end_time, is_break) VALUES (?,?,?,?)').run(...s);
 
   console.log('Database seeded successfully.');
+  saveDb();
 }
 
-module.exports = { getDb, initializeDatabase };
+module.exports = { getDb: getDbSync, initializeDatabase, saveAfterWrite };

@@ -1,17 +1,22 @@
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const path = require('path');
-const { initializeDatabase } = require('./database');
+const { initializeDatabase, saveAfterWrite } = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Initialize database
-initializeDatabase();
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+
+// Auto-save DB after every mutating API call
+app.use('/api/admin', (req, res, next) => {
+  res.on('finish', () => {
+    if (['POST','PUT','DELETE'].includes(req.method)) saveAfterWrite();
+  });
+  next();
+});
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -30,7 +35,15 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`College Timetable System running at http://localhost:${PORT}`);
-  console.log(`Admin login: username=admin, password=admin123`);
+// Initialize DB then start server
+initializeDatabase().then(() => {
+  app.listen(PORT, () => {
+    console.log(`College Timetable System running at http://localhost:${PORT}`);
+    console.log(`Admin login: username=admin, password=admin123`);
+  });
+}).catch(err => {
+  console.error('Failed to initialize database:', err);
+  process.exit(1);
 });
+
+module.exports = app; // needed for Vercel
