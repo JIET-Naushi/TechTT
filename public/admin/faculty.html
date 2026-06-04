@@ -116,11 +116,30 @@
 
     function renderSubjectCheckboxes(selected = []) {
       const container = document.getElementById('subjectCheckboxes');
-      container.innerHTML = allSubjects.map(s => `
-        <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer;">
-          <input type="checkbox" value="${s.id}" ${selected.includes(s.id) ? 'checked' : ''} style="cursor:pointer;">
-          <span>${s.name} <small style="color:#888;">(${s.year_name || 'Y' + s.year_id})</small></span>
-        </label>
+      // Group by year
+      const byYear = {};
+      allSubjects.forEach(s => {
+        const yr = s.year_name || ('Year ' + s.year_id);
+        if (!byYear[yr]) byYear[yr] = [];
+        byYear[yr].push(s);
+      });
+      container.innerHTML = Object.entries(byYear).map(([yr, subjects]) => `
+        <div style="grid-column:1/-1;margin-top:6px;">
+          <div style="font-size:0.75rem;font-weight:700;color:#1a237e;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #e0e0e0;padding-bottom:3px;margin-bottom:4px;">${yr}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
+            ${subjects.map(s => `
+              <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer;padding:3px 4px;border-radius:4px;${selected.includes(s.id) ? 'background:#e8eaf6;' : ''}">
+                <input type="checkbox" value="${s.id}" ${selected.includes(s.id) ? 'checked' : ''} style="cursor:pointer;" onchange="this.closest('label').style.background=this.checked?'#e8eaf6':''">
+                <span>
+                  ${s.name}
+                  ${s.type === 'lab'
+                    ? '<span style="background:#e8f5e9;color:#2e7d32;font-size:0.68rem;font-weight:700;padding:1px 5px;border-radius:8px;margin-left:3px;">LAB</span>'
+                    : ''}
+                </span>
+              </label>
+            `).join('')}
+          </div>
+        </div>
       `).join('');
     }
 
@@ -140,7 +159,7 @@
         try { canTeach = JSON.parse(f.subjects_can_teach || '[]'); } catch {}
         const subjectNames = canTeach.map(id => {
           const s = allSubjects.find(s => s.id === id);
-          return s ? s.name : '';
+          return s ? (s.name + (s.type === 'lab' ? ' 🔬' : '')) : '';
         }).filter(Boolean);
         const roleLabel = f.role === 'hod_mentor' ? 'HOD (Mentor)' : f.role === 'hod_admin' ? 'HOD (Admin)' : 'Faculty';
         const roleBadge = f.role !== 'faculty' ? 'badge-hod' : 'badge-faculty';
