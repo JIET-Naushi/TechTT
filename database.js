@@ -89,12 +89,6 @@ function initializeDatabase() {
       FOREIGN KEY (faculty_id) REFERENCES faculty(id),
       FOREIGN KEY (room_id) REFERENCES rooms(id)
     );
-
-    CREATE TABLE IF NOT EXISTS sessions (
-      sid TEXT PRIMARY KEY,
-      sess TEXT NOT NULL,
-      expire INTEGER NOT NULL
-    );
   `);
 
   // Only seed if ALL core tables are empty (truly first run)

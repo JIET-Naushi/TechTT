@@ -1,13 +1,19 @@
 const express = require('express');
 const router = express.Router();
+const jwt = require('jsonwebtoken');
 const { getDb } = require('../database');
+const { JWT_SECRET, COOKIE_NAME } = require('./auth');
 
-// Auth middleware
+// Auth middleware — verifies JWT cookie
 function requireAdmin(req, res, next) {
-  if (!req.session.user) {
-    return res.status(401).json({ error: 'Not authenticated' });
+  const token = req.cookies && req.cookies[COOKIE_NAME];
+  if (!token) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Session expired, please login again' });
   }
-  next();
 }
 
 // ==================== SUBJECTS ====================
