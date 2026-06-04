@@ -3,3 +3,5 @@ timetable.db
 *.db-shm
 *.db-wal
 .env
+college-timetable.zip
+push_to_github.ps1

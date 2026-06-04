@@ -89,11 +89,19 @@ function initializeDatabase() {
       FOREIGN KEY (faculty_id) REFERENCES faculty(id),
       FOREIGN KEY (room_id) REFERENCES rooms(id)
     );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      sid TEXT PRIMARY KEY,
+      sess TEXT NOT NULL,
+      expire INTEGER NOT NULL
+    );
   `);
 
-  // Seed data if empty
-  const userCount = db.prepare('SELECT COUNT(*) as cnt FROM users').get();
-  if (userCount.cnt === 0) {
+  // Only seed if ALL core tables are empty (truly first run)
+  const userCount   = db.prepare('SELECT COUNT(*) as cnt FROM users').get().cnt;
+  const roomCount   = db.prepare('SELECT COUNT(*) as cnt FROM rooms').get().cnt;
+  const facultyCount = db.prepare('SELECT COUNT(*) as cnt FROM faculty').get().cnt;
+  if (userCount === 0 && roomCount === 0 && facultyCount === 0) {
     seedDatabase(db);
   }
 
