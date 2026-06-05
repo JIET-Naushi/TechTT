@@ -574,7 +574,7 @@ router.post('/generate', requireAuth, async (req, res) => {
           if (cur.length >= hoursNeeded) consecutiveGroups.push(cur);
           if (!consecutiveGroups.length) continue;
 
-          // Try each consecutive group, scanning every possible window
+          // ── Try each consecutive group for a valid placement window ──────
           let slotGroup = null;
           outer:
           for (const group of consecutiveGroups) {
@@ -583,22 +583,28 @@ router.post('/generate', requireAuth, async (req, res) => {
               let canPlace = true;
               const tmpRoom = {}, tmpFac = {};
 
-              for (const slot of candidate) {
-                const avail = labs.filter(r =>
-                  isRoomFree(day, slot.id, r.id) && !tmpRoom[slot.id]?.has(r.id)
+              for (const sl of candidate) {
+                // Check enough free labs for all batches
+                const availR = labs.filter(r =>
+                  isRoomFree(day, sl.id, r.id) && !tmpRoom[sl.id]?.has(r.id)
                 );
-                if (avail.length < numSubsections) { canPlace = false; break; }
+                if (availR.length < numSubsections) { canPlace = false; break; }
 
+                // Check enough free qualified faculty for all batches
                 const eligible = allFaculty.filter(f => {
-                  try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; }
+                  try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
                 });
-                const fPool = eligible.length ? eligible : allFaculty;
-                const free  = fPool.filter(f =>
-                  isFacultyFree(day, slot.id, f.id) && !tmpFac[slot.id]?.has(f.id)
+                const fPool = eligible.length >= numSubsections ? eligible : allFaculty;
+                const availF = fPool.filter(f =>
+                  isFacultyFree(day, sl.id, f.id) && !tmpFac[sl.id]?.has(f.id)
                 );
-                if (!free.length) { canPlace = false; break; }
-                tmpRoom[slot.id] = new Set(avail.slice(0, numSubsections).map(r => r.id));
-                tmpFac[slot.id]  = new Set(free.slice(0, numSubsections).map(f => f.id));
+                if (availF.length < numSubsections) { canPlace = false; break; }
+
+                // Reserve in tmp maps to avoid double-counting across slots in candidate
+                if (!tmpRoom[sl.id]) tmpRoom[sl.id] = new Set();
+                if (!tmpFac[sl.id])  tmpFac[sl.id]  = new Set();
+                availR.slice(0, numSubsections).forEach(r => tmpRoom[sl.id].add(r.id));
+                availF.slice(0, numSubsections).forEach(f => tmpFac[sl.id].add(f.id));
               }
 
               if (canPlace) { slotGroup = candidate; break outer; }
@@ -606,33 +612,40 @@ router.post('/generate', requireAuth, async (req, res) => {
           }
           if (!slotGroup) continue;
 
-          // Place all hours in this consecutive, lunch-safe group
-          for (const slot of slotGroup) {
-            const availLabs = shuffle(labs.filter(r => isRoomFree(day, slot.id, r.id)));
-            const eligible  = allFaculty.filter(f => {
-              try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; }
-            });
-            const fPool   = shuffle(eligible.length ? eligible : allFaculty);
-            const freeFac = fPool.filter(f => isFacultyFree(day, slot.id, f.id));
+          // ── Place all hours in the validated consecutive, lunch-safe group ─
+          for (const sl of slotGroup) {
+            const availLabs = shuffle(labs.filter(r => isRoomFree(day, sl.id, r.id)));
 
+            // Qualified faculty pool
+            const eligible = allFaculty.filter(f => {
+              try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
+            });
+            const fPool   = shuffle(eligible.length >= numSubsections ? eligible : allFaculty);
+            const freeFac = fPool.filter(f => isFacultyFree(day, sl.id, f.id));
+
+            // Assign unique faculty and unique rooms to each batch
             const chosenFaculties = [];
-            for (let i = 0; i < numSubsections; i++) {
-              const f = freeFac.find(f => !chosenFaculties.includes(f)) || freeFac[0];
+            const chosenRooms     = [];
+            for (let bi = 0; bi < numSubsections; bi++) {
+              const f = freeFac.find(f => !chosenFaculties.includes(f));
+              const r = availLabs.find(r => !chosenRooms.includes(r));
+              if (!f || !r) {
+                console.warn(`Not enough resources for ${subj.name} batch ${bi+1} on ${day}`);
+                break;
+              }
               chosenFaculties.push(f);
+              chosenRooms.push(r);
             }
 
-            for (let si2 = 0; si2 < numSubsections; si2++) {
-              const chosenR = availLabs[si2];
-              const chosenF = chosenFaculties[si2];
-              if (!chosenR || !chosenF) continue;
+            for (let bi = 0; bi < chosenFaculties.length; bi++) {
               await run(
                 'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-                [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id, batchNames[si2]]
+                [section.id, sl.id, day, subj.id, chosenFaculties[bi].id, chosenRooms[bi].id, batchNames[bi]]
               );
-              markRoom(day, slot.id, chosenR.id);
+              markRoom(day, sl.id, chosenRooms[bi].id);
+              markFaculty(day, sl.id, chosenFaculties[bi].id);
             }
-            for (const f of chosenFaculties) markFaculty(day, slot.id, f.id);
-            usedSlots.add(`${day}_${slot.id}`);
+            usedSlots.add(`${day}_${sl.id}`);
             dayLabLoad[day]++;
           }
           placed = true;

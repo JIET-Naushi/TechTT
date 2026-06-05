@@ -73,6 +73,12 @@
     let currentRoomName = 'Room';
     let deptId = localStorage.getItem('selectedDepartmentId') || '1';
 
+    // Helper function to truncate long text
+    function truncateText(text, maxLength) {
+      if (!text || text.length <= maxLength) return text;
+      return text.substring(0, maxLength - 1) + '…';
+    }
+
     function getSectionColor(sectionId) {
       if (!sectionColorMap[sectionId]) {
         sectionColorMap[sectionId] = COLORS[Object.keys(sectionColorMap).length % COLORS.length];

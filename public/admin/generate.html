@@ -8,7 +8,7 @@
 </head>
 <body>
   <header class="header">
-    <div class="logo">🎓 <span>College</span> Timetable — Admin</div>
+    <div class="logo">🎓 <span>JIET</span> Timetable — Admin</div>
     <nav>
       <a href="/index.html">Home</a>
       <button class="btn-logout" onclick="logout()">Logout</button>
@@ -110,16 +110,21 @@
   </div>
 
   <script>
-    fetch('/api/auth/status').then(r => r.json()).then(d => { if (!d.loggedIn) location.href = '/login.html'; });
+    fetch('/api/auth/status').then(r => r.json()).then(d => {
+      if (!d.loggedIn) { location.href = '/login.html'; return; }
+      deptId = d.user.isSuperAdmin ? 1 : (d.user.department_id || 1);
+      init();
+    });
 
     let selectedScope = 'all';
-    let years = [];
+    let years = [], deptId = 1;
 
     async function init() {
-      const res = await fetch('/api/years');
+      const res = await fetch(`/api/years?department_id=${deptId}`);
       years = await res.json();
       const sel = document.getElementById('yearSelect');
-      years.forEach(y => sel.innerHTML += `<option value="${y.id}">${y.display_name}</option>`);
+      sel.innerHTML = '<option value="">Select Year</option>' +
+        years.map(y => `<option value="${y.id}">${y.display_name}</option>`).join('');
     }
 
     function selectScope(scope) {
@@ -266,8 +271,6 @@
     }
 
     async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
-
-    init();
   </script>
 </body>
 </html>

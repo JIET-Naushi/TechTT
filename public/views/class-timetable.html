@@ -81,6 +81,12 @@
     let currentTitle = 'Timetable';
     let deptId = localStorage.getItem('selectedDepartmentId') || '1';
 
+    // Helper function to truncate long text
+    function truncateText(text, maxLength) {
+      if (!text || text.length <= maxLength) return text;
+      return text.substring(0, maxLength - 1) + '…';
+    }
+
     function getSubjectColor(subjectId) {
       if (!subjectColorMap[subjectId]) {
         const keys = Object.keys(subjectColorMap).length;
@@ -190,13 +196,13 @@
                   <div class="room">${e.room_name || ''}</div>
                 </div>
               </div>`).join('');
-            html += `<td><div class="lab-cell ${color}${isBtu ? ' btu-cell' : ''}">
-              <div class="lab-subject-name">${slotEntries[0].subject_name || '?'}
-                <span style="font-size:0.6rem;background:rgba(0,0,0,0.13);border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">LAB</span>
-                ${isBtu ? '<span style="font-size:0.6rem;background:rgba(230,81,0,0.2);color:#e65100;border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">BTU</span>' : ''}
-              </div>
-              ${batchRows}
-            </div></td>`;
+              html += `<td><div class="lab-cell ${color}${isBtu ? ' btu-cell' : ''}" title="${slotEntries[0].subject_name || '?'}">
+                <div class="lab-subject-name">${truncateText(slotEntries[0].subject_name || '?', 18)}
+                  <span style="font-size:0.6rem;background:rgba(0,0,0,0.13);border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">LAB</span>
+                  ${isBtu ? '<span style="font-size:0.6rem;background:rgba(230,81,0,0.2);color:#e65100;border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">BTU</span>' : ''}
+                </div>
+                ${batchRows}
+              </div></td>`;
           } else {
             // Single entry (theory, btu-theory, or single-subsection lab)
             const entry = slotEntries[0];
@@ -209,9 +215,9 @@
                 : isLab
                 ? `<span style="font-size:0.6rem;background:rgba(0,0,0,0.13);border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">LAB</span>`
                 : '';
-              html += `<td><div class="timetable-cell ${color}${isBtu ? ' btu-cell' : ''}">
-                <div class="cell-subject">${entry.subject_name || '?'}${badge}</div>
-                <div class="cell-faculty">${entry.faculty_name || ''}</div>
+              html += `<td><div class="timetable-cell ${color}${isBtu ? ' btu-cell' : ''}" title="${entry.subject_name || '?'}">
+                <div class="cell-subject">${truncateText(entry.subject_name || '?', 20)}${badge}</div>
+                <div class="cell-faculty">${truncateText(entry.faculty_name || '', 25)}</div>
                 <div class="cell-room">${entry.room_name || ''}</div>
               </div></td>`;
             } else {

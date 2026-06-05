@@ -72,6 +72,12 @@
     let currentFacultyName = 'Faculty';
     let deptId = localStorage.getItem('selectedDepartmentId') || '1';
 
+    // Helper function to truncate long text
+    function truncateText(text, maxLength) {
+      if (!text || text.length <= maxLength) return text;
+      return text.substring(0, maxLength - 1) + '…';
+    }
+
     function getSubjectColor(subjectId) {
       if (!subjectColorMap[subjectId]) {
         subjectColorMap[subjectId] = COLORS[Object.keys(subjectColorMap).length % COLORS.length];

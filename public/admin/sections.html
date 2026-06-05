@@ -8,7 +8,7 @@
 </head>
 <body>
   <header class="header">
-    <div class="logo">🎓 <span>College</span> Timetable — Admin</div>
+    <div class="logo">🎓 <span>JIET</span> Timetable — Admin</div>
     <nav>
       <a href="/index.html">Home</a>
       <button class="btn-logout" onclick="logout()">Logout</button>
@@ -19,7 +19,7 @@
       <div class="sidebar-title">Main</div>
       <a href="/admin/dashboard.html"><span class="icon">📊</span> Dashboard</a>
       <div class="sidebar-title">Manage</div>
-      <a href="/admin/sections.html" class="active"><span class="icon">🏛️</span> Years & Sections</a>
+      <a href="/admin/sections.html" class="active"><span class="icon">🏛️</span> Years &amp; Sections</a>
       <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
       <a href="/admin/faculty.html"><span class="icon">👨‍🏫</span> Faculty</a>
       <a href="/admin/rooms.html"><span class="icon">🏫</span> Rooms</a>
@@ -32,7 +32,7 @@
       <a href="/views/location-timetable.html"><span class="icon">📍</span> Location View</a>
     </nav>
     <main class="admin-content">
-      <div class="page-title">Years & Sections</div>
+      <div class="page-title">Years &amp; Sections</div>
       <div id="alertBox"></div>
       <div id="yearsContainer"></div>
 
@@ -84,63 +84,73 @@
         return `
           <div class="card">
             <div class="card-title">${y.display_name} <small style="font-weight:400;color:#666;">(${y.name})</small></div>
-            <div style="display:flex;flex-wrap:wrap;gap:12px;">
-              ${ySections.map(s => {
-                const numBatches = s.lab_subsections || 2;
-                let batchNames;
-                try { batchNames = JSON.parse(s.subsection_names || 'null'); } catch { batchNames = null; }
-                if (!Array.isArray(batchNames) || batchNames.length !== numBatches)
-                  batchNames = Array.from({ length: numBatches }, (_, i) => String.fromCharCode(65 + i));
-                const batchBadges = batchNames.map(n =>
-                  `<span style="background:#c5cae9;color:#1a237e;border-radius:3px;padding:0 5px;font-size:0.68rem;font-weight:700;">${n}</span>`
-                ).join('');
-                return `
-                <div id="sec-chip-${s.id}" style="background:#e8eaf6;border-radius:10px;padding:10px 14px;min-width:180px;">
-                  <!-- Section name row -->
-                  <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                    <span id="sec-label-${s.id}" style="color:#1a237e;font-weight:700;">Section ${s.name}</span>
-                    <input id="sec-input-${s.id}" type="text" value="${s.name}" maxlength="5"
-                      style="display:none;width:54px;padding:2px 6px;border:1.5px solid #1a237e;border-radius:4px;font-size:0.85rem;font-weight:700;color:#1a237e;text-align:center;"
-                      onkeydown="handleEditKey(event, ${s.id})" />
-                    <button class="btn btn-outline btn-sm" title="Rename section" onclick="startEdit(${s.id})" id="sec-edit-btn-${s.id}" style="padding:2px 7px;font-size:0.75rem;">✏️</button>
-                    <button class="btn btn-success btn-sm" title="Save" onclick="saveEdit(${s.id})" id="sec-save-btn-${s.id}" style="display:none;padding:2px 7px;font-size:0.75rem;">✔</button>
-                    <button class="btn btn-secondary btn-sm" title="Cancel" onclick="cancelEdit(${s.id})" id="sec-cancel-btn-${s.id}" style="display:none;padding:2px 7px;font-size:0.75rem;">✖</button>
-                    <button class="btn btn-danger btn-sm" title="Delete" onclick="deleteSection(${s.id}, '${y.display_name} - Section ${s.name}')" id="sec-del-btn-${s.id}" style="padding:2px 7px;font-size:0.75rem;">🗑</button>
-                  </div>
-                  <!-- Lab batches row -->
-                  <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
-                    <span style="font-size:0.68rem;color:#666;">🔬 Lab batches:</span>
-                    <div id="batch-display-${s.id}" style="display:flex;gap:3px;flex-wrap:wrap;">
-                      ${batchBadges}
-                    </div>
-                    <button class="btn btn-outline btn-sm" title="Edit batch names & count"
-                      onclick="openBatchEditor(${s.id})"
-                      style="padding:1px 7px;font-size:0.68rem;border-color:#9fa8da;">⚙️ Edit</button>
-                  </div>
-                  <!-- Inline batch editor (hidden by default) -->
-                  <div id="batch-editor-${s.id}" style="display:none;margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #c5cae9;">
-                    <div style="font-size:0.75rem;font-weight:600;color:#333;margin-bottom:6px;">Number of batches:</div>
-                    <select id="batch-count-${s.id}" class="form-control" style="width:80px;padding:4px;font-size:0.82rem;margin-bottom:8px;"
-                      onchange="updateBatchInputs(${s.id})">
-                      ${[1,2,3,4,5,6].map(n => `<option value="${n}" ${n===numBatches?'selected':''}>${n}</option>`).join('')}
-                    </select>
-                    <div style="font-size:0.75rem;font-weight:600;color:#333;margin-bottom:4px;">Batch names:</div>
-                    <div id="batch-inputs-${s.id}" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
-                      ${batchNames.map((n,i) => `
-                        <input type="text" id="batch-name-${s.id}-${i}" value="${n}" maxlength="10"
-                          style="width:64px;padding:4px 6px;border:1.5px solid #c5cae9;border-radius:4px;font-size:0.78rem;font-weight:700;text-align:center;"
-                          placeholder="Batch ${i+1}">`).join('')}
-                    </div>
-                    <div style="display:flex;gap:6px;">
-                      <button class="btn btn-primary btn-sm" onclick="saveBatches(${s.id})" style="font-size:0.75rem;padding:4px 10px;">Save</button>
-                      <button class="btn btn-secondary btn-sm" onclick="closeBatchEditor(${s.id})" style="font-size:0.75rem;padding:4px 10px;">Cancel</button>
-                    </div>
-                  </div>
-                </div>`; }).join('')}
+            <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;">
+              ${ySections.map(s => renderSectionCard(s, y)).join('')}
               ${ySections.length === 0 ? '<span class="text-muted">No sections yet. Add one below.</span>' : ''}
             </div>
           </div>`;
       }).join('');
+    }
+
+    function renderSectionCard(s, y) {
+      const numBatches = s.lab_subsections || 2;
+      let batchNames;
+      try { batchNames = JSON.parse(s.subsection_names || 'null'); } catch { batchNames = null; }
+      if (!Array.isArray(batchNames) || batchNames.length !== numBatches)
+        batchNames = Array.from({ length: numBatches }, (_, i) => String.fromCharCode(65 + i));
+
+      const batchBadges = batchNames.map(n =>
+        `<span style="background:#c5cae9;color:#1a237e;border-radius:4px;padding:2px 7px;font-size:0.72rem;font-weight:700;">${n}</span>`
+      ).join('');
+
+      const batchInputs = batchNames.map((n, i) =>
+        `<input type="text" id="batch-name-${s.id}-${i}" value="${n}" maxlength="10"
+          style="padding:8px;border:1.5px solid #c5cae9;border-radius:4px;font-size:0.82rem;text-align:center;width:100%;"
+          placeholder="Batch ${String.fromCharCode(65 + i)}" />`
+      ).join('');
+
+      return `
+        <div id="sec-chip-${s.id}" style="background:#e8eaf6;border-radius:10px;padding:12px 16px;min-width:200px;max-width:260px;">
+
+          <!-- Section name row -->
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+            <span id="sec-label-${s.id}" style="color:#1a237e;font-weight:700;font-size:1rem;">Section ${s.name}</span>
+            <input id="sec-input-${s.id}" type="text" value="${s.name}" maxlength="5"
+              style="display:none;width:54px;padding:4px 8px;border:1.5px solid #1a237e;border-radius:4px;font-size:0.9rem;font-weight:700;color:#1a237e;text-align:center;"
+              onkeydown="handleEditKey(event, ${s.id})" />
+            <button class="btn btn-outline btn-sm" title="Rename" onclick="startEdit(${s.id})" id="sec-edit-btn-${s.id}">✏️</button>
+            <button class="btn btn-success btn-sm" title="Save" onclick="saveEdit(${s.id})" id="sec-save-btn-${s.id}" style="display:none;">✔</button>
+            <button class="btn btn-secondary btn-sm" title="Cancel" onclick="cancelEdit(${s.id})" id="sec-cancel-btn-${s.id}" style="display:none;">✖</button>
+            <button class="btn btn-danger btn-sm" title="Delete" onclick="deleteSection(${s.id}, '${y.display_name} - Section ${s.name}')" id="sec-del-btn-${s.id}">🗑</button>
+          </div>
+
+          <!-- Lab batches row -->
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
+            <span style="font-size:0.72rem;color:#555;">🔬 Batches:</span>
+            <div id="batch-display-${s.id}" style="display:flex;gap:4px;flex-wrap:wrap;">${batchBadges}</div>
+            <button class="btn btn-outline btn-sm" title="Edit batch names & count"
+              onclick="openBatchEditor(${s.id})"
+              style="font-size:0.7rem;padding:2px 8px;border-color:#9fa8da;">⚙️</button>
+          </div>
+
+          <!-- Inline batch editor (hidden by default) -->
+          <div id="batch-editor-${s.id}" style="display:none;margin-top:10px;padding:12px;background:#fff;border-radius:8px;border:1px solid #c5cae9;box-shadow:0 2px 6px rgba(0,0,0,0.08);">
+            <div style="font-size:0.8rem;font-weight:600;color:#333;margin-bottom:8px;">Number of batches:</div>
+            <select id="batch-count-${s.id}" class="form-control"
+              style="width:100%;padding:8px;font-size:0.85rem;margin-bottom:12px;border:1.5px solid #9fa8da;"
+              onchange="updateBatchInputs(${s.id})">
+              ${[1,2,3,4,5,6].map(n => `<option value="${n}" ${n===numBatches?'selected':''}>${n} batch${n>1?'es':''}</option>`).join('')}
+            </select>
+            <div style="font-size:0.8rem;font-weight:600;color:#333;margin-bottom:8px;">Batch names:</div>
+            <div id="batch-inputs-${s.id}" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:8px;margin-bottom:12px;">
+              ${batchInputs}
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+              <button class="btn btn-secondary btn-sm" onclick="closeBatchEditor(${s.id})">Cancel</button>
+              <button class="btn btn-primary btn-sm" onclick="saveBatchConfig(${s.id})">Save</button>
+            </div>
+          </div>
+        </div>`;
     }
 
     function startEdit(id) {
@@ -151,8 +161,7 @@
       document.getElementById(`sec-cancel-btn-${id}`).style.display = 'inline-flex';
       document.getElementById(`sec-del-btn-${id}`).style.display = 'none';
       const input = document.getElementById(`sec-input-${id}`);
-      input.focus();
-      input.select();
+      input.focus(); input.select();
     }
 
     function cancelEdit(id) {
@@ -174,7 +183,6 @@
     async function saveEdit(id) {
       const newName = document.getElementById(`sec-input-${id}`).value.trim().toUpperCase();
       if (!newName) { showAlert('Section name cannot be empty', 'error'); return; }
-
       const res = await fetch(`/api/admin/sections/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -183,8 +191,7 @@
       const data = await res.json();
       if (res.ok) {
         showAlert(`Section renamed to ${newName}`, 'success');
-        const sRes = await fetch(`/api/sections?department_id=${deptId}`);
-        sections = await sRes.json();
+        sections = await (await fetch(`/api/sections?department_id=${deptId}`)).json();
         renderYears();
       } else {
         showAlert(data.error || 'Error renaming section', 'error');
@@ -198,31 +205,38 @@
     function closeBatchEditor(id) {
       document.getElementById(`batch-editor-${id}`).style.display = 'none';
     }
+
     function updateBatchInputs(id) {
       const count = parseInt(document.getElementById(`batch-count-${id}`).value);
       const container = document.getElementById(`batch-inputs-${id}`);
       const existing = Array.from(container.querySelectorAll('input')).map(i => i.value);
       container.innerHTML = Array.from({ length: count }, (_, i) =>
         `<input type="text" id="batch-name-${id}-${i}" value="${existing[i] || String.fromCharCode(65+i)}" maxlength="10"
-          style="width:64px;padding:4px 6px;border:1.5px solid #c5cae9;border-radius:4px;font-size:0.78rem;font-weight:700;text-align:center;"
-          placeholder="Batch ${i+1}">`
+          style="padding:8px;border:1.5px solid #c5cae9;border-radius:4px;font-size:0.82rem;text-align:center;width:100%;"
+          placeholder="Batch ${String.fromCharCode(65+i)}">`
       ).join('');
     }
-    async function saveBatches(id) {
+
+    async function saveBatchConfig(id) {
       const count = parseInt(document.getElementById(`batch-count-${id}`).value);
+      // Validate: ensure names are unique and non-empty
       const names = Array.from({ length: count }, (_, i) => {
         const val = document.getElementById(`batch-name-${id}-${i}`)?.value.trim();
         return val || String.fromCharCode(65 + i);
       });
+      const uniqueNames = [...new Set(names)];
+      if (uniqueNames.length !== names.length) {
+        showAlert('Batch names must be unique', 'error'); return;
+      }
       const res = await fetch(`/api/admin/sections/${id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lab_subsections: count, subsection_names: names })
       });
       const data = await res.json();
       if (res.ok) {
         showAlert(`Lab batches saved: ${names.join(', ')}`, 'success');
-        const sRes = await fetch(`/api/sections?department_id=${deptId}`);
-        sections = await sRes.json();
+        sections = await (await fetch(`/api/sections?department_id=${deptId}`)).json();
         renderYears();
       } else {
         showAlert(data.error || 'Error saving batches', 'error');
@@ -243,11 +257,10 @@
       if (res.ok) {
         showAlert(`Section ${name} added`, 'success');
         document.getElementById('sectionName').value = '';
-        const sRes = await fetch(`/api/sections?department_id=${deptId}`);
-        sections = await sRes.json();
+        sections = await (await fetch(`/api/sections?department_id=${deptId}`)).json();
         renderYears();
       } else {
-        showAlert(data.error || 'Error', 'error');
+        showAlert(data.error || 'Error adding section', 'error');
       }
     });
 
@@ -256,15 +269,14 @@
       const res = await fetch(`/api/admin/sections/${id}`, { method: 'DELETE' });
       const data = await res.json();
       showAlert(data.message || 'Deleted', 'success');
-      const sRes = await fetch(`/api/sections?department_id=${deptId}`);
-      sections = await sRes.json();
+      sections = await (await fetch(`/api/sections?department_id=${deptId}`)).json();
       renderYears();
     }
 
     function showAlert(msg, type) {
       const box = document.getElementById('alertBox');
       box.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
-      setTimeout(() => box.innerHTML = '', 3000);
+      setTimeout(() => box.innerHTML = '', 3500);
     }
 
     async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
