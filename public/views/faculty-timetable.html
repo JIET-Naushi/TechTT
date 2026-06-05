@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Faculty Timetable — JIET Universe Timetable</title>
   <link rel="stylesheet" href="/css/style.css">
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  <script src="https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 </head>
 <body>
   <header class="header no-print">
@@ -71,15 +71,24 @@
     const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     const COLORS = ['color-0','color-1','color-2','color-3','color-4','color-5',
                     'color-6','color-7','color-8','color-9','color-10','color-11'];
-    const subjectColorMap = {};
+    const XL_COLORS = [
+      'DCE9FA','D9F0E1','FAD7E6','FEF0DA','EFD9FB','CCF3FA',
+      'F4FAD1','FAE3D9','DDE2F7','C8EDE9','FEF6D0','EDE0DA'
+    ];
+    const subjectColorMap = {}, subjectXlColorMap = {};
     let slots = [], entries = [];
     let currentFacultyName = 'Faculty';
     let deptId = localStorage.getItem('selectedDepartmentId') || '1';
 
     function getColor(id) {
-      if (!subjectColorMap[id]) subjectColorMap[id] = COLORS[Object.keys(subjectColorMap).length % COLORS.length];
+      if (!subjectColorMap[id]) {
+        const idx = Object.keys(subjectColorMap).length % COLORS.length;
+        subjectColorMap[id] = COLORS[idx];
+        subjectXlColorMap[id] = XL_COLORS[idx];
+      }
       return subjectColorMap[id];
     }
+    function getXlColor(id) { getColor(id); return subjectXlColorMap[id]; }
 
     async function init() {
       fetch('/api/auth/status').then(r => r.json()).then(d => {
@@ -125,52 +134,40 @@
         else            html += `<th class="slot-header">P${s.slot_number}<br><small>${s.start_time}–${s.end_time}</small></th>`;
       });
       html += '</tr></thead><tbody>';
-
       DAYS.forEach(day => {
         html += `<tr><td class="day-cell">${day.slice(0,3)}<span class="day-rest">${day.slice(3)}</span></td>`;
         slots.forEach(slot => {
           if (slot.is_break) { html += `<td class="break-cell">🍽️<br><small>LUNCH</small></td>`; return; }
-
-          // Faculty view: multiple entries possible if they teach multiple batches of same lab
-          const slotEntries = entries.filter(e => e.day_of_week === day && e.time_slot_id === slot.id);
-
-          if (!slotEntries.length) {
-            html += `<td><div class="timetable-cell nlf-cell">NLF</div></td>`; return;
-          }
-
-          // Lab with batches (same faculty, multiple subsections)
-          if (slotEntries.some(e => e.subsection)) {
-            const e0    = slotEntries[0];
+          const se = entries.filter(e => e.day_of_week===day && e.time_slot_id===slot.id);
+          if (!se.length) { html += `<td><div class="timetable-cell nlf-cell">NLF</div></td>`; return; }
+          if (se.some(e => e.subsection)) {
+            const e0 = se[0];
             const color = getColor(e0.subject_id);
             const isBtu = e0.subject_category === 'btu';
             const tags  = `<span class="tt-tag">LAB</span>${isBtu ? '<span class="tt-tag btu-tag">B.T.U.</span>' : ''}`;
-            const rows  = slotEntries.map(e => `
+            const rows  = se.map(e => `
               <div class="lab-batch">
                 <span class="lab-batch-label">${e.subsection}</span>
                 <div class="lab-batch-info">
-                  <div class="fac">${e.year_name || ''} — Sec ${e.section_name || ''}</div>
-                  <div class="room">${e.room_name || ''}</div>
+                  <div class="fac">${e.year_name||''} — Sec ${e.section_name||''}</div>
+                  <div class="room">${e.room_name||''}</div>
                 </div>
               </div>`).join('');
-            html += `<td><div class="lab-cell ${color}${isBtu ? ' btu-cell' : ''}">
-              <div class="lab-subject-name">${e0.subject_name || '?'} ${tags}</div>
-              ${rows}
-            </div></td>`;
+            html += `<td><div class="lab-cell ${color}${isBtu?' btu-cell':''}">
+              <div class="lab-subject-name">${e0.subject_name||'?'} ${tags}</div>${rows}</div></td>`;
             return;
           }
-
-          const e = slotEntries[0];
+          const e = se[0];
           if (!e.subject_id) { html += `<td><div class="timetable-cell nlf-cell">NLF</div></td>`; return; }
-          const color  = getColor(e.subject_id);
-          const isBtu  = e.subject_category === 'btu';
-          const isLab  = e.subject_type === 'lab';
-          const badge  = isBtu ? '<span class="tt-tag btu-tag">B.T.U.</span>'
-                       : isLab ? '<span class="tt-tag">LAB</span>' : '';
+          const color = getColor(e.subject_id);
+          const isBtu = e.subject_category==='btu';
+          const isLab = e.subject_type==='lab';
+          const badge = isBtu ? '<span class="tt-tag btu-tag">B.T.U.</span>' : isLab ? '<span class="tt-tag">LAB</span>' : '';
           const batchBadge = e.subsection ? `<span class="tt-tag batch-tag">Batch ${e.subsection}</span>` : '';
-          html += `<td><div class="timetable-cell ${color}${isBtu ? ' btu-cell' : ''}">
-            <div class="cell-subject">${e.subject_name || '?'} ${badge}${batchBadge}</div>
-            <div class="cell-faculty" style="font-weight:600;">${e.year_name || ''} — Sec ${e.section_name || ''}</div>
-            <div class="cell-room">${e.room_name || ''}</div>
+          html += `<td><div class="timetable-cell ${color}${isBtu?' btu-cell':''}">
+            <div class="cell-subject">${e.subject_name||'?'} ${badge}${batchBadge}</div>
+            <div class="cell-faculty" style="font-weight:600;">${e.year_name||''} — Sec ${e.section_name||''}</div>
+            <div class="cell-room">${e.room_name||''}</div>
           </div></td>`;
         });
         html += '</tr>';
@@ -192,32 +189,77 @@
         ${subjects.length ? `<p style="margin-top:10px;font-size:0.82rem;color:#555;" class="no-print"><strong>Subjects:</strong> ${subjects.join(', ')}</p>` : ''}`;
     }
 
+    // ── Excel helpers (shared style defs) ─────────────────────────────────────
+    const BORDER = { style:'thin', color:{rgb:'CCCCCC'} };
+    const FULL_BORDER = { top:BORDER, bottom:BORDER, left:BORDER, right:BORDER };
+    const HEADER_FILL = { patternType:'solid', fgColor:{rgb:'1A237E'} };
+    const DAY_FILL    = { patternType:'solid', fgColor:{rgb:'E8EAF6'} };
+    const NLF_FILL    = { patternType:'solid', fgColor:{rgb:'F5F5F5'} };
+    const TITLE_FILL  = { patternType:'solid', fgColor:{rgb:'283593'} };
+
+    function hdrCell(v) {
+      return {v,t:'s',s:{font:{bold:true,color:{rgb:'FFFFFF'},sz:11},fill:HEADER_FILL,alignment:{horizontal:'center',vertical:'center',wrapText:true},border:FULL_BORDER}};
+    }
+    function titleCell(v, big) {
+      return {v,t:'s',s:{font:{bold:true,color:{rgb:'FFFFFF'},sz:big?13:11},fill:TITLE_FILL,alignment:{horizontal:'center',vertical:'center'}}};
+    }
+    function dayCell(v) {
+      return {v,t:'s',s:{font:{bold:true,color:{rgb:'1A237E'},sz:10},fill:DAY_FILL,alignment:{horizontal:'center',vertical:'center'},border:FULL_BORDER}};
+    }
+    function nlfCell() {
+      return {v:'NLF',t:'s',s:{font:{italic:true,color:{rgb:'BDBDBD'},sz:9},fill:NLF_FILL,alignment:{horizontal:'center',vertical:'center'},border:FULL_BORDER}};
+    }
+    function subjectCell(text, xlColor, isBtu) {
+      return {v:text,t:'s',s:{
+        font:{bold:true,sz:9,color:{rgb:isBtu?'E65100':'0D47A1'}},
+        fill:{patternType:'solid',fgColor:{rgb:xlColor||'E3F2FD'}},
+        alignment:{horizontal:'left',vertical:'center',wrapText:true},
+        border:{...FULL_BORDER,left:isBtu?{style:'thick',color:{rgb:'E65100'}}:BORDER}
+      }};
+    }
+
     function exportExcel() {
       const wb = XLSX.utils.book_new();
       const teaching = slots.filter(s => !s.is_break);
       const deptName = document.getElementById('printDeptName').textContent;
-      const headerRow = ['Day',...teaching.map(s=>`${s.start_time}–${s.end_time}`)];
-      const dataRows  = DAYS.map(day => {
-        const row = [day];
+      const numCols  = teaching.length + 1;
+
+      const wsData = [];
+      wsData.push([titleCell(deptName, true), ...Array(numCols-1).fill({v:'',t:'s',s:{fill:TITLE_FILL}})]);
+      wsData.push([titleCell(currentFacultyName+' — Teaching Schedule'), ...Array(numCols-1).fill({v:'',t:'s',s:{fill:TITLE_FILL}})]);
+      wsData.push(Array(numCols).fill({v:'',t:'s'}));
+      wsData.push([hdrCell('Day / Time'), ...teaching.map(s => hdrCell(`Slot ${s.slot_number}\n${s.start_time}–${s.end_time}`))]);
+
+      DAYS.forEach(day => {
+        const row = [dayCell(day)];
         teaching.forEach(slot => {
-          const slotEntries = entries.filter(e => e.day_of_week===day && e.time_slot_id===slot.id);
-          if (!slotEntries.length) { row.push('NLF'); return; }
-          if (slotEntries.some(e => e.subsection)) {
-            row.push(slotEntries.map(e=>`Batch ${e.subsection}: ${e.subject_name} | ${e.year_name} Sec ${e.section_name} | ${e.room_name||''}`).join('\n'));
+          const se = entries.filter(e => e.day_of_week===day && e.time_slot_id===slot.id);
+          if (!se.length) { row.push(nlfCell()); return; }
+          if (se.some(e => e.subsection)) {
+            const xlC = getXlColor(se[0].subject_id);
+            const isBtu = se[0].subject_category==='btu';
+            const txt = se[0].subject_name+(isBtu?' [B.T.U.] LAB':' [LAB]')+'\n'+
+              se.map(e=>`Batch ${e.subsection}: ${e.year_name} Sec ${e.section_name} | ${e.room_name||''}`).join('\n');
+            row.push(subjectCell(txt, xlC, isBtu));
           } else {
-            const e = slotEntries[0];
-            const tag = e.subject_category==='btu'?` [BTU]`:e.subject_type==='lab'?' [LAB]':'';
-            row.push(`${e.subject_name}${tag}${e.subsection?' Batch '+e.subsection:''}\n${e.year_name||''} Sec ${e.section_name||''}\n${e.room_name||''}`);
+            const e = se[0];
+            const xlC = getXlColor(e.subject_id);
+            const isBtu = e.subject_category==='btu';
+            const tag = isBtu?' [B.T.U.]':e.subject_type==='lab'?' [LAB]':'';
+            const batch = e.subsection?`\nBatch ${e.subsection}`:'';
+            row.push(subjectCell(`${e.subject_name}${tag}${batch}\n${e.year_name||''} — Sec ${e.section_name||''}\n${e.room_name||'—'}`, xlC, isBtu));
           }
         });
-        return row;
+        wsData.push(row);
       });
-      const ws = XLSX.utils.aoa_to_sheet([[deptName],[currentFacultyName],['Faculty Schedule'],[],headerRow,...dataRows]);
-      ws['!cols'] = [{wch:12},...teaching.map(()=>({wch:26}))];
-      const tc = teaching.length+1;
-      ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:tc-1}},{s:{r:1,c:0},e:{r:1,c:tc-1}},{s:{r:2,c:0},e:{r:2,c:tc-1}}];
-      XLSX.utils.book_append_sheet(wb, ws, 'Timetable');
-      XLSX.writeFile(wb,`Faculty_${currentFacultyName.replace(/[^a-z0-9]/gi,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = [{wch:14},...teaching.map(()=>({wch:28}))];
+      ws['!rows'] = [{hpt:22},{hpt:18},{hpt:8},{hpt:32},...DAYS.map(()=>({hpt:54}))];
+      ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:numCols-1}},{s:{r:1,c:0},e:{r:1,c:numCols-1}},{s:{r:2,c:0},e:{r:2,c:numCols-1}}];
+      XLSX.utils.book_append_sheet(wb, ws, 'Schedule');
+
+      XLSX.writeFile(wb, `Faculty_${currentFacultyName.replace(/[^a-z0-9]/gi,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
     }
 
     init();
