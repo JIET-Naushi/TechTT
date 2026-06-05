@@ -973,108 +973,117 @@ router.post('/generate', requireAuth, async (req, res) => {
           if (!consecutiveGroups.length) continue;
 
           // ── Try each consecutive group for a valid placement window ──────
+          // Validation: for each candidate window, we need N faculty each free
+          // across ALL slots, and N labs each free across ALL slots.
           let slotGroup = null;
           outer:
           for (const group of consecutiveGroups) {
             for (let start = 0; start <= group.length - hoursNeeded; start++) {
               const candidate = group.slice(start, start + hoursNeeded);
-              let canPlace = true;
-              const tmpRoom = {}, tmpFac = {};
 
-              for (const sl of candidate) {
-                // Check enough free labs for all batches
-                const availR = labs.filter(r =>
-                  isRoomFree(day, sl.id, r.id) && !tmpRoom[sl.id]?.has(r.id)
-                );
-                if (availR.length < numSubsections) { canPlace = false; break; }
+              // Qualified faculty free for the ENTIRE candidate window
+              const eligibleFac = allFaculty.filter(f => {
+                if (labFacultyUsage[subj.id].has(f.id)) return false;
+                let teaches = false;
+                try { teaches = JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch {}
+                return teaches || true; // fallback: any free faculty
+              });
+              const qualifiedFac = allFaculty.filter(f => {
+                if (labFacultyUsage[subj.id].has(f.id)) return false;
+                try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
+              });
+              const facPool = qualifiedFac.length >= numSubsections ? qualifiedFac :
+                              allFaculty.filter(f => !labFacultyUsage[subj.id].has(f.id));
 
-                // Check enough free qualified faculty for all batches
-                // BUT exclude faculty already assigned to this subject in other slots
-                const eligible = allFaculty.filter(f => {
-                  try { 
-                    return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id) &&
-                           !labFacultyUsage[subj.id].has(f.id); // NEW: avoid re-using faculty
-                  } catch { 
-                    return !labFacultyUsage[subj.id].has(f.id);
-                  }
-                });
-                const fPool = eligible.length >= numSubsections ? eligible : allFaculty.filter(f => !labFacultyUsage[subj.id].has(f.id));
-                const availF = fPool.filter(f =>
-                  isFacultyFree(day, sl.id, f.id) && !tmpFac[sl.id]?.has(f.id)
-                );
-                if (availF.length < numSubsections) { canPlace = false; break; }
+              const facFreeAll = facPool.filter(f =>
+                candidate.every(sl => isFacultyFree(day, sl.id, f.id))
+              );
+              if (facFreeAll.length < numSubsections) continue;
 
-                // Reserve in tmp maps to avoid double-counting across slots in candidate
-                if (!tmpRoom[sl.id]) tmpRoom[sl.id] = new Set();
-                if (!tmpFac[sl.id])  tmpFac[sl.id]  = new Set();
-                availR.slice(0, numSubsections).forEach(r => tmpRoom[sl.id].add(r.id));
-                availF.slice(0, numSubsections).forEach(f => tmpFac[sl.id].add(f.id));
-              }
+              // Labs free for the ENTIRE candidate window
+              const labsFreeAll = labs.filter(r =>
+                candidate.every(sl => isRoomFree(day, sl.id, r.id))
+              );
+              if (labsFreeAll.length < numSubsections) continue;
 
-              if (canPlace) { slotGroup = candidate; break outer; }
+              slotGroup = candidate;
+              break outer;
             }
           }
           if (!slotGroup) continue;
 
-          // ── Place all hours in the validated consecutive, lunch-safe group ─
-          for (const sl of slotGroup) {
-            const availLabs = shuffle(labs.filter(r => isRoomFree(day, sl.id, r.id)));
+          // ── Pick batch assignments ONCE for the whole consecutive group ──
+          // Same batch must use the same lab room AND same faculty for all hours.
+          // We pick using the FIRST slot availability, then verify all slots can honour it.
+          const firstSlot = slotGroup[0];
+          const availLabsFirst = shuffle(labs.filter(r => isRoomFree(day, firstSlot.id, r.id)));
+          const preAssigned = assignedFaculty[subj.id] || {};
 
-            // Build per-batch faculty list: honour pre-assignments, fill rest auto
-            const chosenFaculties = [];
-            const chosenRooms     = [];
-            const preAssigned = assignedFaculty[subj.id] || {};
+          const batchAssignments = []; // [{ batchName, faculty, room }]
 
-            for (let bi = 0; bi < numSubsections; bi++) {
-              const batchName = batchNames[bi];
+          for (let bi = 0; bi < numSubsections; bi++) {
+            const batchName = batchNames[bi];
 
-              // Try pre-assigned faculty first
-              let chosenF = null;
-              const preId = preAssigned[batchName];
-              if (preId) {
-                const pre = allFaculty.find(f => f.id === preId);
-                // Use pre-assigned only if not already used for this subject and available now
-                if (pre && isFacultyFree(day, sl.id, pre.id) && 
-                    !chosenFaculties.includes(pre) && 
-                    !labFacultyUsage[subj.id].has(pre.id)) {
-                  chosenF = pre;
+            // Try pre-assigned faculty first
+            let chosenF = null;
+            const preId = preAssigned[batchName];
+            if (preId) {
+              const pre = allFaculty.find(f => f.id === preId);
+              if (pre && !batchAssignments.some(a => a.faculty.id === pre.id) &&
+                  !labFacultyUsage[subj.id].has(pre.id) &&
+                  slotGroup.every(sl => isFacultyFree(day, sl.id, pre.id))) {
+                chosenF = pre;
+              }
+            }
+            // Fall back to qualified faculty free across ALL slots in the group
+            if (!chosenF) {
+              const eligible = allFaculty.filter(f => {
+                try { 
+                  return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id) &&
+                         !labFacultyUsage[subj.id].has(f.id);
+                } catch { 
+                  return !labFacultyUsage[subj.id].has(f.id);
                 }
-              }
-              // Fall back to any free qualified faculty not already assigned to this subject
-              if (!chosenF) {
-                const eligible = allFaculty.filter(f => {
-                  try { 
-                    return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id) &&
-                           !labFacultyUsage[subj.id].has(f.id);
-                  } catch { 
-                    return !labFacultyUsage[subj.id].has(f.id);
-                  }
-                });
-                const pool = shuffle(eligible.length >= 1 ? eligible : allFaculty.filter(f => !labFacultyUsage[subj.id].has(f.id)));
-                chosenF = pool.find(f => isFacultyFree(day, sl.id, f.id) && !chosenFaculties.includes(f));
-              }
-
-              const chosenR = availLabs.find(r => !chosenRooms.includes(r));
-              if (!chosenF || !chosenR) {
-                console.warn(`Not enough resources for ${subj.name} batch ${batchName} on ${day}`);
-                break;
-              }
-              chosenFaculties.push(chosenF);
-              chosenRooms.push(chosenR);
+              });
+              const pool = shuffle(eligible.length >= 1 ? eligible : allFaculty.filter(f => !labFacultyUsage[subj.id].has(f.id)));
+              chosenF = pool.find(f =>
+                !batchAssignments.some(a => a.faculty.id === f.id) &&
+                slotGroup.every(sl => isFacultyFree(day, sl.id, f.id))
+              );
             }
 
-            for (let bi = 0; bi < chosenFaculties.length; bi++) {
+            // Pick a lab room free across ALL slots in the group (same room = no switching)
+            const chosenR = availLabsFirst.find(r =>
+              !batchAssignments.some(a => a.room.id === r.id) &&
+              slotGroup.every(sl => isRoomFree(day, sl.id, r.id))
+            );
+
+            if (!chosenF || !chosenR) {
+              console.warn(`Not enough resources for ${subj.name} batch ${batchName} on ${day}`);
+              break;
+            }
+            batchAssignments.push({ batchName, faculty: chosenF, room: chosenR });
+          }
+
+          // Only proceed if all batches were successfully assigned
+          if (batchAssignments.length < numSubsections) continue;
+
+          // ── Place all hours using the SAME room+faculty for each batch ──────
+          for (const sl of slotGroup) {
+            for (const { batchName, faculty: chosenF, room: chosenR } of batchAssignments) {
               await run(
                 'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-                [section.id, sl.id, day, subj.id, chosenFaculties[bi].id, chosenRooms[bi].id, batchNames[bi]]
+                [section.id, sl.id, day, subj.id, chosenF.id, chosenR.id, batchName]
               );
-              markRoom(day, sl.id, chosenRooms[bi].id);
-              markFaculty(day, sl.id, chosenFaculties[bi].id);
-              labFacultyUsage[subj.id].add(chosenFaculties[bi].id); // Track this faculty for subject
+              markRoom(day, sl.id, chosenR.id);
+              markFaculty(day, sl.id, chosenF.id);
             }
             usedSlots.add(`${day}_${sl.id}`);
             dayLabLoad[day]++;
           }
+
+          // Track faculty as used for this subject (after successful placement)
+          batchAssignments.forEach(a => labFacultyUsage[subj.id].add(a.faculty.id));
           placed = true;
           break; // done with this lab subject
         }
