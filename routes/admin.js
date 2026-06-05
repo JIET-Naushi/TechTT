@@ -991,14 +991,13 @@ router.post('/generate', requireAuth, async (req, res) => {
       const dayLabLoad = Object.fromEntries(days.map(d => [d, 0]));
 
       // ── Schedule LAB subjects: each BATCH gets its own separate slot ────────
-      // Rule: since one faculty teaches one batch, batches must be staggered —
+      // Rule: since one faculty can teach multiple batches, batches must be staggered —
       // each batch of a subject occupies different slots (can be same or diff day).
       // Each batch still occupies hours_per_week consecutive slots.
-      // IMPORTANT: Each faculty can only teach ONE batch per subject (no duplicates)
-      const labFacultyUsage = {}; // subjectId → Set of facultyIds already assigned
+      // IMPORTANT: Same faculty CAN teach multiple batches of same subject
+      // Same lab room MUST be used for all consecutive slots of a batch
 
       for (const subj of labSubjects) {
-        labFacultyUsage[subj.id] = new Set();
         const hoursNeeded = subj.hours_per_week || 2;
         const preAssigned = assignedFaculty[subj.id] || {};
 
@@ -1020,12 +1019,12 @@ router.post('/generate', requireAuth, async (req, res) => {
           const preId = preAssigned[batchName];
           if (preId) {
             const pre = allFaculty.find(f => f.id === preId);
-            // Use pre-assigned faculty ONLY if not already assigned to another batch of this subject
-            if (pre && !labFacultyUsage[subj.id].has(pre.id)) batchFaculty = pre;
+            // Use pre-assigned faculty (same faculty CAN teach multiple batches of same subject)
+            if (pre) batchFaculty = pre;
           }
           if (!batchFaculty) {
-            // Find faculty not yet assigned to any batch of this subject
-            const pool = shuffle(facPool.filter(f => !labFacultyUsage[subj.id].has(f.id)));
+            // Find any qualified faculty (same faculty can teach multiple batches)
+            const pool = shuffle(facPool);
             batchFaculty = pool[0] || null;
           }
           if (!batchFaculty) {
@@ -1033,8 +1032,8 @@ router.post('/generate', requireAuth, async (req, res) => {
             continue;
           }
 
-          // Reserve this faculty for this batch now (mark as used)
-          labFacultyUsage[subj.id].add(batchFaculty.id);
+          // Note: Same faculty can teach multiple batches of same subject
+          // (removed the restriction that prevented this)
 
           // Find a consecutive window where: faculty is free + at least 1 lab room free
           for (const day of shuffle([...days])) {
