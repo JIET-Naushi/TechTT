@@ -934,7 +934,7 @@ router.post('/generate', requireAuth, async (req, res) => {
 
       // ── Separate theory/BTU and lab subjects ─────────────────────────────
       const theorySubjects = subjects.filter(s => s.type !== 'lab');
-      const labSubjects    = subjects.filter(s => s.type === 'lab');
+      const allLabSubjects = subjects.filter(s => s.type === 'lab');
 
       // ── Determine if this section is a BTU section ─────────────────────
       // BTU section: name contains "BTU" (case-insensitive)
@@ -943,6 +943,17 @@ router.post('/generate', requireAuth, async (req, res) => {
       // Separate regular and BTU theory subjects
       const regularTheory = theorySubjects.filter(s => s.category !== 'btu');
       const btuTheory     = theorySubjects.filter(s => s.category === 'btu');
+
+      // Separate regular and BTU lab subjects
+      const regularLabs = allLabSubjects.filter(s => s.category !== 'btu');
+      const btuLabs     = allLabSubjects.filter(s => s.category === 'btu');
+
+      // Eligible lab subjects for this section:
+      // - BTU sections: both regular and BTU labs
+      // - Non-BTU sections: only regular labs
+      const labSubjects = isBtuSection 
+        ? [...regularLabs, ...btuLabs]
+        : [...regularLabs];
 
       // Eligible theory for this section:
       // - BTU sections: regular subjects + BTU subjects (max 6 total)
