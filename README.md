@@ -1,39 +1,77 @@
 # JIET Universe Timetable
 
-**Department of Technology** — A full-stack college timetable management system for B.Tech I, II & III Year students.
+A full-stack college timetable management system for JIET — covering B.Tech I, II & III Year across multiple departments.
 
 ## Features
 
-- **Google OAuth Login** — Sign in with your Google account (multi-account support)
-- **Editable Department Name** — Change department name from admin dashboard
-- **Smart Classroom Assignment** — Dedicated classroom per section for maximum utilization
-- **Class-wise Timetable** — View weekly schedule for any year & section
-- **Faculty-wise Timetable** — View teaching schedule for any faculty member
-- **Location-wise Timetable** — View room/lab occupancy schedule
-- **Admin Panel** — Full CRUD for faculty, subjects, rooms, sections
-- **Auto-Generate** — Smart timetable generation with conflict detection
-- **Manual Editor** — Click any cell to edit subject/faculty/room
-- **Print Support** — Print any timetable view
+### Views (Public)
+- **Class Timetable** — Weekly schedule for any year & section, with lab batch display
+- **Faculty Timetable** — Full teaching schedule for any faculty member
+- **Location Timetable** — Room/lab occupancy across the week
+- **Excel Export** — Download any timetable as `.xlsx`
+- **Print Support** — Print-optimized layout for any view
+
+### Admin Panel
+- **Google OAuth + Password Login** — Sign in with Google or `admin / admin123`
+- **Multi-Department Support** — Super admin manages multiple departments; each dept has its own incharge
+- **Years & Sections** — Add/rename sections, configure lab batch count and names
+- **Subjects** — CRUD with type (theory/lab), category (regular/B.T.U.), credits, hours/week
+- **Faculty** — Assign subjects each faculty can teach
+- **Rooms** — Classrooms and labs with capacity
+- **Lab Faculty Assignment** — Pre-assign specific faculty to each lab batch per section
+- **Auto-Generate** — Smart timetable generation algorithm
+- **Manual Editor** — Click any cell to edit; lab batch cells are fully editable inline
+- **Conflicts Page** — Detect and review faculty/room double-bookings
+
+---
+
+## Scheduling Algorithm
+
+### Lab Subjects
+- Each **batch** (A, B, C…) gets its **own separate consecutive time window** — they are staggered, not parallel
+- One faculty teaches one batch for the full duration; the same faculty and same lab room are used across all consecutive slots of that batch
+- Consecutive slots never straddle the lunch break
+- Pre-assigned faculty (set via Lab Faculty Assignment) take priority; unassigned batches auto-fill
+
+### Theory / B.T.U. Subjects
+- Maximum **6 theory subjects** are scheduled per section (highest-credit subjects prioritized)
+- **B.T.U. (Bikaner Technical University) subjects** are scheduled **only for BTU sections** — sections whose name contains "BTU" (e.g., Section BTU, Section A-BTU)
+- Subjects spread evenly across Mon–Sat; no subject appears twice on the same day
+- Faculty assigned from their "subjects can teach" list; rooms prefer the section's dedicated classroom
+
+### Conflict Avoidance
+- No faculty or room is double-booked at any point
+- Faculty workload is balanced across available slots
+- Lab rooms are matched by type; theory uses classrooms
+
+---
 
 ## Schedule
 
 | Period | Time |
 |--------|------|
-| Period 1 | 8:00 AM – 9:00 AM |
-| Period 2 | 9:00 AM – 9:50 AM |
-| Period 3 | 9:50 AM – 10:40 AM |
-| Period 4 | 10:40 AM – 11:30 AM |
-| **Lunch** | **11:30 AM – 12:30 PM** |
-| Period 5 | 12:30 PM – 1:20 PM |
-| Period 6 | 1:20 PM – 2:10 PM |
-| Period 7 | 2:10 PM – 3:00 PM |
+| Period 1 | 8:00 – 9:00 |
+| Period 2 | 9:00 – 9:50 |
+| Period 3 | 9:50 – 10:40 |
+| Period 4 | 10:40 – 11:30 |
+| **Lunch** | **11:30 – 12:30** |
+| Period 5 | 12:30 – 13:20 |
+| Period 6 | 13:20 – 14:10 |
+| Period 7 | 14:10 – 15:00 |
+
+---
 
 ## Tech Stack
 
-- **Backend:** Node.js, Express, PostgreSQL (Neon)
-- **Frontend:** Vanilla HTML/CSS/JS
-- **Authentication:** JWT + Google OAuth
-- **Deployment:** Vercel
+| Layer | Technology |
+|-------|-----------|
+| Backend | Node.js, Express |
+| Database | PostgreSQL (Neon) |
+| Frontend | Vanilla HTML / CSS / JS |
+| Auth | JWT + Google OAuth 2.0 |
+| Deployment | Vercel |
+
+---
 
 ## Getting Started
 
@@ -42,130 +80,86 @@
 ```bash
 npm install
 cp .env.template .env
-# Edit .env and fill in:
-#  - POSTGRES_URL (from Neon database)
-#  - JWT_SECRET (any strong random string)
-#  - GOOGLE_CLIENT_ID (from Google Cloud Console)
+# Fill in .env:
+#   POSTGRES_URL  — from Neon dashboard
+#   JWT_SECRET    — any strong random string
+#   GOOGLE_CLIENT_ID — from Google Cloud Console (optional)
 node server.js
 ```
 
 Open [http://localhost:3000](http://localhost:3000)
 
-**Admin login:** Use Google Sign-In OR fallback password `admin` / `admin123`
+Default admin: **admin / admin123**
 
-### Google OAuth Setup
+### Google OAuth Setup (Optional)
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-2. Create a new **OAuth 2.0 Client ID** (Application type: Web application)
-3. Add authorized JavaScript origins:
-   - `http://localhost:3000` (for local development)
-   - `https://your-app-name.vercel.app` (for production)
-4. Add authorized redirect URIs:
+1. Go to [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials)
+2. Create **OAuth 2.0 Client ID** (Web application)
+3. Authorized JavaScript origins:
    - `http://localhost:3000`
-   - `https://your-app-name.vercel.app`
-5. Copy the **Client ID** and add it to:
-   - `.env` file as `GOOGLE_CLIENT_ID` (local)
-   - Vercel environment variables (production)
+   - `https://your-vercel-app.vercel.app`
+4. Copy the Client ID → add to `.env` as `GOOGLE_CLIENT_ID`
+5. Add the same value to Vercel environment variables
 
 ### Vercel Deployment
 
-1. Push to GitHub
-2. Import repository in Vercel
-3. Add environment variables in Vercel dashboard:
-   - `POSTGRES_URL` — Get from Neon integration or dashboard
-   - `JWT_SECRET` — Generate with `openssl rand -base64 32`
-   - `GOOGLE_CLIENT_ID` — From Google Cloud Console (see above)
-4. Deploy!
-
-The database tables will be created automatically on first run.
-
-## Department Info
-
-- 25 Teaching Faculty + 2 HODs (Mentor & Admin)
-- B.Tech I, II, III Year — Sections A, B, C
-- 24 Subjects across all years
-- 17 Rooms & Labs
-
+1. Push repository to GitHub
+2. Import in Vercel → set environment variables:
+   - `POSTGRES_URL` — from Neon
+   - `JWT_SECRET` — `openssl rand -base64 32`
+   - `GOOGLE_CLIENT_ID` — optional
+3. Deploy — database tables are created automatically on first request
 
 ---
 
-## What's New in v2.0 ✨
+## Admin Workflow
 
-### 🎓 Batch-Wise Lab Assignment
-- Pre-assign specific faculty to each lab batch (A, B, C, etc.)
-- Prevent lab batch overlaps with dedicated day/slot allocation
-- Customize batch names and count per section
-- Support for flexible lab subsections
+### 1. Setup Sections & Lab Batches
 
-### 🚨 Comprehensive Conflicts Management
-- **New Conflicts Page** — Visual interface for conflict detection and resolution
-- **Advanced Filtering** — Filter by conflict type (faculty/room) and day
-- **Statistics Dashboard** — See total conflicts, affected sections at a glance
-- **Conflict Suggestions** — AI-powered suggestions for conflict resolution
-- **Real-time Scanning** — Detect conflicts immediately after generation
-
-### 🧠 Improved Scheduling Algorithm
-- **Hardest-First Scheduling** — Prioritize high-hour subjects for better placement
-- **Faculty Workload Balancing** — Distribute teaching load evenly
-- **Better Batch Placement** — Each batch on unique day/slot to prevent overlaps
-- **Enhanced Logging** — Detailed tracking of unplaced subjects and conflicts
-
-### 🎨 Better User Interface
-- **Consistent Navigation** — Conflicts link added to all admin pages
-- **Enhanced Generate Results** — Shows conflict statistics after generation
-- **Color-Coded Cards** — Visual indicators for conflict types
-- **Responsive Design** — Mobile-friendly interface
-
-### 📊 Enhanced API
-- `GET /api/admin/conflicts` — Detailed conflict information
-- `POST /api/admin/scan-conflicts` — Scan and get statistics
-- `POST /api/admin/suggest-fix` — Get conflict resolution suggestions
-- `POST /api/admin/lab-assignments` — Manage batch faculty assignments
-- `GET /api/admin/lab-assignments/:sectionId` — Get batch assignments
-- `DELETE /api/admin/lab-assignments/:sectionId` — Clear assignments
-
-### 📚 Comprehensive Documentation
-- **IMPROVEMENTS_SUMMARY.md** — Technical details of all improvements
-- **IMPLEMENTATION_GUIDE.md** — Step-by-step usage guide
-- **CHANGES_LOG.md** — Complete changelog with before/after
-
----
-
-## Quick Reference: v2.0 Workflow
-
-### 1. Setup Lab Batches
 ```
 Admin → Years & Sections
-→ Edit Section
-→ Set lab_subsections (e.g., 2)
-→ Set subsection_names (e.g., ["A","B"])
+  → Add section (e.g., "A", "B", "BTU")
+  → Click ⚙️ on a section to set batch count and names
+    e.g., 2 batches named "A" and "B"
 ```
 
-### 2. Pre-Assign Faculty (Optional)
-```javascript
-POST /api/admin/lab-assignments
-{
-  "section_id": 1,
-  "subject_id": 15,
-  "batch_name": "A",
-  "faculty_id": 5
-}
+> To create a BTU section, include "BTU" in the section name.
+
+### 2. Assign Lab Faculty (Optional)
+
 ```
+Admin → Years & Sections
+  → Click 🧑‍🔬 Lab Faculty on a section
+  → Pick a faculty for each subject × batch combination
+```
+
+Pre-assigned faculty are used during generation. Unassigned batches auto-fill.
 
 ### 3. Generate Timetable
+
 ```
 Admin → Generate
-→ Choose Scope
-→ Click "Generate Timetable"
-→ View statistics including conflicts
+  → Select scope: All / By Year / Single Section
+  → Click "Generate Timetable"
+  → Or "Reset & Regenerate" to clear first
 ```
 
-### 4. Review & Resolve Conflicts
+### 4. Edit Manually
+
 ```
-Admin → Conflicts (NEW)
-→ Click "Scan Now"
-→ View conflict details
-→ Click "Suggest Fix" for resolutions
+Admin → Editor
+  → Select Year + Section → Load
+  → Click any theory cell to change subject / faculty / room
+  → Click any batch row in a lab cell to change faculty / room
+```
+
+### 5. Check Conflicts
+
+```
+Admin → Conflicts
+  → Click "Scan Now"
+  → Filter by type (faculty / room) or day
+  → Click "Suggest Fix" for resolution hints
 ```
 
 ---
@@ -176,144 +170,147 @@ Admin → Conflicts (NEW)
 college-timetable/
 ├── public/
 │   ├── admin/
-│   │   ├── conflicts.html          ✨ NEW
-│   │   ├── dashboard.html          (updated)
-│   │   ├── editor.html             (updated)
-│   │   ├── generate.html           (updated)
-│   │   ├── faculty.html            (updated)
-│   │   ├── rooms.html              (updated)
-│   │   ├── sections.html           (updated)
-│   │   ├── subjects.html           (updated)
-│   │   └── incharges.html          (updated)
+│   │   ├── conflicts.html       — Conflict detection & review
+│   │   ├── dashboard.html       — Stats, quick actions, settings
+│   │   ├── editor.html          — Manual timetable editor
+│   │   ├── faculty.html         — Faculty CRUD
+│   │   ├── generate.html        — Auto-generation controls
+│   │   ├── incharges.html       — Dept incharge management (super admin)
+│   │   ├── rooms.html           — Room CRUD
+│   │   ├── sections.html        — Sections + lab batch config
+│   │   └── subjects.html        — Subject CRUD
 │   ├── views/
 │   │   ├── class-timetable.html
 │   │   ├── faculty-timetable.html
 │   │   └── location-timetable.html
-│   └── css/
-│       └── style.css               (comprehensive)
+│   ├── css/style.css
+│   ├── index.html
+│   └── login.html
 ├── routes/
-│   ├── admin.js                    ✨ MAJOR UPDATES
-│   ├── auth.js
-│   └── timetable.js
-├── database.js
-├── server.js
-├── IMPROVEMENTS_SUMMARY.md         ✨ NEW
-├── IMPLEMENTATION_GUIDE.md         ✨ NEW
-├── CHANGES_LOG.md                  ✨ NEW
+│   ├── admin.js                 — All admin API endpoints
+│   ├── auth.js                  — Login / logout / OAuth
+│   └── timetable.js             — Public timetable read endpoints
+├── database.js                  — DB init + query helpers
+├── server.js                    — Express app entry point
+├── vercel.json
 └── package.json
 ```
 
 ---
 
-## API Documentation Summary
+## API Reference
 
-### Lab Assignments
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/api/admin/lab-assignments/:sectionId` | Fetch batch assignments |
-| POST | `/api/admin/lab-assignments` | Create/update assignment |
-| DELETE | `/api/admin/lab-assignments/:sectionId` | Clear all assignments |
+### Timetable (Public)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/timetable/class?section_id=` | Class timetable entries |
+| GET | `/api/timetable/faculty?faculty_id=` | Faculty timetable |
+| GET | `/api/timetable/location?room_id=` | Room/location timetable |
+| GET | `/api/sections?year_id=` | Sections list |
+| GET | `/api/faculty?department_id=` | Faculty list |
+| GET | `/api/rooms?department_id=` | Rooms list |
+| GET | `/api/timeslots?department_id=` | Time slots |
 
-### Conflicts (New)
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/api/admin/conflicts` | Get detailed conflicts |
-| POST | `/api/admin/scan-conflicts` | Scan and get statistics |
-| POST | `/api/admin/suggest-fix` | Get conflict suggestions |
+### Timetable Management (Admin)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/admin/generate` | Auto-generate timetable |
+| POST | `/api/admin/clear` | Clear timetable |
+| POST | `/api/admin/timetable/entry` | Add / update a cell entry |
+| DELETE | `/api/admin/timetable/entry/:id` | Delete an entry |
 
-### Enhanced
-| Method | Endpoint | Change |
-|--------|----------|--------|
-| POST | `/api/admin/generate` | Now returns conflict statistics |
+### Lab Assignments (Admin)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/admin/lab-assignments/:sectionId` | Get batch–faculty map |
+| POST | `/api/admin/lab-assignments` | Save one batch assignment |
+| DELETE | `/api/admin/lab-assignments/:sectionId` | Clear all for section |
+| GET | `/api/admin/lab-entries/:sectionId` | Grouped lab schedule (editor) |
+
+### Conflicts (Admin)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/admin/conflicts` | All current conflicts with details |
+| POST | `/api/admin/scan-conflicts` | Scan and return summary stats |
+| POST | `/api/admin/suggest-fix` | Suggestion for a specific slot conflict |
+
+### CRUD (Admin)
+| Method | Endpoint |
+|--------|----------|
+| POST/PUT/DELETE | `/api/admin/sections/:id` |
+| POST/PUT/DELETE | `/api/admin/subjects/:id` |
+| POST/PUT/DELETE | `/api/admin/faculty/:id` |
+| POST/PUT/DELETE | `/api/admin/rooms/:id` |
+| GET/POST/PUT/DELETE | `/api/admin/incharges/:id` |
+| GET/POST/PUT/DELETE | `/api/admin/departments/:id` |
 
 ---
 
-## Database Schema v2.0
+## Database Schema
 
-### New Table: lab_assignments
+### Core Tables
 ```sql
-CREATE TABLE lab_assignments (
-  id SERIAL PRIMARY KEY,
-  section_id INTEGER NOT NULL REFERENCES sections(id),
-  subject_id INTEGER NOT NULL REFERENCES subjects(id),
-  batch_name TEXT NOT NULL,
-  faculty_id INTEGER REFERENCES faculty(id),
-  UNIQUE(section_id, subject_id, batch_name)
-);
+sections   (id, year_id, name, lab_subsections, subsection_names)
+subjects   (id, year_id, name, code, type, category, credits, hours_per_week)
+           -- type: 'theory' | 'lab'
+           -- category: 'regular' | 'btu'
+faculty    (id, department_id, name, designation, role, email, subjects_can_teach)
+rooms      (id, department_id, name, type, capacity)
+           -- type: 'classroom' | 'lab'
+time_slots (id, department_id, slot_number, start_time, end_time, is_break)
+timetable_entries (id, section_id, time_slot_id, day_of_week,
+                   subject_id, faculty_id, room_id, subsection)
+           -- subsection: batch name (A/B/C) for lab entries, NULL for theory
 ```
 
-### Enhanced: sections
+### Supporting Tables
 ```sql
-ALTER TABLE sections ADD COLUMN lab_subsections INTEGER DEFAULT 2;
-ALTER TABLE sections ADD COLUMN subsection_names TEXT DEFAULT NULL;
+lab_assignments (id, section_id, subject_id, batch_name, faculty_id)
+  UNIQUE (section_id, subject_id, batch_name)
+
+departments   (id, name, code)
+dept_incharges (id, department_id, email, name, is_active)
+years         (id, department_id, name, display_name)
+settings      (key, value)
 ```
 
 ---
 
 ## Troubleshooting
 
-### Conflicts not showing?
-1. Go to **Admin → Conflicts**
-2. Click **Scan Now** button
-3. Clear browser cache if needed
+**Lab batches overlapping in editor?**
+- Each batch is in its own slot — click the batch row (not the header) to edit it
+- If slots look wrong, regenerate the timetable
 
-### Lab batches overlapping?
-1. Check **Conflicts** page for overlaps
-2. Verify enough lab rooms exist
-3. Check faculty availability
-4. Try regenerating
+**BTU subjects appearing in all sections?**
+- Name BTU sections with "BTU" in the name (e.g., "Section BTU" or "BTU-A")
+- Regenerate after renaming
 
-### Batch assignments not used?
-1. Verify assignments saved: `GET /api/admin/lab-assignments/:sectionId`
-2. Check subject type is "lab"
-3. Check section has `lab_subsections` set
-4. Regenerate timetable
+**Conflicts after generation?**
+- Go to Admin → Conflicts → Scan Now
+- Common causes: insufficient labs/classrooms, too many subjects for available slots
+- Try increasing rooms or reducing hours_per_week on some subjects
 
-### See more troubleshooting in [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md)
+**Theory subjects missing from timetable?**
+- Only top 6 by credits are scheduled per section
+- Subjects with zero credits may be deprioritized — set credits appropriately
 
----
-
-## Performance Notes
-
-- **Algorithm Improvements** — 30% faster scheduling with hardest-first approach
-- **Conflict Detection** — Uses efficient GROUP BY queries
-- **Batch Placement** — O(n) per batch, no overlaps by design
-- **Large Institutions** — Consider generating by year for 500+ sections
+**Google OAuth not working?**
+- Ensure `GOOGLE_CLIENT_ID` is set in both `.env` and Vercel env vars
+- Check authorized origins include your exact domain (no trailing slash)
 
 ---
 
 ## Version History
 
-**v2.0** (June 5, 2026) ✨
-- Batch-wise lab assignment system
-- Comprehensive conflicts management
-- Enhanced scheduling algorithms
-- Improved UI/UX across admin panel
-- Complete documentation
-
-**v1.0** (Previous)
-- Basic timetable generation
-- Simple conflict detection
-- Standard CRUD operations
-
----
-
-## Support & Documentation
-
-- **Getting Started:** See "Getting Started" section above
-- **Implementation Guide:** [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md)
-- **Technical Details:** [IMPROVEMENTS_SUMMARY.md](IMPROVEMENTS_SUMMARY.md)
-- **Changes Log:** [CHANGES_LOG.md](CHANGES_LOG.md)
-- **API Routes:** See `routes/admin.js`
+| Version | Date | Notes |
+|---------|------|-------|
+| v3.0 | June 2026 | Staggered lab batches, BTU-section filtering, unified editor grid, 6-subject theory cap, lab room consistency fix |
+| v2.0 | June 2026 | Batch-wise lab assignment, conflicts page, multi-department support, improved algorithm |
+| v1.0 | — | Basic generation, simple conflict detection, standard CRUD |
 
 ---
 
 ## License
 
-This project is maintained by JIET Department of Technology.
-
----
-
-**Current Version:** 2.0  
-**Last Updated:** June 5, 2026  
-**Status:** Production Ready ✅
+Maintained by JIET Department of Technology.
