@@ -896,6 +896,7 @@ router.post('/generate', requireAuth, async (req, res) => {
 
     const facultyBusy = {};
     const roomBusy    = {};
+    const roomUsageCount = Object.fromEntries(labs.map(r => [r.id, 0]));
     const isFacultyFree = (d,s,f) => !facultyBusy[`${d}_${s}`]?.has(f);
     const isRoomFree    = (d,s,r) => !roomBusy[`${d}_${s}`]?.has(r);
     const markFaculty   = (d,s,f) => { const k=`${d}_${s}`; if(!facultyBusy[k]) facultyBusy[k]=new Set(); facultyBusy[k].add(f); };
@@ -1017,13 +1018,14 @@ router.post('/generate', requireAuth, async (req, res) => {
             const freeSlots = allSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`));
             if (freeSlots.length < hoursNeeded) continue;
 
-            // Build consecutive groups
+            // Build consecutive groups (respecting lunch breaks)
             const groups = [];
             let cur = [freeSlots[0]];
             for (let i = 1; i < freeSlots.length; i++) {
               if (freeSlots[i].slot_number === freeSlots[i-1].slot_number + 1) {
                 cur.push(freeSlots[i]);
               } else {
+                // Gap detected - likely lunch break
                 if (cur.length >= hoursNeeded) groups.push([...cur]);
                 cur = [freeSlots[i]];
               }
@@ -1040,9 +1042,12 @@ router.post('/generate', requireAuth, async (req, res) => {
                 if (!candidate.every(sl => isFacultyFree(day, sl.id, batchFaculty.id))) continue;
 
                 // Need at least one lab free for all slots in window (same lab across all)
-                const labFreeAll = labs.find(r =>
+                // Prefer labs that are less frequently used
+                const availableLabs = labs.filter(r =>
                   candidate.every(sl => isRoomFree(day, sl.id, r.id))
-                );
+                ).sort((a, b) => roomUsageCount[a.id] - roomUsageCount[b.id]);
+                
+                const labFreeAll = availableLabs[0];
                 if (!labFreeAll) continue;
 
                 // Place this batch in all consecutive slots with same faculty + same lab
@@ -1056,6 +1061,7 @@ router.post('/generate', requireAuth, async (req, res) => {
                   usedSlots.add(`${day}_${sl.id}`);
                   dayLabLoad[day]++;
                 }
+                roomUsageCount[labFreeAll.id]++;
                 batchPlaced = true;
                 break;
               }
@@ -1063,7 +1069,7 @@ router.post('/generate', requireAuth, async (req, res) => {
           }
 
           if (!batchPlaced) {
-            console.warn(`Could not place ${subj.name} batch ${batchName} — no free consecutive window`);
+            console.warn(`Warning: Could not place ${subj.name} batch ${batchName} for section ${section.name} — no free consecutive window found after trying all days`);
           }
         }
       }
@@ -1088,6 +1094,9 @@ router.post('/generate', requireAuth, async (req, res) => {
       const daySubjects = Object.fromEntries(days.map(d => [d, new Set()]));
       const preferredRoomId = sectionRoomMap[section.id];
 
+      // For theory subjects: track faculty usage to balance workload
+      const facultyTheoryCount = Object.fromEntries(allFaculty.map(f => [f.id, 0]));
+
       let pi = 0, oi = 0;
       while (pi < theoryTokens.length && oi < orderedSlots.length * 3) {
         const { day, slot } = orderedSlots[oi % orderedSlots.length]; oi++;
@@ -1097,11 +1106,14 @@ router.post('/generate', requireAuth, async (req, res) => {
         const subj = theoryTokens[pi];
         if (daySubjects[day].has(subj.id)) continue; // same subject twice on same day
 
+        // Find eligible faculty (qualified + free) and prefer less-loaded ones
         const eligible = allFaculty.filter(f => {
           try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
         });
-        const fPool = shuffle(eligible.length ? eligible : allFaculty);
-        const chosenF = fPool.find(f => isFacultyFree(day, slot.id, f.id));
+        const candidateFaculty = shuffle(eligible.length ? eligible : allFaculty)
+          .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id]);
+        
+        const chosenF = candidateFaculty.find(f => isFacultyFree(day, slot.id, f.id));
         if (!chosenF) continue;
 
         const preferred = classrooms.find(r => r.id === preferredRoomId);
@@ -1120,6 +1132,7 @@ router.post('/generate', requireAuth, async (req, res) => {
         usedSlots.add(key);
         daySubjects[day].add(subj.id);
         dayLoad[day]++;
+        facultyTheoryCount[chosenF.id]++;
         pi++;
       }
     }
