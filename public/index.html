@@ -19,10 +19,18 @@
   </header>
 
   <div class="hero">
-    <h1 id="heroTitle">Department of Technology</h1>
-    <p>B.Tech Timetable Management System — View class schedules, faculty timetables, and room allocations.</p>
-    <a href="/views/class-timetable.html" class="btn btn-primary btn-lg" style="margin-right:12px;">View Timetables</a>
-    <a href="/login.html" class="btn btn-outline btn-lg" style="border-color:white;color:white;">Admin Panel</a>
+    <div style="max-width:800px;margin:0 auto;">
+      <div style="margin-bottom:24px;">
+        <label style="display:block;margin-bottom:8px;font-size:0.9rem;color:rgba(255,255,255,0.9);">Select Department:</label>
+        <select id="departmentSelector" style="padding:12px 20px;font-size:1rem;border:2px solid white;border-radius:8px;background:rgba(255,255,255,0.1);color:white;min-width:300px;cursor:pointer;">
+          <option value="">Loading departments...</option>
+        </select>
+      </div>
+      <h1 id="heroTitle">Select a Department</h1>
+      <p>B.Tech Timetable Management System — View class schedules, faculty timetables, and room allocations.</p>
+      <a href="/views/class-timetable.html" class="btn btn-primary btn-lg" style="margin-right:12px;">View Timetables</a>
+      <a href="/login.html" class="btn btn-outline btn-lg" style="border-color:white;color:white;">Admin Panel</a>
+    </div>
   </div>
 
   <div class="view-cards">
@@ -48,18 +56,51 @@
   </div>
 
   <script>
+    let currentDepartmentId = localStorage.getItem('selectedDepartmentId') || '1';
+    
+    // Load departments
+    async function loadDepartments() {
+      try {
+        const res = await fetch('/api/departments');
+        const departments = await res.json();
+        const select = document.getElementById('departmentSelector');
+        select.innerHTML = departments.map(d => 
+          `<option value="${d.id}" ${d.id == currentDepartmentId ? 'selected' : ''}>${d.name}</option>`
+        ).join('');
+        
+        // Update title with selected department
+        const selected = departments.find(d => d.id == currentDepartmentId);
+        if (selected) {
+          document.getElementById('heroTitle').textContent = selected.name;
+        }
+      } catch (err) {
+        console.error('Failed to load departments:', err);
+      }
+    }
+
+    // Handle department selection change
+    document.getElementById('departmentSelector').addEventListener('change', (e) => {
+      currentDepartmentId = e.target.value;
+      localStorage.setItem('selectedDepartmentId', currentDepartmentId);
+      const selectedOption = e.target.options[e.target.selectedIndex];
+      document.getElementById('heroTitle').textContent = selectedOption.text;
+    });
+
+    // Load college settings
     fetch('/api/settings').then(r => r.json()).then(s => {
-      const dept = s.department_name || 'Department of Technology';
-      document.getElementById('heroTitle').textContent = dept;
-      document.querySelector('footer-text') && (document.querySelector('footer-text').textContent = dept);
+      const college = s.college_name || 'JIET Universe';
+      document.querySelector('.logo span').textContent = college;
     }).catch(() => {});
-    // Check if admin is logged in and update link
+
+    // Check if admin is logged in
     fetch('/api/auth/status').then(r => r.json()).then(data => {
       if (data.loggedIn) {
         document.getElementById('adminLink').href = '/admin/dashboard.html';
         document.getElementById('adminLink').textContent = 'Dashboard';
       }
     });
+
+    loadDepartments();
   </script>
 </body>
 </html>

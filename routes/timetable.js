@@ -2,7 +2,15 @@ const express = require('express');
 const router = express.Router();
 const { query, queryOne } = require('../database');
 
-// Public: GET settings (department name, Google Client ID, etc.)
+// Public: GET departments list
+router.get('/departments', async (req, res) => {
+  try {
+    const rows = await query('SELECT id, name, code FROM departments ORDER BY id');
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Public: GET settings (college name, Google Client ID, etc.)
 router.get('/settings', async (req, res) => {
   try {
     const rows = await query('SELECT key, value FROM settings');
@@ -15,19 +23,30 @@ router.get('/settings', async (req, res) => {
 
 router.get('/years', async (req, res) => {
   try {
-    const rows = await query('SELECT * FROM years ORDER BY id');
+    const { department_id } = req.query;
+    let rows;
+    if (department_id) {
+      rows = await query('SELECT * FROM years WHERE department_id = $1 ORDER BY id', [department_id]);
+    } else {
+      rows = await query('SELECT * FROM years ORDER BY id');
+    }
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.get('/sections', async (req, res) => {
   try {
-    const { year_id } = req.query;
+    const { year_id, department_id } = req.query;
     let rows;
     if (year_id) {
       rows = await query(
         'SELECT s.*, y.display_name as year_name FROM sections s JOIN years y ON s.year_id = y.id WHERE s.year_id = $1 ORDER BY s.name',
         [year_id]
+      );
+    } else if (department_id) {
+      rows = await query(
+        'SELECT s.*, y.display_name as year_name FROM sections s JOIN years y ON s.year_id = y.id WHERE y.department_id = $1 ORDER BY y.id, s.name',
+        [department_id]
       );
     } else {
       rows = await query(
@@ -40,10 +59,15 @@ router.get('/sections', async (req, res) => {
 
 router.get('/subjects', async (req, res) => {
   try {
-    const { year_id } = req.query;
+    const { year_id, department_id } = req.query;
     let rows;
     if (year_id) {
       rows = await query('SELECT * FROM subjects WHERE year_id = $1 ORDER BY name', [year_id]);
+    } else if (department_id) {
+      rows = await query(
+        'SELECT s.*, y.display_name as year_name FROM subjects s JOIN years y ON s.year_id = y.id WHERE y.department_id = $1 ORDER BY y.id, s.name',
+        [department_id]
+      );
     } else {
       rows = await query(
         'SELECT s.*, y.display_name as year_name FROM subjects s JOIN years y ON s.year_id = y.id ORDER BY y.id, s.name'
@@ -55,21 +79,39 @@ router.get('/subjects', async (req, res) => {
 
 router.get('/faculty', async (req, res) => {
   try {
-    const rows = await query('SELECT * FROM faculty ORDER BY name');
+    const { department_id } = req.query;
+    let rows;
+    if (department_id) {
+      rows = await query('SELECT * FROM faculty WHERE department_id = $1 ORDER BY name', [department_id]);
+    } else {
+      rows = await query('SELECT * FROM faculty ORDER BY name');
+    }
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.get('/rooms', async (req, res) => {
   try {
-    const rows = await query('SELECT * FROM rooms ORDER BY type, name');
+    const { department_id } = req.query;
+    let rows;
+    if (department_id) {
+      rows = await query('SELECT * FROM rooms WHERE department_id = $1 ORDER BY type, name', [department_id]);
+    } else {
+      rows = await query('SELECT * FROM rooms ORDER BY type, name');
+    }
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.get('/timeslots', async (req, res) => {
   try {
-    const rows = await query('SELECT * FROM time_slots ORDER BY slot_number');
+    const { department_id } = req.query;
+    let rows;
+    if (department_id) {
+      rows = await query('SELECT * FROM time_slots WHERE department_id = $1 ORDER BY slot_number', [department_id]);
+    } else {
+      rows = await query('SELECT * FROM time_slots ORDER BY slot_number');
+    }
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
