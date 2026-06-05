@@ -99,11 +99,58 @@
           <div id="settingsAlert" style="margin-top:10px;"></div>
         </div>
       </div>
+
+      <!-- Change Login Credentials (Super Admin only) -->
+      <div class="card mt-3" id="credentialsCard" style="display:none;">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>🔐 Change Login Credentials</span>
+          <button class="btn btn-outline btn-sm" onclick="toggleCredentials()" id="credentialsBtn">✏️ Change</button>
+        </div>
+        <div id="credentialsView">
+          <p style="font-size:0.88rem;color:#666;margin:0;">
+            Username and password for super admin login. Use the button to update your credentials.
+          </p>
+          <div style="margin-top:10px;display:flex;gap:10px;align-items:center;font-size:0.85rem;">
+            <span style="color:#555;">Current username:</span>
+            <strong id="currentUsernameDisplay" style="color:#1a237e;">—</strong>
+          </div>
+        </div>
+        <div id="credentialsEdit" style="display:none;">
+          <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:0.83rem;color:#795548;">
+            ⚠️ After saving, you will be logged out and must sign in with the new credentials.
+          </div>
+          <div class="form-group">
+            <label>Current Password <span style="color:#c62828;">*</span></label>
+            <input type="password" id="currentPassword" class="form-control" placeholder="Enter current password to confirm">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>New Username <span style="font-size:0.75rem;color:#888;">(leave blank to keep current)</span></label>
+              <input type="text" id="newUsername" class="form-control" placeholder="New username (min 3 chars)" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label>New Password <span style="font-size:0.75rem;color:#888;">(leave blank to keep current)</span></label>
+              <input type="password" id="newPassword" class="form-control" placeholder="New password (min 6 chars)" autocomplete="new-password">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Confirm New Password</label>
+            <input type="password" id="confirmPassword" class="form-control" placeholder="Repeat new password">
+          </div>
+          <div style="display:flex;gap:10px;margin-top:4px;">
+            <button class="btn btn-danger btn-sm" onclick="saveCredentials()" id="saveCredBtn">🔐 Update Credentials</button>
+            <button class="btn btn-secondary btn-sm" onclick="toggleCredentials()">Cancel</button>
+          </div>
+          <div id="credentialsAlert" style="margin-top:12px;"></div>
+        </div>
+      </div>
     </main>
   </div>
 
   <script>
     let currentSettings = {};
+    let isSuperAdmin = false;
+    let currentUsername = '';
 
     // Auth check + show user badge
     fetch('/api/auth/status').then(r => r.json()).then(d => {
@@ -116,15 +163,16 @@
       } else {
         badge.innerHTML = `<span>👤 ${d.user.username}</span>`;
       }
-      // Show super admin menu only for super admins
       if (d.user.isSuperAdmin) {
         document.getElementById('superAdminMenu').style.display = 'block';
+        document.getElementById('credentialsCard').style.display = 'block';
+        isSuperAdmin = true;
+        currentUsername = d.user.username;
+        document.getElementById('currentUsernameDisplay').textContent = currentUsername;
       }
-      // Show current department for incharges
       if (!d.user.isSuperAdmin && d.user.dept_name) {
         document.getElementById('deptDisplay').textContent = d.user.dept_name;
         document.getElementById('collegeDisplay').textContent = 'JIET Universe';
-        // Also update page title
         document.querySelector('.page-title').textContent = `Dashboard — ${d.user.dept_name}`;
       }
     });
@@ -201,6 +249,77 @@
     async function logout() {
       await fetch('/api/auth/logout', { method: 'POST' });
       location.href = '/login.html';
+    }
+
+    // ── Credentials change ────────────────────────────────────────────────────
+    function toggleCredentials() {
+      const view = document.getElementById('credentialsView');
+      const edit = document.getElementById('credentialsEdit');
+      const btn  = document.getElementById('credentialsBtn');
+      const editing = edit.style.display === 'none';
+      view.style.display = editing ? 'none' : 'block';
+      edit.style.display = editing ? 'block' : 'none';
+      btn.textContent    = editing ? '✖ Cancel' : '✏️ Change';
+      // Reset fields on open/close
+      document.getElementById('currentPassword').value = '';
+      document.getElementById('newUsername').value     = '';
+      document.getElementById('newPassword').value     = '';
+      document.getElementById('confirmPassword').value = '';
+      document.getElementById('credentialsAlert').innerHTML = '';
+    }
+
+    async function saveCredentials() {
+      const currentPwd  = document.getElementById('currentPassword').value;
+      const newUser     = document.getElementById('newUsername').value.trim();
+      const newPwd      = document.getElementById('newPassword').value;
+      const confirmPwd  = document.getElementById('confirmPassword').value;
+      const alertBox    = document.getElementById('credentialsAlert');
+      const btn         = document.getElementById('saveCredBtn');
+
+      alertBox.innerHTML = '';
+
+      if (!currentPwd) {
+        alertBox.innerHTML = '<div class="alert alert-error">Current password is required.</div>'; return;
+      }
+      if (!newUser && !newPwd) {
+        alertBox.innerHTML = '<div class="alert alert-error">Enter a new username or new password.</div>'; return;
+      }
+      if (newPwd && newPwd !== confirmPwd) {
+        alertBox.innerHTML = '<div class="alert alert-error">New passwords do not match.</div>'; return;
+      }
+      if (newPwd && newPwd.length < 6) {
+        alertBox.innerHTML = '<div class="alert alert-error">Password must be at least 6 characters.</div>'; return;
+      }
+      if (newUser && newUser.length < 3) {
+        alertBox.innerHTML = '<div class="alert alert-error">Username must be at least 3 characters.</div>'; return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      try {
+        const res  = await fetch('/api/admin/change-credentials', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ current_password: currentPwd, new_username: newUser || undefined, new_password: newPwd || undefined })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          alertBox.innerHTML = `<div class="alert alert-success">✅ ${data.message}</div>`;
+          // Force logout after 2 seconds
+          setTimeout(async () => {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            location.href = '/login.html';
+          }, 2000);
+        } else {
+          alertBox.innerHTML = `<div class="alert alert-error">❌ ${data.error || 'Failed to update.'}</div>`;
+          btn.disabled = false;
+          btn.textContent = '🔐 Update Credentials';
+        }
+      } catch (err) {
+        alertBox.innerHTML = `<div class="alert alert-error">Server error: ${err.message}</div>`;
+        btn.disabled = false;
+        btn.textContent = '🔐 Update Credentials';
+      }
     }
 
     loadStats();

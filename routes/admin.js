@@ -213,6 +213,50 @@ router.put('/settings', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Change super admin credentials (super admin only) ─────────────────────────
+router.put('/change-credentials', requireAuth, async (req, res) => {
+  try {
+    if (!req.user.isSuperAdmin)
+      return res.status(403).json({ error: 'Super admin access required' });
+
+    const { current_password, new_username, new_password } = req.body;
+    if (!current_password)
+      return res.status(400).json({ error: 'Current password is required' });
+
+    // Verify current password
+    const user = await queryOne(
+      'SELECT * FROM users WHERE id=$1', [req.user.id]
+    );
+    if (!user || user.password !== current_password)
+      return res.status(401).json({ error: 'Current password is incorrect' });
+
+    // Validate new values
+    if (new_username && new_username.trim().length < 3)
+      return res.status(400).json({ error: 'Username must be at least 3 characters' });
+    if (new_password && new_password.length < 6)
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+
+    if (!new_username && !new_password)
+      return res.status(400).json({ error: 'Provide a new username or new password to update' });
+
+    // Check username uniqueness if changing
+    if (new_username && new_username.trim() !== user.username) {
+      const existing = await queryOne('SELECT id FROM users WHERE username=$1', [new_username.trim()]);
+      if (existing) return res.status(409).json({ error: 'Username already taken' });
+    }
+
+    const updatedUsername = (new_username && new_username.trim()) || user.username;
+    const updatedPassword = new_password || user.password;
+
+    await run(
+      'UPDATE users SET username=$1, password=$2 WHERE id=$3',
+      [updatedUsername, updatedPassword, user.id]
+    );
+
+    res.json({ message: 'Credentials updated successfully. Please log in again.', logout: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // =============================================================================
 // ==================== SUBJECTS ===============================================
 // =============================================================================
