@@ -967,14 +967,14 @@ router.post('/generate', requireAuth, async (req, res) => {
         eligibleTheory = [...regularTheory];
       }
 
-      // ── Cap theory subjects at 6 (BTU subjects guaranteed for BTU sections) ──
+      // ── Cap theory subjects (BTU subjects guaranteed for BTU sections) ──
       // For BTU sections: always include all BTU subjects (they are mandatory),
-      // then fill remaining slots (up to 6 total) with highest-credit regular subjects.
+      // then fill remaining slots (up to 7 total) with highest-credit regular subjects.
       // For non-BTU sections: top 6 regular subjects by credits.
       let cappedTheory;
       if (isBtuSection && btuTheory.length > 0) {
-        // BTU subjects come first (guaranteed), then top regular subjects to fill to 6
-        const remainingSlots = Math.max(0, 6 - btuTheory.length);
+        // BTU subjects come first (guaranteed), then top regular subjects to fill to 7
+        const remainingSlots = Math.max(0, 7 - btuTheory.length);
         const topRegular = [...regularTheory]
           .sort((a, b) => (b.credits || 0) - (a.credits || 0))
           .slice(0, remainingSlots);
@@ -1098,8 +1098,8 @@ router.post('/generate', requireAuth, async (req, res) => {
         }
       }
 
-      // ── Schedule THEORY subjects (max 6, spread evenly across week) ────────
-      const MAX_THEORY = 6;
+      // ── Schedule THEORY subjects (max 6 for regular, max 7 for BTU, spread evenly across week) ────────
+      const MAX_THEORY = isBtuSection ? 7 : 6;
       let theoryTokens = [];
       for (const subj of cappedTheory) {
         for (let i = 0; i < subj.hours_per_week; i++) {
