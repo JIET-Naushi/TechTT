@@ -27,18 +27,34 @@
     /* ── Theory cell ──────────────────────────────────────────────────── */
     .theory-cell {
       display: flex; flex-direction: column; justify-content: center;
-      padding: 6px 8px; min-height: 72px; cursor: pointer;
-      transition: filter 0.15s;
+      padding: 8px; min-height: 72px; cursor: pointer;
+      transition: all 0.15s ease;
+      border-radius: 4px; position: relative;
     }
-    .theory-cell:hover { filter: brightness(0.92); }
-    .theory-cell .subj { font-weight: 700; font-size: 0.78rem; color: #0d47a1; line-height: 1.3; }
-    .theory-cell .fac  { font-size: 0.7rem;  color: #444; margin-top: 2px; }
-    .theory-cell .rm   { font-size: 0.67rem; color: #777; }
+    .theory-cell:hover { 
+      filter: brightness(0.95);
+      box-shadow: inset 0 0 0 2px rgba(0,0,0,0.1);
+    }
+    .theory-cell .subj { 
+      font-weight: 700; font-size: 0.79rem; color: #0d47a1; 
+      line-height: 1.3; margin-bottom: 2px;
+    }
+    .theory-cell .fac  { 
+      font-size: 0.71rem; color: #444; margin-top: 2px; 
+      font-weight: 500;
+    }
+    .theory-cell .rm   { 
+      font-size: 0.68rem; color: #777; margin-top: 1px;
+    }
     .empty-cell {
       color: #bbb; text-align: center; font-size: 0.75rem;
       padding: 24px 4px; cursor: pointer; min-height: 72px;
+      border-radius: 4px; transition: all 0.15s ease;
     }
-    .empty-cell:hover { background: #f0f4ff; color: #1a237e; }
+    .empty-cell:hover { 
+      background: #f0f4ff; color: #1a237e; 
+      box-shadow: inset 0 0 0 2px #d1d5f0;
+    }
 
     /* ── Lab cell (slot has batches) ──────────────────────────────────── */
     .lab-slot-cell { 
@@ -49,6 +65,11 @@
       font-weight: 700; font-size: 0.73rem; color: #fff;
       background: #1565c0; padding: 5px 8px; letter-spacing: 0.3px;
       flex-shrink: 0; border-bottom: 2px solid #0d47a1;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .lab-subj-header span.badge {
+      background: rgba(255,255,255,0.25); padding: 1px 4px; 
+      border-radius: 2px; font-size: 0.62rem; font-weight: 600;
     }
     .lab-batches-container {
       display: flex; flex-direction: column; flex: 1; 
@@ -58,11 +79,15 @@
     .batch-row {
       display: flex; align-items: center; gap: 0;
       border-bottom: 1px solid #e0e0e0; cursor: pointer;
-      transition: background-color 0.15s ease; flex-shrink: 0;
+      transition: all 0.15s ease; flex-shrink: 0;
       min-height: 40px; font-size: 0.7rem;
-      padding: 0;
+      padding: 0; position: relative;
     }
-    .batch-row:hover { background-color: #e3f2fd; }
+    .batch-row:hover { 
+      background-color: #e3f2fd;
+      border-left: 3px solid #1565c0;
+      padding-left: 0;
+    }
     .batch-row:active { background-color: #bbdefb; }
     .batch-tag {
       background: #1976d2; color: #fff;
@@ -74,20 +99,43 @@
     .batch-body { 
       padding: 4px 8px; flex: 1; 
       display: flex; flex-direction: column; justify-content: center;
-      min-height: 40px; overflow: hidden; gap: 1px;
+      min-height: 40px; overflow: hidden; gap: 2px;
     }
-    .batch-body .b-fac { font-size: 0.7rem; color: #222; font-weight: 600; line-height: 1.1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
-    .batch-body .b-rm  { font-size: 0.65rem; color: #555; line-height: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
-    .batch-body .b-empty { font-size: 0.65rem; color: #999; font-style: italic; line-height: 1.1; }
+    .batch-body .b-fac { 
+      font-size: 0.71rem; color: #222; font-weight: 600; 
+      line-height: 1.1; text-overflow: ellipsis; overflow: hidden; 
+      white-space: nowrap; letter-spacing: 0.2px;
+    }
+    .batch-body .b-rm  { 
+      font-size: 0.66rem; color: #666; line-height: 1; 
+      text-overflow: ellipsis; overflow: hidden; white-space: nowrap; 
+    }
+    .batch-body .b-empty { 
+      font-size: 0.66rem; color: #999; font-style: italic; 
+      line-height: 1.1;
+    }
 
     /* ── Modal ────────────────────────────────────────────────────────── */
-    .modal { max-width: 500px; }
+    .modal { 
+      max-width: 500px; 
+      border-radius: 8px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    }
+    .modal-header {
+      background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+    }
+    .modal-title {
+      font-size: 1.1rem; font-weight: 700;
+    }
     .modal-badge {
       display: inline-block; background: #1976d2; color: #fff;
       font-size: 0.72rem; font-weight: 700; border-radius: 4px;
-      padding: 2px 8px; margin-left: 8px; vertical-align: middle;
+      padding: 3px 8px; margin-left: 8px; vertical-align: middle;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.15);
     }
-    .modal-badge.lab { background: #2e7d32; }
+    .modal-badge.lab { 
+      background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%);
+    }
   </style>
 </head>
 <body>
