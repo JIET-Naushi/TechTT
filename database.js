@@ -232,6 +232,7 @@ async function initializeDatabase() {
       subject_id INTEGER REFERENCES subjects(id),
       faculty_id INTEGER REFERENCES faculty(id),
       room_id INTEGER REFERENCES rooms(id),
+      subsection TEXT DEFAULT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -270,7 +271,29 @@ async function initializeDatabase() {
     )
   `);
 
-  // Add additional departments (CS and MECH) if they don't exist
+  // Add subsection column to timetable_entries if missing (backward compat)
+  const ttSubsectionExists = await queryOne(`
+    SELECT EXISTS (
+      SELECT FROM information_schema.columns 
+      WHERE table_name = 'timetable_entries' AND column_name = 'subsection'
+    ) as exists
+  `);
+  if (!ttSubsectionExists.exists) {
+    await run(`ALTER TABLE timetable_entries ADD COLUMN subsection TEXT DEFAULT NULL`);
+    console.log('✅ Migrated timetable_entries: added subsection column');
+  }
+
+  // Add lab_subsections column to sections if missing
+  const labSubExists = await queryOne(`
+    SELECT EXISTS (
+      SELECT FROM information_schema.columns 
+      WHERE table_name = 'sections' AND column_name = 'lab_subsections'
+    ) as exists
+  `);
+  if (!labSubExists.exists) {
+    await run(`ALTER TABLE sections ADD COLUMN lab_subsections INTEGER DEFAULT 2`);
+    console.log('✅ Migrated sections: added lab_subsections column (default 2)');
+  }
   await run(`
     INSERT INTO departments (name, code) 
     VALUES ('Department of Computer Science', 'CS')

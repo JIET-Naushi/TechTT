@@ -166,16 +166,46 @@
         html += `<tr><td class="day-cell">${day}</td>`;
         allSlots.forEach(slot => {
           if (slot.is_break) { html += `<td class="break-cell">🍽️ LUNCH</td>`; return; }
-          const entry = entries.find(e => e.day_of_week === day && e.time_slot_id === slot.id);
-          if (entry && entry.subject_id) {
-            const color = getSubjectColor(entry.subject_id);
-            html += `<td><div class="timetable-cell ${color}">
-              <div class="cell-subject">${entry.subject_name || '?'}</div>
-              <div class="cell-faculty">${entry.faculty_name || ''}</div>
-              <div class="cell-room">${entry.room_name || ''}</div>
+
+          // Gather all entries for this day+slot (may be multiple for lab subsections)
+          const slotEntries = entries.filter(e => e.day_of_week === day && e.time_slot_id === slot.id);
+
+          if (!slotEntries.length) {
+            html += `<td><div class="timetable-cell empty-cell">—</div></td>`;
+            return;
+          }
+
+          // Check if it's a lab with subsections
+          const isLabWithSubs = slotEntries.length > 1 && slotEntries.every(e => e.subsection);
+
+          if (isLabWithSubs) {
+            // Render stacked subsection cells
+            const color = getSubjectColor(slotEntries[0].subject_id);
+            const subsHtml = slotEntries.map(e => `
+              <div style="border-top:1px dashed rgba(0,0,0,0.15);padding-top:3px;margin-top:3px;">
+                <span style="background:rgba(0,0,0,0.12);border-radius:4px;padding:1px 5px;font-size:0.7rem;font-weight:700;">Batch ${e.subsection}</span>
+                <div style="font-size:0.74rem;">${e.faculty_name || ''}</div>
+                <div style="font-size:0.72rem;color:rgba(0,0,0,0.6);">${e.room_name || ''}</div>
+              </div>`).join('');
+            html += `<td><div class="timetable-cell ${color}" style="padding:4px 6px;">
+              <div class="cell-subject">${slotEntries[0].subject_name || '?'}
+                <span style="font-size:0.68rem;background:rgba(0,0,0,0.15);border-radius:3px;padding:1px 4px;margin-left:3px;">LAB</span>
+              </div>
+              ${subsHtml}
             </div></td>`;
           } else {
-            html += `<td><div class="timetable-cell empty-cell">—</div></td>`;
+            // Single entry (theory or single-subsection)
+            const entry = slotEntries[0];
+            if (entry.subject_id) {
+              const color = getSubjectColor(entry.subject_id);
+              html += `<td><div class="timetable-cell ${color}">
+                <div class="cell-subject">${entry.subject_name || '?'}</div>
+                <div class="cell-faculty">${entry.faculty_name || ''}</div>
+                <div class="cell-room">${entry.room_name || ''}</div>
+              </div></td>`;
+            } else {
+              html += `<td><div class="timetable-cell empty-cell">—</div></td>`;
+            }
           }
         });
         html += '</tr>';

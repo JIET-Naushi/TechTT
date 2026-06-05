@@ -125,14 +125,15 @@ router.get('/timetable/class', async (req, res) => {
         s.name as subject_name, s.code as subject_code, s.type as subject_type,
         f.name as faculty_name,
         r.name as room_name, r.type as room_type,
-        ts.slot_number, ts.start_time, ts.end_time, ts.is_break
+        ts.slot_number, ts.start_time, ts.end_time, ts.is_break,
+        te.subsection
       FROM timetable_entries te
       LEFT JOIN subjects s ON te.subject_id = s.id
       LEFT JOIN faculty f ON te.faculty_id = f.id
       LEFT JOIN rooms r ON te.room_id = r.id
       JOIN time_slots ts ON te.time_slot_id = ts.id
       WHERE te.section_id = $1
-      ORDER BY te.day_of_week, ts.slot_number
+      ORDER BY te.day_of_week, ts.slot_number, te.subsection
     `, [section_id]);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }

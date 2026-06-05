@@ -352,7 +352,15 @@ router.put('/sections/:id', requireAuth, async (req, res) => {
     const deptId = getDeptId(req);
     if (!(await verifyDeptOwnership('sections', req.params.id, deptId)))
       return res.status(403).json({ error: 'Section does not belong to your department' });
-    await run('UPDATE sections SET name=$1 WHERE id=$2', [req.body.name, req.params.id]);
+    const { name, lab_subsections } = req.body;
+    // Update name only, lab_subsections only, or both
+    if (name !== undefined && lab_subsections !== undefined) {
+      await run('UPDATE sections SET name=$1, lab_subsections=$2 WHERE id=$3', [name, lab_subsections, req.params.id]);
+    } else if (lab_subsections !== undefined) {
+      await run('UPDATE sections SET lab_subsections=$1 WHERE id=$2', [lab_subsections, req.params.id]);
+    } else {
+      await run('UPDATE sections SET name=$1 WHERE id=$2', [name, req.params.id]);
+    }
     res.json({ message: 'Section updated' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -486,7 +494,7 @@ router.post('/generate', requireAuth, async (req, res) => {
       sections = await query('SELECT * FROM sections WHERE year_id=$1', [year_id]);
     } else {
       sections = await query(
-        'SELECT s.* FROM sections s JOIN years y ON s.year_id=y.id WHERE y.department_id=$1', [deptId]
+        'SELECT s.*, s.lab_subsections FROM sections s JOIN years y ON s.year_id=y.id WHERE y.department_id=$1', [deptId]
       );
     }
 
@@ -522,6 +530,11 @@ router.post('/generate', requireAuth, async (req, res) => {
       const subjects = await query('SELECT * FROM subjects WHERE year_id=$1', [section.year_id]);
       if (!subjects.length) continue;
 
+      // Number of lab subsections (default 2 = 24 students each)
+      const numSubsections = section.lab_subsections || 2;
+      const subsectionLabels = Array.from({ length: numSubsections }, (_, i) =>
+        String.fromCharCode(65 + i)); // ['A', 'B'] or ['A','B','C'] etc.
+
       let periods = [];
       for (const subj of subjects)
         for (let i = 0; i < subj.hours_per_week; i++) periods.push(subj);
@@ -538,7 +551,7 @@ router.post('/generate', requireAuth, async (req, res) => {
         orderedSlots.push(...shuffle(daySlots));
       }
 
-      const usedSlots = new Set();
+      const usedSlots   = new Set();
       const daySubjects = Object.fromEntries(days.map(d => [d, new Set()]));
       const preferredRoomId = sectionRoomMap[section.id];
 
@@ -551,36 +564,78 @@ router.post('/generate', requireAuth, async (req, res) => {
         const subj = periods[pi];
         if (daySubjects[day].has(subj.id)) continue;
 
-        const eligible = allFaculty.filter(f => {
-          try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; }
-        });
-        const fPool = shuffle(eligible.length ? eligible : allFaculty);
-        const chosenF = fPool.find(f => isFacultyFree(day, slot.id, f.id));
-        if (!chosenF) continue;
-
-        let chosenR = null;
         if (subj.type === 'lab') {
-          const labPool = shuffle(labs.length ? labs : allRooms);
-          chosenR = labPool.find(r => isRoomFree(day, slot.id, r.id));
+          // ── Lab: assign one subsection per available lab in parallel ────────
+          // All subsections happen at the SAME slot, each in a different lab
+          const availLabs = shuffle(labs.filter(r => isRoomFree(day, slot.id, r.id)));
+          if (availLabs.length < numSubsections) continue; // need enough labs
+
+          // Find one faculty per subsection (all free at this slot)
+          const eligible = allFaculty.filter(f => {
+            try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; }
+          });
+          const fPool = shuffle(eligible.length ? eligible : allFaculty);
+          const chosenFaculties = [];
+          for (const f of fPool) {
+            if (isFacultyFree(day, slot.id, f.id)) {
+              chosenFaculties.push(f);
+              if (chosenFaculties.length === numSubsections) break;
+            }
+          }
+          // If not enough faculty, allow sharing (same faculty for multiple subsections)
+          while (chosenFaculties.length < numSubsections && chosenFaculties.length > 0) {
+            chosenFaculties.push(chosenFaculties[chosenFaculties.length - 1]);
+          }
+          if (!chosenFaculties.length) continue;
+
+          // Insert one timetable entry per subsection
+          for (let si2 = 0; si2 < numSubsections; si2++) {
+            const label = subsectionLabels[si2]; // 'A', 'B', ...
+            const chosenR = availLabs[si2];
+            const chosenF = chosenFaculties[si2];
+            await run(
+              'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+              [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id, label]
+            );
+            markRoom(day, slot.id, chosenR.id);
+            // Only mark faculty busy if they are unique per subsection
+            if (si2 === 0 || chosenFaculties[si2].id !== chosenFaculties[si2-1].id) {
+              markFaculty(day, slot.id, chosenF.id);
+            }
+          }
+
+          usedSlots.add(key);
+          daySubjects[day].add(subj.id);
+          pi++;
+
         } else {
+          // ── Theory: single entry as before ───────────────────────────────────
+          const eligible = allFaculty.filter(f => {
+            try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; }
+          });
+          const fPool = shuffle(eligible.length ? eligible : allFaculty);
+          const chosenF = fPool.find(f => isFacultyFree(day, slot.id, f.id));
+          if (!chosenF) continue;
+
           const preferred = classrooms.find(r => r.id === preferredRoomId);
+          let chosenR = null;
           if (preferred && isRoomFree(day, slot.id, preferred.id)) {
             chosenR = preferred;
           } else {
             chosenR = shuffle(classrooms.length ? classrooms : allRooms).find(r => isRoomFree(day, slot.id, r.id));
           }
-        }
-        if (!chosenR) continue;
+          if (!chosenR) continue;
 
-        await run(
-          'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id) VALUES ($1,$2,$3,$4,$5,$6)',
-          [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id]
-        );
-        markFaculty(day, slot.id, chosenF.id);
-        markRoom(day, slot.id, chosenR.id);
-        usedSlots.add(key);
-        daySubjects[day].add(subj.id);
-        pi++;
+          await run(
+            'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
+            [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id]
+          );
+          markFaculty(day, slot.id, chosenF.id);
+          markRoom(day, slot.id, chosenR.id);
+          usedSlots.add(key);
+          daySubjects[day].add(subj.id);
+          pi++;
+        }
       }
     }
 
