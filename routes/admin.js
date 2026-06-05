@@ -953,28 +953,13 @@ router.post('/generate', requireAuth, async (req, res) => {
       const btuLabs     = allLabSubjects.filter(s => s.category === 'btu');
 
       // Eligible lab subjects for this section:
-      // - BTU sections: both regular and BTU labs
-      // - Non-BTU sections: only regular labs
-      const labSubjects = isBtuSection 
-        ? [...regularLabs, ...btuLabs]
-        : [...regularLabs];
+      // - BTU sections: ONLY BTU labs (BTU labs are exclusive to BTU sections)
+      // - Non-BTU sections: ONLY regular labs
+      const labSubjects = isBtuSection ? [...btuLabs] : [...regularLabs];
 
       // Eligible theory for this section:
-      // - BTU sections: regular subjects + BTU subjects (max 6 total)
+      // - BTU sections: BTU subjects (guaranteed) + regular subjects
       // - Non-BTU sections: only regular subjects (max 6)
-      let eligibleTheory = [];
-      if (isBtuSection) {
-        // BTU section gets both regular and BTU subjects (up to 6 total)
-        eligibleTheory = [...regularTheory, ...btuTheory];
-      } else {
-        // Non-BTU section gets only regular subjects
-        eligibleTheory = [...regularTheory];
-      }
-
-      // ── Cap theory subjects (BTU subjects guaranteed for BTU sections) ──
-      // For BTU sections: always include all BTU subjects (they are mandatory),
-      // then fill remaining slots (up to 7 total) with highest-credit regular subjects.
-      // For non-BTU sections: top 6 regular subjects by credits.
       let cappedTheory;
       if (isBtuSection && btuTheory.length > 0) {
         // BTU subjects come first (guaranteed), then top regular subjects to fill to 7
@@ -984,75 +969,59 @@ router.post('/generate', requireAuth, async (req, res) => {
           .slice(0, remainingSlots);
         cappedTheory = [...btuTheory, ...topRegular];
       } else {
-        cappedTheory = [...eligibleTheory]
+        cappedTheory = [...regularTheory]
           .sort((a, b) => (b.credits || 0) - (a.credits || 0))
           .slice(0, 6);
       }
 
       // ── Slot tracking ──────────────────────────────────────────────────────
-      const usedSlots  = new Set(); // "day_slotId" — slot used by THIS section
+      const usedSlots  = new Set();
       const dayLoad    = Object.fromEntries(days.map(d => [d, 0]));
       const dayLabLoad = Object.fromEntries(days.map(d => [d, 0]));
 
-      // ── Schedule LAB subjects: each BATCH gets its own separate slot ────────
-      // Rule: since one faculty can teach multiple batches, batches must be staggered —
-      // each batch of a subject occupies different slots (can be same or diff day).
-      // Each batch still occupies hours_per_week consecutive slots.
-      // IMPORTANT: Same faculty CAN teach multiple batches of same subject
-      // Same lab room MUST be used for all consecutive slots of a batch
-
+      // ── Schedule LAB subjects: prefer less-loaded days for even spread ──────
       for (const subj of labSubjects) {
         const hoursNeeded = subj.hours_per_week || 2;
         const preAssigned = assignedFaculty[subj.id] || {};
 
-        // Build qualified faculty pool for this subject
         const qualifiedFac = allFaculty.filter(f => {
           try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
         });
-        const facPool = qualifiedFac.length >= numSubsections
-          ? qualifiedFac
-          : allFaculty;
+        const facPool = qualifiedFac.length >= numSubsections ? qualifiedFac : allFaculty;
 
-        // Schedule each batch independently into its own consecutive slot window
         for (let bi = 0; bi < numSubsections; bi++) {
           const batchName = batchNames[bi];
           let batchPlaced = false;
 
-          // Determine faculty for this batch
           let batchFaculty = null;
           const preId = preAssigned[batchName];
           if (preId) {
             const pre = allFaculty.find(f => f.id === preId);
-            // Use pre-assigned faculty (same faculty CAN teach multiple batches of same subject)
             if (pre) batchFaculty = pre;
           }
           if (!batchFaculty) {
-            // Find any qualified faculty (same faculty can teach multiple batches)
-            const pool = shuffle(facPool);
-            batchFaculty = pool[0] || null;
+            batchFaculty = shuffle(facPool)[0] || null;
           }
           if (!batchFaculty) {
             console.warn(`No faculty for ${subj.name} batch ${batchName}`);
             continue;
           }
 
-          // Note: Same faculty can teach multiple batches of same subject
-          // (removed the restriction that prevented this)
+          // Sort days by lab load ascending for even distribution across days
+          const sortedDays = [...days].sort((a, b) => dayLabLoad[a] - dayLabLoad[b]);
 
-          // Find a consecutive window where: faculty is free + at least 1 lab room free
-          for (const day of shuffle([...days])) {
+          for (const day of sortedDays) {
             if (batchPlaced) break;
             const freeSlots = allSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`));
             if (freeSlots.length < hoursNeeded) continue;
 
-            // Build consecutive groups (respecting lunch breaks)
+            // Build consecutive groups (respecting gaps like lunch)
             const groups = [];
             let cur = [freeSlots[0]];
             for (let i = 1; i < freeSlots.length; i++) {
               if (freeSlots[i].slot_number === freeSlots[i-1].slot_number + 1) {
                 cur.push(freeSlots[i]);
               } else {
-                // Gap detected - likely lunch break
                 if (cur.length >= hoursNeeded) groups.push([...cur]);
                 cur = [freeSlots[i]];
               }
@@ -1064,20 +1033,14 @@ router.post('/generate', requireAuth, async (req, res) => {
               if (batchPlaced) break;
               for (let start = 0; start <= group.length - hoursNeeded; start++) {
                 const candidate = group.slice(start, start + hoursNeeded);
-
-                // Faculty must be free for all slots in window
                 if (!candidate.every(sl => isFacultyFree(day, sl.id, batchFaculty.id))) continue;
 
-                // Need at least one lab free for all slots in window (same lab across all)
-                // Prefer labs that are less frequently used
                 const availableLabs = labs.filter(r =>
                   candidate.every(sl => isRoomFree(day, sl.id, r.id))
                 ).sort((a, b) => roomUsageCount[a.id] - roomUsageCount[b.id]);
-                
                 const labFreeAll = availableLabs[0];
                 if (!labFreeAll) continue;
 
-                // Place this batch in all consecutive slots with same faculty + same lab
                 for (const sl of candidate) {
                   await run(
                     'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
@@ -1087,6 +1050,7 @@ router.post('/generate', requireAuth, async (req, res) => {
                   markRoom(day, sl.id, labFreeAll.id);
                   usedSlots.add(`${day}_${sl.id}`);
                   dayLabLoad[day]++;
+                  dayLoad[day]++;
                 }
                 roomUsageCount[labFreeAll.id]++;
                 batchPlaced = true;
@@ -1096,71 +1060,129 @@ router.post('/generate', requireAuth, async (req, res) => {
           }
 
           if (!batchPlaced) {
-            console.warn(`Warning: Could not place ${subj.name} batch ${batchName} for section ${section.name} — no free consecutive window found after trying all days`);
+            console.warn(`Warning: Could not place ${subj.name} batch ${batchName} for section ${section.name}`);
           }
         }
       }
 
-      // ── Schedule THEORY subjects (max 6 for regular, max 7 for BTU, spread evenly across week) ────────
+      // ── Schedule THEORY subjects (max 6 for regular, max 7 for BTU, spread evenly) ──
       const MAX_THEORY = isBtuSection ? 7 : 6;
       let theoryTokens = [];
       for (const subj of cappedTheory) {
-        for (let i = 0; i < subj.hours_per_week; i++) {
+        for (let i = 0; i < (subj.hours_per_week || 1); i++) {
           theoryTokens.push(subj);
         }
       }
       theoryTokens = shuffle(theoryTokens);
 
-      // Build ordered slot list, sort by day load for even distribution
-      const orderedSlots = [];
-      for (const day of days)
-        for (const slot of shuffle([...allSlots]))
-          orderedSlots.push({ day, slot });
-      orderedSlots.sort((a, b) => dayLoad[a.day] - dayLoad[b.day]);
-
       const daySubjects = Object.fromEntries(days.map(d => [d, new Set()]));
       const preferredRoomId = sectionRoomMap[section.id];
-
-      // For theory subjects: track faculty usage to balance workload
       const facultyTheoryCount = Object.fromEntries(allFaculty.map(f => [f.id, 0]));
 
-      let pi = 0, oi = 0;
-      while (pi < theoryTokens.length && oi < orderedSlots.length * 3) {
-        const { day, slot } = orderedSlots[oi % orderedSlots.length]; oi++;
-        const key = `${day}_${slot.id}`;
-        if (usedSlots.has(key)) continue; // already used by a lab batch
+      // Target slots per day: spread tokens evenly across available days
+      const targetPerDay = Math.ceil(theoryTokens.length / days.length);
 
+      let pi = 0, attempts = 0;
+      const maxAttempts = theoryTokens.length * days.length * allSlots.length * 2;
+
+      while (pi < theoryTokens.length && attempts < maxAttempts) {
+        attempts++;
         const subj = theoryTokens[pi];
-        if (daySubjects[day].has(subj.id)) continue; // same subject twice on same day
 
-        // Find eligible faculty (qualified + free) and prefer less-loaded ones
-        const eligible = allFaculty.filter(f => {
-          try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
-        });
-        const candidateFaculty = shuffle(eligible.length ? eligible : allFaculty)
-          .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id]);
-        
-        const chosenF = candidateFaculty.find(f => isFacultyFree(day, slot.id, f.id));
-        if (!chosenF) continue;
+        // Pick the least-loaded day that hasn't already scheduled this subject today
+        // and hasn't hit its target yet (if possible)
+        const sortedDays = [...days]
+          .filter(d => !daySubjects[d].has(subj.id))
+          .sort((a, b) => dayLoad[a] - dayLoad[b]);
 
-        const preferred = classrooms.find(r => r.id === preferredRoomId);
-        const chosenR = (preferred && isRoomFree(day, slot.id, preferred.id))
-          ? preferred
-          : shuffle([...classrooms, ...allRooms.filter(r => r.type !== 'lab')])
-              .find(r => isRoomFree(day, slot.id, r.id));
-        if (!chosenR) continue;
+        if (!sortedDays.length) {
+          // All days already have this subject — skip (shouldn't happen, but safety)
+          pi++;
+          continue;
+        }
 
-        await run(
-          'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
-          [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id]
-        );
-        markFaculty(day, slot.id, chosenF.id);
-        markRoom(day, slot.id, chosenR.id);
-        usedSlots.add(key);
-        daySubjects[day].add(subj.id);
-        dayLoad[day]++;
-        facultyTheoryCount[chosenF.id]++;
-        pi++;
+        let placed = false;
+        for (const day of sortedDays) {
+          if (placed) break;
+          // Prefer days below target first, then allow overflow
+          if (dayLoad[day] >= targetPerDay + 1 && sortedDays.some(d => dayLoad[d] < targetPerDay)) continue;
+
+          // Try slots on this day that are free
+          const freeSlots = allSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`));
+          const shuffledFree = shuffle(freeSlots);
+
+          for (const slot of shuffledFree) {
+            const key = `${day}_${slot.id}`;
+
+            // Find eligible faculty
+            const eligible = allFaculty.filter(f => {
+              try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
+            });
+            const candidateFaculty = shuffle(eligible.length ? eligible : allFaculty)
+              .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id]);
+            const chosenF = candidateFaculty.find(f => isFacultyFree(day, slot.id, f.id));
+            if (!chosenF) continue;
+
+            const preferred = classrooms.find(r => r.id === preferredRoomId);
+            const chosenR = (preferred && isRoomFree(day, slot.id, preferred.id))
+              ? preferred
+              : shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
+            if (!chosenR) continue;
+
+            await run(
+              'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
+              [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id]
+            );
+            markFaculty(day, slot.id, chosenF.id);
+            markRoom(day, slot.id, chosenR.id);
+            usedSlots.add(key);
+            daySubjects[day].add(subj.id);
+            dayLoad[day]++;
+            facultyTheoryCount[chosenF.id]++;
+            pi++;
+            placed = true;
+            break;
+          }
+        }
+
+        if (!placed) {
+          // Couldn't place on any preferred day — try any remaining day without subject restriction
+          let forcePlaced = false;
+          for (const day of [...days].sort((a,b) => dayLoad[a]-dayLoad[b])) {
+            if (forcePlaced) break;
+            const freeSlots = shuffle(allSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`)));
+            for (const slot of freeSlots) {
+              const eligible = allFaculty.filter(f => {
+                try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
+              });
+              const chosenF = shuffle(eligible.length ? eligible : allFaculty)
+                .find(f => isFacultyFree(day, slot.id, f.id));
+              if (!chosenF) continue;
+              const preferred = classrooms.find(r => r.id === preferredRoomId);
+              const chosenR = (preferred && isRoomFree(day, slot.id, preferred.id))
+                ? preferred
+                : shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
+              if (!chosenR) continue;
+              await run(
+                'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
+                [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id]
+              );
+              markFaculty(day, slot.id, chosenF.id);
+              markRoom(day, slot.id, chosenR.id);
+              usedSlots.add(`${day}_${slot.id}`);
+              daySubjects[day].add(subj.id);
+              dayLoad[day]++;
+              facultyTheoryCount[chosenF.id]++;
+              pi++;
+              forcePlaced = true;
+              break;
+            }
+          }
+          if (!forcePlaced) {
+            console.warn(`Could not place theory token for ${subj.name} in section ${section.name}`);
+            pi++; // skip to avoid infinite loop
+          }
+        }
       }
     }
 
@@ -1169,18 +1191,172 @@ router.post('/generate', requireAuth, async (req, res) => {
       [sections.map(s => s.id)]
     );
     
-    // Generate quality metrics
+    // ── Quality check & auto-retry ──────────────────────────────────────────
+    // For each section, check if day distribution is uneven (max - min > 3)
+    // If so, clear that section and regenerate it (up to 2 retries per section)
+    let retriedSections = 0;
+    for (const section of sections) {
+      let retries = 0;
+      while (retries < 2) {
+        const sectionEntries = await query(
+          `SELECT day_of_week, COUNT(*) as cnt FROM timetable_entries WHERE section_id=$1 GROUP BY day_of_week`,
+          [section.id]
+        );
+        if (!sectionEntries.length) break;
+
+        const dayCounts = Object.fromEntries(days.map(d => [d, 0]));
+        sectionEntries.forEach(r => { if (dayCounts[r.day_of_week] !== undefined) dayCounts[r.day_of_week] = parseInt(r.cnt); });
+        const counts = Object.values(dayCounts);
+        const maxC = Math.max(...counts);
+        const minC = Math.min(...counts.filter(c => c > 0)); // ignore empty days (weekend in Mon-Fri mode)
+        const activeDays = Object.entries(dayCounts).filter(([d]) => days.includes(d));
+        const nonZeroCounts = activeDays.map(([,c]) => c).filter(c => c > 0);
+        const spread = nonZeroCounts.length > 1 ? maxC - Math.min(...nonZeroCounts) : 0;
+
+        if (spread <= 3) break; // acceptable distribution
+
+        // Regenerate this section
+        await run('DELETE FROM timetable_entries WHERE section_id=$1', [section.id]);
+        retriedSections++;
+        retries++;
+
+        // Re-run the same generation logic for this one section
+        // (inline call — we re-use all the same faculty/room busy maps)
+        const subjects2 = await query('SELECT * FROM subjects WHERE year_id=$1', [section.year_id]);
+        if (!subjects2.length) break;
+
+        const isBtu2 = /btu/i.test(section.name);
+        const theoryS2 = subjects2.filter(s => s.type !== 'lab');
+        const labS2    = subjects2.filter(s => s.type === 'lab');
+        const regLabs2 = labS2.filter(s => s.category !== 'btu');
+        const btuLabs2 = labS2.filter(s => s.category === 'btu');
+        const labSubjs2 = isBtu2 ? [...btuLabs2] : [...regLabs2];
+        const regTh2 = theoryS2.filter(s => s.category !== 'btu');
+        const btuTh2 = theoryS2.filter(s => s.category === 'btu');
+        let capped2;
+        if (isBtu2 && btuTh2.length > 0) {
+          const rem = Math.max(0, 7 - btuTh2.length);
+          capped2 = [...btuTh2, ...[...regTh2].sort((a,b)=>(b.credits||0)-(a.credits||0)).slice(0,rem)];
+        } else {
+          capped2 = [...regTh2].sort((a,b)=>(b.credits||0)-(a.credits||0)).slice(0,6);
+        }
+
+        let numSubs2 = section.lab_subsections || 2;
+        let bNames2;
+        try { bNames2 = JSON.parse(section.subsection_names || 'null'); } catch { bNames2 = null; }
+        if (!Array.isArray(bNames2) || bNames2.length !== numSubs2)
+          bNames2 = Array.from({ length: numSubs2 }, (_, i) => String.fromCharCode(65+i));
+
+        const labAssign2 = await query('SELECT * FROM lab_assignments WHERE section_id=$1', [section.id]);
+        const aFac2 = {};
+        for (const a of labAssign2) {
+          if (!aFac2[a.subject_id]) aFac2[a.subject_id] = {};
+          aFac2[a.subject_id][a.batch_name] = a.faculty_id;
+        }
+
+        const used2  = new Set();
+        const dLoad2 = Object.fromEntries(days.map(d=>[d,0]));
+        const dLab2  = Object.fromEntries(days.map(d=>[d,0]));
+
+        // Re-schedule labs
+        for (const subj of labSubjs2) {
+          const hrs = subj.hours_per_week || 2;
+          const pre2 = aFac2[subj.id] || {};
+          const qFac2 = allFaculty.filter(f => { try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; } });
+          const fPool2 = qFac2.length >= numSubs2 ? qFac2 : allFaculty;
+          for (let bi = 0; bi < numSubs2; bi++) {
+            const bn = bNames2[bi];
+            let placed2 = false;
+            let bFac2 = null;
+            if (pre2[bn]) { const p = allFaculty.find(f=>f.id===pre2[bn]); if(p) bFac2=p; }
+            if (!bFac2) bFac2 = shuffle(fPool2)[0] || null;
+            if (!bFac2) continue;
+            for (const day of [...days].sort((a,b)=>dLab2[a]-dLab2[b])) {
+              if (placed2) break;
+              const fs2 = allSlots.filter(sl=>!used2.has(`${day}_${sl.id}`));
+              if (fs2.length < hrs) continue;
+              const grps2 = [];
+              let c2 = [fs2[0]];
+              for (let i=1;i<fs2.length;i++) {
+                if (fs2[i].slot_number===fs2[i-1].slot_number+1) c2.push(fs2[i]);
+                else { if(c2.length>=hrs) grps2.push([...c2]); c2=[fs2[i]]; }
+              }
+              if (c2.length>=hrs) grps2.push(c2);
+              for (const g2 of grps2) {
+                if (placed2) break;
+                for (let s2=0;s2<=g2.length-hrs;s2++) {
+                  const cand2 = g2.slice(s2,s2+hrs);
+                  if (!cand2.every(sl=>isFacultyFree(day,sl.id,bFac2.id))) continue;
+                  const aLabs2 = labs.filter(r=>cand2.every(sl=>isRoomFree(day,sl.id,r.id))).sort((a,b)=>roomUsageCount[a.id]-roomUsageCount[b.id]);
+                  const lf2 = aLabs2[0]; if(!lf2) continue;
+                  for (const sl of cand2) {
+                    await run('INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+                      [section.id,sl.id,day,subj.id,bFac2.id,lf2.id,bn]);
+                    markFaculty(day,sl.id,bFac2.id); markRoom(day,sl.id,lf2.id);
+                    used2.add(`${day}_${sl.id}`); dLab2[day]++; dLoad2[day]++;
+                  }
+                  roomUsageCount[lf2.id]++; placed2=true; break;
+                }
+              }
+            }
+          }
+        }
+
+        // Re-schedule theory
+        let tokens2 = [];
+        for (const subj of capped2) for (let i=0;i<(subj.hours_per_week||1);i++) tokens2.push(subj);
+        tokens2 = shuffle(tokens2);
+        const daySubj2 = Object.fromEntries(days.map(d=>[d,new Set()]));
+        const fThCnt2  = Object.fromEntries(allFaculty.map(f=>[f.id,0]));
+        const tgt2     = Math.ceil(tokens2.length/days.length);
+        const prefR2   = sectionRoomMap[section.id];
+        let p2=0, att2=0;
+        while (p2<tokens2.length && att2<tokens2.length*days.length*allSlots.length*2) {
+          att2++;
+          const subj = tokens2[p2];
+          const sDays2 = [...days].filter(d=>!daySubj2[d].has(subj.id)).sort((a,b)=>dLoad2[a]-dLoad2[b]);
+          if (!sDays2.length) { p2++; continue; }
+          let placed2b = false;
+          for (const day of sDays2) {
+            if (placed2b) break;
+            if (dLoad2[day]>=tgt2+1 && sDays2.some(d=>dLoad2[d]<tgt2)) continue;
+            const fSlots2 = shuffle(allSlots.filter(sl=>!used2.has(`${day}_${sl.id}`)));
+            for (const slot of fSlots2) {
+              const elig2 = allFaculty.filter(f=>{try{return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id);}catch{return false;}});
+              const cF2 = shuffle(elig2.length?elig2:allFaculty).sort((a,b)=>fThCnt2[a.id]-fThCnt2[b.id]).find(f=>isFacultyFree(day,slot.id,f.id));
+              if (!cF2) continue;
+              const pref2 = classrooms.find(r=>r.id===prefR2);
+              const cR2 = (pref2&&isRoomFree(day,slot.id,pref2.id)) ? pref2 : shuffle([...classrooms]).find(r=>isRoomFree(day,slot.id,r.id));
+              if (!cR2) continue;
+              await run('INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
+                [section.id,slot.id,day,subj.id,cF2.id,cR2.id]);
+              markFaculty(day,slot.id,cF2.id); markRoom(day,slot.id,cR2.id);
+              used2.add(`${day}_${slot.id}`); daySubj2[day].add(subj.id);
+              dLoad2[day]++; fThCnt2[cF2.id]++; p2++; placed2b=true; break;
+            }
+          }
+          if (!placed2b) p2++;
+        }
+      }
+    }
+
+    const finalRow = await queryOne(
+      'SELECT COUNT(*) as cnt FROM timetable_entries WHERE section_id = ANY($1)',
+      [sections.map(s => s.id)]
+    );
+
     const stats = {
-      totalEntries: totalRow.cnt,
+      totalEntries: finalRow.cnt,
       sectionsGenerated: sections.length,
-      avgEntriesPerSection: Math.round(totalRow.cnt / sections.length),
+      avgEntriesPerSection: Math.round(finalRow.cnt / sections.length),
+      retriedSections,
       generatedAt: new Date().toISOString()
     };
     
     res.json({ 
       success: true, 
-      message: `Timetable generated for ${sections.length} section(s). Total entries: ${totalRow.cnt}`,
-      stats: stats
+      message: `Timetable generated for ${sections.length} section(s). Total entries: ${finalRow.cnt}${retriedSections > 0 ? ` (${retriedSections} section(s) auto-rebalanced)` : ''}`,
+      stats
     });
   } catch (err) {
     console.error('Generate error:', err);
