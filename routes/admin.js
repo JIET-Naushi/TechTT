@@ -863,7 +863,7 @@ router.post('/validate-lab-assignments', requireAuth, async (req, res) => {
 
 router.post('/generate', requireAuth, async (req, res) => {
   try {
-    const { scope, year_id, section_id } = req.body;
+    const { scope, year_id, section_id, days_mode } = req.body;
     const deptId = getDeptId(req);
 
     let sections = [];
@@ -884,7 +884,11 @@ router.post('/generate', requireAuth, async (req, res) => {
     if (!sections.length) return res.status(400).json({ error: 'No sections found for this department' });
 
     const allSlots = await query('SELECT * FROM time_slots WHERE is_break=0 AND department_id=$1 ORDER BY slot_number', [deptId]);
-    const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+    // days_mode: 'weekdays' = Mon–Fri only; default = Mon–Sat
+    const days = days_mode === 'weekdays'
+      ? ['Monday','Tuesday','Wednesday','Thursday','Friday']
+      : ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
     for (const sec of sections)
       await run('DELETE FROM timetable_entries WHERE section_id=$1', [sec.id]);
