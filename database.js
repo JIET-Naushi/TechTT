@@ -125,78 +125,119 @@ async function initializeDatabase() {
 }
 
 async function seedDatabase() {
-  await run(`INSERT INTO users (username, password, role) VALUES ($1, $2, $3)`, ['admin', 'admin123', 'admin']);
+  // ── Seeded from live Neon DB ──────────────────────────────────────────────
 
-  const years = [['year1','B.Tech I Year'],['year2','B.Tech II Year'],['year3','B.Tech III Year']];
-  for (const [name, display_name] of years)
-    await run(`INSERT INTO years (name, display_name) VALUES ($1, $2)`, [name, display_name]);
+  // Users
+  await run('INSERT INTO users (username,password,role) VALUES ($1,$2,$3)', ["admin","admin123","admin"]);
 
-  for (let yearId = 1; yearId <= 3; yearId++)
-    for (const sec of ['A','B','C'])
-      await run(`INSERT INTO sections (year_id, name) VALUES ($1, $2)`, [yearId, sec]);
+  // Years
+  await run('INSERT INTO years (name,display_name) VALUES ($1,$2)', ["year1","B.Tech I Year"]);
+  await run('INSERT INTO years (name,display_name) VALUES ($1,$2)', ["year2","B.Tech II Year"]);
+  await run('INSERT INTO years (name,display_name) VALUES ($1,$2)', ["year3","B.Tech III Year"]);
 
-  const subjects = [
-    [1,'Engineering Mathematics-I','MA101','theory',4,4],[1,'Engineering Physics','PH101','theory',3,3],
-    [1,'Engineering Chemistry','CH101','theory',3,3],[1,'Basic Electrical Engineering','EE101','theory',3,3],
-    [1,'Programming in C','CS101','theory',3,3],[1,'Engineering Drawing','ME101','lab',2,2],
-    [1,'English Communication','EN101','theory',2,2],[1,'Environmental Science','ES101','theory',2,2],
-    [2,'Engineering Mathematics-III','MA201','theory',4,4],[2,'Data Structures','CS201','theory',4,4],
-    [2,'Digital Electronics','EC201','theory',3,3],[2,'Object Oriented Programming','CS202','theory',3,3],
-    [2,'Computer Organization','CS203','theory',3,3],[2,'Discrete Mathematics','MA202','theory',3,3],
-    [2,'Database Management Systems','CS204','theory',3,3],[2,'Operating Systems','CS205','theory',3,3],
-    [3,'Design and Analysis of Algorithms','CS301','theory',4,4],[3,'Computer Networks','CS302','theory',3,3],
-    [3,'Software Engineering','CS303','theory',3,3],[3,'Compiler Design','CS304','theory',3,3],
-    [3,'Artificial Intelligence','CS305','theory',3,3],[3,'Web Technologies','CS306','lab',2,2],
-    [3,'Machine Learning','CS307','theory',3,3],[3,'Cloud Computing','CS308','theory',3,3]
-  ];
-  for (const s of subjects)
-    await run(`INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)`, s);
+  // Sections
+  await run('INSERT INTO sections (year_id,name) VALUES ($1,$2)', [1,"A"]);
+  await run('INSERT INTO sections (year_id,name) VALUES ($1,$2)', [1,"B"]);
+  await run('INSERT INTO sections (year_id,name) VALUES ($1,$2)', [1,"C"]);
+  await run('INSERT INTO sections (year_id,name) VALUES ($1,$2)', [2,"E"]);
+  await run('INSERT INTO sections (year_id,name) VALUES ($1,$2)', [2,"F"]);
+  await run('INSERT INTO sections (year_id,name) VALUES ($1,$2)', [2,"G"]);
+  await run('INSERT INTO sections (year_id,name) VALUES ($1,$2)', [3,"E"]);
+  await run('INSERT INTO sections (year_id,name) VALUES ($1,$2)', [3,"F"]);
+  await run('INSERT INTO sections (year_id,name) VALUES ($1,$2)', [3,"G"]);
+  await run('INSERT INTO sections (year_id,name) VALUES ($1,$2)', [3,"H"]);
 
-  const faculty = [
-    ['Dr. Rajesh Kumar','Professor','faculty'],['Dr. Priya Sharma','Professor','faculty'],
-    ['Dr. Amit Singh','Associate Professor','faculty'],['Dr. Sunita Patel','Associate Professor','faculty'],
-    ['Dr. Vikram Rao','Professor','faculty'],['Dr. Meena Joshi','Associate Professor','faculty'],
-    ['Dr. Suresh Nair','Professor','faculty'],['Dr. Kavitha Reddy','Associate Professor','faculty'],
-    ['Dr. Arun Mehta','Associate Professor','faculty'],['Dr. Pooja Gupta','Assistant Professor','faculty'],
-    ['Prof. Ravi Tiwari','Assistant Professor','faculty'],['Prof. Anita Desai','Assistant Professor','faculty'],
-    ['Prof. Manoj Verma','Assistant Professor','faculty'],['Prof. Shalini Mishra','Assistant Professor','faculty'],
-    ['Prof. Deepak Jain','Assistant Professor','faculty'],['Prof. Rekha Pillai','Assistant Professor','faculty'],
-    ['Prof. Sanjay Bhatt','Assistant Professor','faculty'],['Prof. Nisha Agarwal','Assistant Professor','faculty'],
-    ['Prof. Kiran Yadav','Assistant Professor','faculty'],['Prof. Rohit Saxena','Assistant Professor','faculty'],
-    ['Prof. Divya Nair','Assistant Professor','faculty'],['Prof. Sunil Patil','Assistant Professor','faculty'],
-    ['Prof. Geeta Sharma','Assistant Professor','faculty'],['Prof. Harish Chandra','Assistant Professor','faculty'],
-    ['Prof. Lalitha Devi','Assistant Professor','faculty'],
-    ['Dr. Venkat Raman','Professor','hod_mentor'],['Dr. Savitha Krishnan','Professor','hod_admin']
-  ];
-  const allIds = Array.from({length:24},(_,i)=>i+1);
-  for (let i = 0; i < faculty.length; i++) {
-    const [name, desig, role] = faculty[i];
-    let canTeach = [];
-    if (role === 'faculty') {
-      const s = (i*3) % 24;
-      canTeach = [allIds[s], allIds[(s+1)%24], allIds[(s+2)%24]];
-    }
-    await run(`INSERT INTO faculty (name,designation,role,subjects_can_teach) VALUES ($1,$2,$3,$4)`,
-      [name, desig, role, JSON.stringify(canTeach)]);
-  }
+  // Subjects
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [1,"Engineering Mathematics-I","MA101","theory",4,4]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [1,"Engineering Physics","PH101","theory",3,3]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [1,"Engineering Chemistry","CH101","theory",3,3]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [1,"Basic Electronic Engineering","EE101","theory",3,3]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [1,"Programming in C","CS101","theory",3,3]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [1,"Engineering Drawing","ME101","lab",2,2]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [1,"English Communication","EN101","theory",2,2]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [1,"Environmental Science","ES101","theory",2,2]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [2,"Engineering Mathematics-III","MA201","theory",4,4]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [2,"Data Structures","CS201","theory",4,4]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [2,"Digital Electronics","EC201","theory",3,3]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [2,"Object Oriented Programming","CS202","theory",3,3]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [2,"Computer Organization","CS203","theory",3,3]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [2,"Discrete Mathematics","MA202","theory",3,3]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [2,"Database Management Systems","CS204","theory",3,3]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [2,"Operating Systems","CS205","theory",3,3]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [3,"Design and Analysis of Algorithms","CS301","theory",4,4]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [3,"Computer Networks","CS302","theory",3,3]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [3,"Software Engineering","CS303","theory",3,3]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [3,"Compiler Design","CS304","theory",3,3]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [3,"Artificial Intelligence","CS305","theory",3,3]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [3,"Web Technologies","CS306","lab",2,2]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [3,"Machine Learning","CS307","theory",3,3]);
+  await run('INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6)', [3,"Cloud Computing","CS308","theory",3,3]);
 
-  const rooms = [
-    ['Room 101','classroom',60],['Room 102','classroom',60],['Room 103','classroom',60],
-    ['Room 104','classroom',60],['Room 105','classroom',60],['Room 106','classroom',60],
-    ['Room 107','classroom',60],['Room 108','classroom',60],['Room 109','classroom',60],
-    ['Computer Lab 1','lab',40],['Computer Lab 2','lab',40],['Computer Lab 3','lab',40],
-    ['Physics Lab','lab',30],['Chemistry Lab','lab',30],['Electronics Lab','lab',30],
-    ['Seminar Hall','seminar',150],['Conference Room','conference',30]
-  ];
-  for (const r of rooms)
-    await run(`INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)`, r);
+  // Faculty
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Sunita Godara","Assistant Professor","faculty","","[15,24,19]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Nausheen Khilji","Assistant Professor","faculty","","[13,24,22]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Dr. Ashish Sharma","Professor","faculty","","[10,12,20,17]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Hemant Jain","Assistant Professor","faculty","","[18]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Anil Raghav","Assistant Professor","faculty","","[11]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Pawan Gupta","Assistant Professor","faculty","","[6]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Arshi Riyaz","Assistant Professor","faculty","","[10,20]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Dr. Chetan Jalendra","Assistant Professor","faculty","","[21]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Dr. Bhuvnesh Rathore","Professor","faculty","","[23]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Shweta Solanki","Assistant Professor","faculty","","[15,19]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Vidushi Gupta","Assistant Professor","faculty","","[7]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Lakshita Singh","Assistant Professor","faculty","","[11]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Lalita Mistry","Assistant Professor","faculty","","[1]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Dr. Rajendra Kachhwaha","Professor","faculty","","[16]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Khushboo Parashar","Assistant Professor","faculty","","[16,21]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Dr. Sushmana Sharma","Professor","faculty","","[2]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Renu Purohit","Assistant Professor","faculty","","[4]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Dr. Kamlesh Bhandari","Professor","faculty","","[1,9]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Dr. Rajni Bora","Professor","faculty","","[8]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Sushma Dave","Assistant Professor","faculty","","[3]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Rajshri Jodha","Assistant Professor","faculty","","[13]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Vinay Mathur","Assistant Professor","faculty","","[5]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Nakul Bohra","Assistant Professor","faculty","","[5,10]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Dr. A M Khan","Professor","faculty","","[1]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Dr. Pooja Rakhecha","Professor","faculty","","[7]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Dr. Pratibha Peshwa Swami","Professor","hod_mentor","","[15,19]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Dr. Chandershekhar Singh","Professor","hod_admin","","[21,23]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Krishan Pal Singh","Assistant Professor","faculty","","[12]"]);
+  await run('INSERT INTO faculty (name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5)', ["Ehtesham Pathan","Assistant Professor","faculty","","[5,10,12,22]"]);
 
-  const slots = [
-    [1,'08:00','09:00',0],[2,'09:00','09:50',0],[3,'09:50','10:40',0],[4,'10:40','11:30',0],
-    [5,'11:30','12:30',1],[6,'12:30','13:20',0],[7,'13:20','14:10',0],[8,'14:10','15:00',0]
-  ];
-  for (const s of slots)
-    await run(`INSERT INTO time_slots (slot_number,start_time,end_time,is_break) VALUES ($1,$2,$3,$4)`, s);
+  // Rooms
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["LT9","classroom",60]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["LT10","classroom",60]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["LT11","classroom",60]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["LT12","classroom",60]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["LT13","classroom",60]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["LT14","classroom",60]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["LTN3","classroom",60]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["LTN4","classroom",60]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["LTN5","classroom",60]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["Lab2","lab",24]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["Lab3","lab",24]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["Lab4","lab",24]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["Lab6","lab",24]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["Lab1","lab",24]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["Lab5","lab",24]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["Seminar Hall","seminar",150]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["Tech Conference Room","conference",100]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["LT33","classroom",60]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["LT34","classroom",60]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["LT35","classroom",60]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["Lab7","lab",24]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["Lab8","lab",24]);
+  await run('INSERT INTO rooms (name,type,capacity) VALUES ($1,$2,$3)', ["Lab9","lab",24]);
+
+  // Time Slots
+  await run('INSERT INTO time_slots (slot_number,start_time,end_time,is_break) VALUES ($1,$2,$3,$4)', [1,"08:00","09:00",0]);
+  await run('INSERT INTO time_slots (slot_number,start_time,end_time,is_break) VALUES ($1,$2,$3,$4)', [2,"09:00","09:50",0]);
+  await run('INSERT INTO time_slots (slot_number,start_time,end_time,is_break) VALUES ($1,$2,$3,$4)', [3,"09:50","10:40",0]);
+  await run('INSERT INTO time_slots (slot_number,start_time,end_time,is_break) VALUES ($1,$2,$3,$4)', [4,"10:40","11:30",0]);
+  await run('INSERT INTO time_slots (slot_number,start_time,end_time,is_break) VALUES ($1,$2,$3,$4)', [5,"11:30","12:30",1]);
+  await run('INSERT INTO time_slots (slot_number,start_time,end_time,is_break) VALUES ($1,$2,$3,$4)', [6,"12:30","13:20",0]);
+  await run('INSERT INTO time_slots (slot_number,start_time,end_time,is_break) VALUES ($1,$2,$3,$4)', [7,"13:20","14:10",0]);
+  await run('INSERT INTO time_slots (slot_number,start_time,end_time,is_break) VALUES ($1,$2,$3,$4)', [8,"14:10","15:00",0]);
 }
 
 module.exports = { query, queryOne, run, initializeDatabase };
