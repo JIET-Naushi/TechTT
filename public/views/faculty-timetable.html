@@ -9,7 +9,7 @@
 </head>
 <body>
   <header class="header no-print">
-    <div class="logo">🎓 <span id="headerDept">JIET Universe — Department of Technology</span></div>
+    <div class="logo">🎓 <span id="headerDept">JIET</span></div>
     <nav>
       <a href="/index.html">Home</a>
       <a href="/views/class-timetable.html">Class</a>
@@ -24,26 +24,29 @@
 
     <div class="card no-print">
       <div class="filter-bar">
-        <div class="form-group" style="min-width:260px;">
+        <div class="form-group" style="flex:1;min-width:200px;">
           <label>Select Faculty</label>
           <select id="facultySelect" class="form-control" onchange="loadTimetable()">
             <option value="">Select Faculty Member</option>
           </select>
         </div>
-        <button class="btn btn-primary" onclick="loadTimetable()">View</button>
-        <button class="btn btn-secondary" onclick="window.print()">🖨️ Print</button>
-        <button class="btn btn-outline" onclick="exportExcel()" id="excelBtn" style="display:none;">📥 Export Excel</button>
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="loadTimetable()">View</button>
+          <button class="btn btn-secondary" onclick="window.print()">🖨️ Print</button>
+          <button class="btn btn-outline" onclick="exportExcel()" id="excelBtn" style="display:none;">📥 Excel</button>
+        </div>
       </div>
     </div>
 
     <div id="timetableArea" style="display:none;">
-      <div class="card">
+      <div class="card" style="padding:16px;">
         <div class="card-title" id="tableTitle"></div>
         <div class="print-header" style="text-align:center;margin-bottom:12px;display:none;">
           <h2 style="color:#1a237e;" id="printDeptName">Department of Technology</h2>
           <h3 id="printTitle"></h3>
           <p style="color:#666;">Faculty Teaching Schedule</p>
         </div>
+        <div class="scroll-hint no-print">← Scroll horizontally to see all slots →</div>
         <div class="timetable-grid">
           <table class="timetable-table" id="timetableTable"></table>
         </div>
@@ -61,28 +64,21 @@
     fetch('/api/settings').then(r => r.json()).then(s => {
       const dept = s.department_name || 'Department of Technology';
       const college = s.college_name || 'JIET Universe';
-      document.getElementById('headerDept').textContent = `${college} — ${dept}`;
-      document.querySelectorAll('.print-header h3').forEach(el => el.textContent = dept);
+      document.getElementById('headerDept').textContent = `🎓 ${college}`;
+      document.getElementById('printDeptName').textContent = dept;
     }).catch(() => {});
 
-    const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const COLORS = ['color-0','color-1','color-2','color-3','color-4','color-5','color-6','color-7','color-8','color-9','color-10','color-11'];
+    const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const COLORS = ['color-0','color-1','color-2','color-3','color-4','color-5',
+                    'color-6','color-7','color-8','color-9','color-10','color-11'];
     const subjectColorMap = {};
     let slots = [], entries = [];
     let currentFacultyName = 'Faculty';
     let deptId = localStorage.getItem('selectedDepartmentId') || '1';
 
-    // Helper function to truncate long text
-    function truncateText(text, maxLength) {
-      if (!text || text.length <= maxLength) return text;
-      return text.substring(0, maxLength - 1) + '…';
-    }
-
-    function getSubjectColor(subjectId) {
-      if (!subjectColorMap[subjectId]) {
-        subjectColorMap[subjectId] = COLORS[Object.keys(subjectColorMap).length % COLORS.length];
-      }
-      return subjectColorMap[subjectId];
+    function getColor(id) {
+      if (!subjectColorMap[id]) subjectColorMap[id] = COLORS[Object.keys(subjectColorMap).length % COLORS.length];
+      return subjectColorMap[id];
     }
 
     async function init() {
@@ -92,38 +88,28 @@
           if (!d.user.isSuperAdmin && d.user.department_id) deptId = d.user.department_id;
         }
       });
-
       const [fRes, slRes] = await Promise.all([
         fetch(`/api/faculty?department_id=${deptId}`),
         fetch(`/api/timeslots?department_id=${deptId}`)
       ]);
       const faculty = await fRes.json();
       slots = await slRes.json();
-
       const sel = document.getElementById('facultySelect');
       faculty.forEach(f => {
-        const roleLabel = f.role !== 'faculty' ? ` (${f.role === 'hod_mentor' ? 'HOD Mentor' : 'HOD Admin'})` : '';
-        sel.innerHTML += `<option value="${f.id}">${f.name}${roleLabel}</option>`;
+        const lbl = f.role !== 'faculty' ? ` (${f.role === 'hod_mentor' ? 'HOD Mentor' : 'HOD Admin'})` : '';
+        sel.innerHTML += `<option value="${f.id}">${f.name}${lbl}</option>`;
       });
-
       const params = new URLSearchParams(location.search);
-      if (params.get('faculty_id')) {
-        sel.value = params.get('faculty_id');
-        await loadTimetable();
-      }
+      if (params.get('faculty_id')) { sel.value = params.get('faculty_id'); await loadTimetable(); }
     }
 
     async function loadTimetable() {
       const facultyId = document.getElementById('facultySelect').value;
       if (!facultyId) return;
-
-      const res = await fetch(`/api/timetable/faculty?faculty_id=${facultyId}`);
-      entries = await res.json();
-
-      currentFacultyName = document.getElementById('facultySelect').options[document.getElementById('facultySelect').selectedIndex].text;
+      entries = await (await fetch(`/api/timetable/faculty?faculty_id=${facultyId}`)).json();
+      currentFacultyName = document.getElementById('facultySelect').selectedOptions[0].text;
       document.getElementById('tableTitle').textContent = `${currentFacultyName} — Weekly Schedule`;
       document.getElementById('printTitle').textContent = currentFacultyName;
-
       renderTable();
       renderSummary();
       document.getElementById('timetableArea').style.display = 'block';
@@ -133,37 +119,59 @@
 
     function renderTable() {
       const table = document.getElementById('timetableTable');
-      let html = '<thead><tr><th class="day-header">Day / Time</th>';
+      let html = '<thead><tr><th class="day-header">Day</th>';
       slots.forEach(s => {
-        if (s.is_break) {
-          html += `<th class="slot-header" style="background:#f57c00;">LUNCH<br><small>${s.start_time}–${s.end_time}</small></th>`;
-        } else {
-          html += `<th class="slot-header">Slot ${s.slot_number}<br><small>${s.start_time}–${s.end_time}</small></th>`;
-        }
+        if (s.is_break) html += `<th class="slot-header lunch-hdr">🍽️<br><small>${s.start_time}–${s.end_time}</small></th>`;
+        else            html += `<th class="slot-header">P${s.slot_number}<br><small>${s.start_time}–${s.end_time}</small></th>`;
       });
       html += '</tr></thead><tbody>';
+
       DAYS.forEach(day => {
-        html += `<tr><td class="day-cell">${day}</td>`;
+        html += `<tr><td class="day-cell">${day.slice(0,3)}<span class="day-rest">${day.slice(3)}</span></td>`;
         slots.forEach(slot => {
-          if (slot.is_break) { html += `<td class="break-cell">🍽️ LUNCH</td>`; return; }
-          const entry = entries.find(e => e.day_of_week === day && e.time_slot_id === slot.id);
-          if (entry && entry.subject_id) {
-            const color = getSubjectColor(entry.subject_id);
-            const isBtu = entry.subject_category === 'btu';
-            const isLab = entry.subject_type === 'lab';
-            const badge = isBtu
-              ? `<span style="font-size:0.6rem;background:rgba(230,81,0,0.2);color:#e65100;border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">BTU</span>`
-              : isLab
-              ? `<span style="font-size:0.6rem;background:rgba(0,0,0,0.13);border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">LAB</span>`
-              : '';
-            html += `<td><div class="timetable-cell ${color}${isBtu ? ' btu-cell' : ''}">
-              <div class="cell-subject">${entry.subject_name || '?'}${badge}</div>
-              <div class="cell-faculty" style="font-weight:600;">${entry.year_name || ''} - Sec ${entry.section_name || ''}</div>
-              <div class="cell-room">${entry.room_name || ''}</div>
-            </div></td>`;
-          } else {
-            html += `<td><div class="timetable-cell nlf-cell">NLF</div></td>`;
+          if (slot.is_break) { html += `<td class="break-cell">🍽️<br><small>LUNCH</small></td>`; return; }
+
+          // Faculty view: multiple entries possible if they teach multiple batches of same lab
+          const slotEntries = entries.filter(e => e.day_of_week === day && e.time_slot_id === slot.id);
+
+          if (!slotEntries.length) {
+            html += `<td><div class="timetable-cell nlf-cell">NLF</div></td>`; return;
           }
+
+          // Lab with batches (same faculty, multiple subsections)
+          if (slotEntries.some(e => e.subsection)) {
+            const e0    = slotEntries[0];
+            const color = getColor(e0.subject_id);
+            const isBtu = e0.subject_category === 'btu';
+            const tags  = `<span class="tt-tag">LAB</span>${isBtu ? '<span class="tt-tag btu-tag">B.T.U.</span>' : ''}`;
+            const rows  = slotEntries.map(e => `
+              <div class="lab-batch">
+                <span class="lab-batch-label">${e.subsection}</span>
+                <div class="lab-batch-info">
+                  <div class="fac">${e.year_name || ''} — Sec ${e.section_name || ''}</div>
+                  <div class="room">${e.room_name || ''}</div>
+                </div>
+              </div>`).join('');
+            html += `<td><div class="lab-cell ${color}${isBtu ? ' btu-cell' : ''}">
+              <div class="lab-subject-name">${e0.subject_name || '?'} ${tags}</div>
+              ${rows}
+            </div></td>`;
+            return;
+          }
+
+          const e = slotEntries[0];
+          if (!e.subject_id) { html += `<td><div class="timetable-cell nlf-cell">NLF</div></td>`; return; }
+          const color  = getColor(e.subject_id);
+          const isBtu  = e.subject_category === 'btu';
+          const isLab  = e.subject_type === 'lab';
+          const badge  = isBtu ? '<span class="tt-tag btu-tag">B.T.U.</span>'
+                       : isLab ? '<span class="tt-tag">LAB</span>' : '';
+          const batchBadge = e.subsection ? `<span class="tt-tag batch-tag">Batch ${e.subsection}</span>` : '';
+          html += `<td><div class="timetable-cell ${color}${isBtu ? ' btu-cell' : ''}">
+            <div class="cell-subject">${e.subject_name || '?'} ${badge}${batchBadge}</div>
+            <div class="cell-faculty" style="font-weight:600;">${e.year_name || ''} — Sec ${e.section_name || ''}</div>
+            <div class="cell-room">${e.room_name || ''}</div>
+          </div></td>`;
         });
         html += '</tr>';
       });
@@ -172,78 +180,44 @@
     }
 
     function renderSummary() {
-      const totalPeriods   = entries.filter(e => e.subject_id).length;
-      const uniqueSubjects = [...new Set(entries.filter(e => e.subject_id).map(e => e.subject_name))];
-      const uniqueSections = [...new Set(entries.filter(e => e.section_id).map(e => `${e.year_name} Sec ${e.section_name}`))];
+      const total    = entries.filter(e => e.subject_id).length;
+      const subjects = [...new Set(entries.filter(e => e.subject_id).map(e => e.subject_name))];
+      const sections = [...new Set(entries.filter(e => e.section_id).map(e => `${e.year_name} Sec ${e.section_name}`))];
       document.getElementById('summaryArea').innerHTML = `
-        <div style="display:flex;gap:16px;flex-wrap:wrap;" class="no-print">
-          <div style="background:#e8eaf6;padding:12px 20px;border-radius:8px;text-align:center;">
-            <div style="font-size:1.5rem;font-weight:700;color:#1a237e;">${totalPeriods}</div>
-            <div style="font-size:0.78rem;color:#666;">Total Periods/Week</div>
-          </div>
-          <div style="background:#e8f5e9;padding:12px 20px;border-radius:8px;text-align:center;">
-            <div style="font-size:1.5rem;font-weight:700;color:#2e7d32;">${uniqueSubjects.length}</div>
-            <div style="font-size:0.78rem;color:#666;">Subjects</div>
-          </div>
-          <div style="background:#fff3e0;padding:12px 20px;border-radius:8px;text-align:center;">
-            <div style="font-size:1.5rem;font-weight:700;color:#e65100;">${uniqueSections.length}</div>
-            <div style="font-size:0.78rem;color:#666;">Sections</div>
-          </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;" class="no-print">
+          <div class="summary-chip" style="background:#e8eaf6;color:#1a237e;">${total}<small>Periods/Week</small></div>
+          <div class="summary-chip" style="background:#e8f5e9;color:#2e7d32;">${subjects.length}<small>Subjects</small></div>
+          <div class="summary-chip" style="background:#fff3e0;color:#e65100;">${sections.length}<small>Sections</small></div>
         </div>
-        ${uniqueSubjects.length > 0 ? `<p style="margin-top:12px;font-size:0.85rem;color:#555;" class="no-print"><strong>Subjects:</strong> ${uniqueSubjects.join(', ')}</p>` : ''}`;
+        ${subjects.length ? `<p style="margin-top:10px;font-size:0.82rem;color:#555;" class="no-print"><strong>Subjects:</strong> ${subjects.join(', ')}</p>` : ''}`;
     }
 
-    // ── Excel Export ──────────────────────────────────────────────────────────
     function exportExcel() {
       const wb = XLSX.utils.book_new();
-      const teachingSlots = slots.filter(s => !s.is_break);
-      const deptName = document.getElementById('headerDept').textContent;
-
-      // Sheet 1: Timetable Grid
-      const headerRow = ['Day / Time', ...teachingSlots.map(s => `${s.start_time}–${s.end_time}`)];
+      const teaching = slots.filter(s => !s.is_break);
+      const deptName = document.getElementById('printDeptName').textContent;
+      const headerRow = ['Day',...teaching.map(s=>`${s.start_time}–${s.end_time}`)];
       const dataRows  = DAYS.map(day => {
         const row = [day];
-        teachingSlots.forEach(slot => {
-          const entry = entries.find(e => e.day_of_week === day && e.time_slot_id === slot.id);
-          if (entry && entry.subject_id) {
-            const typeTag = entry.subject_category === 'btu'
-              ? ` [BTU-${entry.subject_type==='lab'?'LAB':'THEORY'}]`
-              : entry.subject_type === 'lab' ? ' [LAB]' : '';
-            row.push(`${entry.subject_name}${typeTag}\n${entry.year_name||''} Sec ${entry.section_name||''}\n${entry.room_name||''}`);
+        teaching.forEach(slot => {
+          const slotEntries = entries.filter(e => e.day_of_week===day && e.time_slot_id===slot.id);
+          if (!slotEntries.length) { row.push('NLF'); return; }
+          if (slotEntries.some(e => e.subsection)) {
+            row.push(slotEntries.map(e=>`Batch ${e.subsection}: ${e.subject_name} | ${e.year_name} Sec ${e.section_name} | ${e.room_name||''}`).join('\n'));
           } else {
-            row.push('NLF');
+            const e = slotEntries[0];
+            const tag = e.subject_category==='btu'?` [BTU]`:e.subject_type==='lab'?' [LAB]':'';
+            row.push(`${e.subject_name}${tag}${e.subsection?' Batch '+e.subsection:''}\n${e.year_name||''} Sec ${e.section_name||''}\n${e.room_name||''}`);
           }
         });
         return row;
       });
-      const wsData = [
-        [deptName], [currentFacultyName], ['Faculty Teaching Schedule'], [],
-        headerRow, ...dataRows
-      ];
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-      const totalCols = teachingSlots.length + 1;
-      ws['!cols'] = [{ wch: 12 }, ...teachingSlots.map(() => ({ wch: 24 }))];
-      ws['!merges'] = [
-        { s: { r:0,c:0 }, e: { r:0,c:totalCols-1 } },
-        { s: { r:1,c:0 }, e: { r:1,c:totalCols-1 } },
-        { s: { r:2,c:0 }, e: { r:2,c:totalCols-1 } },
-      ];
-      XLSX.utils.book_append_sheet(wb, ws, 'Timetable');
-
-      // Sheet 2: Detailed List
-      const listData = [
-        ['Day', 'Slot', 'Start', 'End', 'Subject', 'Code', 'Year', 'Section', 'Room', 'Type'],
-        ...entries
-          .filter(e => e.subject_id)
-          .sort((a,b) => DAYS.indexOf(a.day_of_week) - DAYS.indexOf(b.day_of_week) || a.slot_number - b.slot_number)
-          .map(e => [e.day_of_week, `Slot ${e.slot_number}`, e.start_time, e.end_time,
-            e.subject_name||'', e.subject_code||'', e.year_name||'', `Sec ${e.section_name||''}`, e.room_name||'', e.subject_type||'theory'])
-      ];
-      const ws2 = XLSX.utils.aoa_to_sheet(listData);
-      ws2['!cols'] = [10,8,8,8,28,12,18,10,12,8].map(wch => ({ wch }));
-      XLSX.utils.book_append_sheet(wb, ws2, 'Detailed List');
-
-      XLSX.writeFile(wb, `Faculty_Timetable_${currentFacultyName.replace(/[^a-z0-9]/gi,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
+      const ws = XLSX.utils.aoa_to_sheet([[deptName],[currentFacultyName],['Faculty Schedule'],[],headerRow,...dataRows]);
+      ws['!cols'] = [{wch:12},...teaching.map(()=>({wch:26}))];
+      const tc = teaching.length+1;
+      ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:tc-1}},{s:{r:1,c:0},e:{r:1,c:tc-1}},{s:{r:2,c:0},e:{r:2,c:tc-1}}];
+      XLSX.utils.book_append_sheet(wb,'Timetable',ws);
+      XLSX.writeFile(wb,`Faculty_${currentFacultyName.replace(/[^a-z0-9]/gi,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
     }
 
     init();
