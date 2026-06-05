@@ -33,6 +33,7 @@ A full-stack college timetable management system for JIET — covering B.Tech I,
 - Same faculty and same lab room are used across all consecutive slots of that batch
 - Consecutive slots never straddle the lunch break
 - Pre-assigned faculty (set via Lab Faculty Assignment) take priority; unassigned batches auto-fill
+- **Lab room balancing** — less-used labs are preferred to distribute usage evenly
 
 ### Theory / B.T.U. Subjects
 - **B.T.U. (Bikaner Technical University)** subjects are scheduled **only for BTU sections** — sections whose name contains "BTU" (e.g., "Section BTU", "BTU-A", or "A-BTU")
@@ -40,11 +41,13 @@ A full-stack college timetable management system for JIET — covering B.Tech I,
 - Maximum **6 theory subjects total** are scheduled per section (highest-credit subjects prioritized)
 - Subjects spread evenly across Mon–Sat; no subject appears twice on the same day
 - Faculty assigned from their "subjects can teach" list; rooms prefer the section's dedicated classroom
+- **Faculty workload balancing** — less-loaded faculty are preferred for theory slots to balance workload
 
 ### Conflict Avoidance
 - No faculty or room is double-booked at any point
 - Faculty workload is balanced across available slots
 - Lab rooms are matched by type; theory uses classrooms
+- Validation endpoint checks for incomplete slots and scheduling quality
 
 ---
 
@@ -235,6 +238,7 @@ college-timetable/
 | GET | `/api/admin/conflicts` | All current conflicts with details |
 | POST | `/api/admin/scan-conflicts` | Scan and return summary stats |
 | POST | `/api/admin/suggest-fix` | Suggestion for a specific slot conflict |
+| GET | `/api/admin/validate/:sectionId` | Timetable quality validation report |
 
 ### CRUD (Admin)
 | Method | Endpoint |
@@ -301,7 +305,17 @@ settings      (key, value)
 - Check that subjects are assigned to the correct year
 - Regenerate the timetable
 
-**Conflicts after generation?**
+**Checking timetable quality?**
+- Use the validation endpoint: `GET /api/admin/validate/:sectionId`
+- This checks total slots, lab batches, theory slots, BTU subjects
+- Validates that all slots have subject, faculty, and room assigned
+- Returns quality metrics for diagnostics
+
+**Uneven room or faculty usage?**
+- The scheduler now balances room and faculty workload automatically
+- Prefer less-used labs and less-loaded faculty during generation
+- If imbalance still exists, check room/faculty availability
+- Consider adding more rooms or adjusting faculty assignments
 - Go to Admin → Conflicts → Scan Now
 - Common causes: insufficient labs/classrooms, too many subjects for available slots
 - Try increasing rooms or reducing hours_per_week on some subjects
@@ -320,6 +334,7 @@ settings      (key, value)
 
 | Version | Date | Notes |
 |---------|------|-------|
+| v3.2 | June 2026 | Added timetable validation endpoint, improved editor UI with better styling, optimized scheduling algorithm with room/faculty balancing |
 | v3.1 | June 2026 | Fixed lab batch display with scrollable container, enforced one-faculty-per-batch rule, improved BTU subject filtering, enhanced editor UI for better batch visibility |
 | v3.0 | June 2026 | Staggered lab batches, BTU-section filtering, unified editor grid, 6-subject theory cap, lab room consistency fix |
 | v2.0 | June 2026 | Batch-wise lab assignment, conflicts page, multi-department support, improved algorithm |
