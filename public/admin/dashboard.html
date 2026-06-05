@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard — JIET Universe Timetable</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 </head>
 <body>
   <header class="header">
@@ -57,6 +58,8 @@
             <a href="/admin/editor.html" class="btn btn-outline">✏️ Edit Timetable</a>
             <a href="/views/class-timetable.html" class="btn btn-secondary">📅 View Class Timetable</a>
             <a href="/views/faculty-timetable.html" class="btn btn-secondary">👤 View Faculty Timetable</a>
+            <button onclick="exportAllClasses()" class="btn btn-success">📊 Export All Classes</button>
+            <button onclick="exportAllFaculty()" class="btn btn-success">👥 Export All Faculty</button>
           </div>
         </div>
         <div class="card">
@@ -325,6 +328,280 @@
     loadStats();
     loadConflicts();
     loadSettings();
+
+    // ── Excel Export Functions ────────────────────────────────────────────────
+    const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const COLORS = ['color-0','color-1','color-2','color-3','color-4','color-5',
+                    'color-6','color-7','color-8','color-9','color-10','color-11'];
+    const XL_COLORS = [
+      'DCE9FA','D9F0E1','FAD7E6','FEF0DA','EFD9FB','CCF3FA',
+      'F4FAD1','FAE3D9','DDE2F7','C8EDE9','FEF6D0','EDE0DA'
+    ];
+
+    const BORDER = { style:'thin', color:{rgb:'CCCCCC'} };
+    const THICK_BORDER = { style:'medium', color:{rgb:'1A237E'} };
+    const FULL_BORDER = { top:BORDER, bottom:BORDER, left:BORDER, right:BORDER };
+    const HEADER_FILL = { patternType:'solid', fgColor:{rgb:'1A237E'} };
+    const DAY_FILL   = { patternType:'solid', fgColor:{rgb:'E8EAF6'} };
+    const LUNCH_FILL = { patternType:'solid', fgColor:{rgb:'FFF8E1'} };
+    const NLF_FILL   = { patternType:'solid', fgColor:{rgb:'F5F5F5'} };
+    const TITLE_FILL = { patternType:'solid', fgColor:{rgb:'283593'} };
+
+    function hdrCell(v) {
+      return { v, t:'s', s:{ font:{bold:true,color:{rgb:'FFFFFF'},sz:11}, fill:HEADER_FILL, alignment:{horizontal:'center',vertical:'center',wrapText:true}, border:FULL_BORDER } };
+    }
+    function titleCell(v) {
+      return { v, t:'s', s:{ font:{bold:true,color:{rgb:'FFFFFF'},sz:13}, fill:TITLE_FILL, alignment:{horizontal:'center',vertical:'center'} } };
+    }
+    function dayCell(v) {
+      return { v, t:'s', s:{ font:{bold:true,color:{rgb:'1A237E'},sz:10}, fill:DAY_FILL, alignment:{horizontal:'center',vertical:'center'}, border:{ top:THICK_BORDER, bottom:THICK_BORDER, left:THICK_BORDER, right:BORDER } } };
+    }
+    function nlfCell() {
+      return { v:'NLF', t:'s', s:{ font:{italic:true,color:{rgb:'BDBDBD'},sz:9}, fill:NLF_FILL, alignment:{horizontal:'center',vertical:'center'}, border:FULL_BORDER } };
+    }
+    function subjectCell(text, xlColor, isBtu) {
+      const fgColor = { rgb: xlColor || 'E3F2FD' };
+      return { v: text, t:'s', s:{
+        font:{ bold:true, sz:9, color:{ rgb: isBtu ? 'E65100' : '0D47A1' } },
+        fill:{ patternType:'solid', fgColor },
+        alignment:{ horizontal:'left', vertical:'center', wrapText:true },
+        border:{ ...FULL_BORDER, left: isBtu ? { style:'thick', color:{rgb:'E65100'} } : BORDER }
+      }};
+    }
+
+    async function exportAllClasses() {
+      const loadingMsg = document.createElement('div');
+      loadingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a237e;color:white;padding:24px 48px;border-radius:8px;z-index:10000;font-size:16px;box-shadow:0 4px 16px rgba(0,0,0,0.3);';
+      loadingMsg.textContent = '⏳ Generating Excel for all sections...';
+      document.body.appendChild(loadingMsg);
+
+      try {
+        const deptId = localStorage.getItem('selectedDepartmentId') || '1';
+        const [yRes, slRes, settingsRes] = await Promise.all([
+          fetch(`/api/years?department_id=${deptId}`),
+          fetch(`/api/timeslots?department_id=${deptId}`),
+          fetch('/api/settings')
+        ]);
+        
+        const years = await yRes.json();
+        const allSlots = await slRes.json();
+        const settings = await settingsRes.json();
+        const deptName = settings.department_name || 'Department of Technology';
+        const collegeName = settings.college_name || 'JIET Universe';
+
+        const sectionsRes = await fetch(`/api/sections?department_id=${deptId}`);
+        const allSections = await sectionsRes.json();
+
+        if (allSections.length === 0) {
+          alert('No sections found to export.');
+          document.body.removeChild(loadingMsg);
+          return;
+        }
+
+        const wb = XLSX.utils.book_new();
+        const teaching = allSlots.filter(s => !s.is_break);
+        const numCols = teaching.length + 1;
+
+        for (const section of allSections) {
+          const year = years.find(y => y.id === section.year_id);
+          const sectionTitle = `${year ? year.display_name : 'Year'} — Section ${section.name}`;
+          
+          const entriesRes = await fetch(`/api/timetable/class?section_id=${section.id}`);
+          const sectionEntries = await entriesRes.json();
+
+          const sectionSubjectColorMap = {};
+          const sectionSubjectXlColorMap = {};
+          
+          function getSectionColor(id) {
+            if (!sectionSubjectColorMap[id]) {
+              const idx = Object.keys(sectionSubjectColorMap).length % COLORS.length;
+              sectionSubjectColorMap[id] = COLORS[idx];
+              sectionSubjectXlColorMap[id] = XL_COLORS[idx];
+            }
+            return sectionSubjectColorMap[id];
+          }
+          function getSectionXlColor(id) { 
+            getSectionColor(id); 
+            return sectionSubjectXlColorMap[id]; 
+          }
+
+          const wsData = [];
+          wsData.push([titleCell(collegeName), ...Array(numCols-1).fill({v:'',t:'s',s:{fill:TITLE_FILL}})]);
+          wsData.push([titleCell(deptName), ...Array(numCols-1).fill({v:'',t:'s',s:{fill:TITLE_FILL}})]);
+          wsData.push([titleCell(sectionTitle), ...Array(numCols-1).fill({v:'',t:'s',s:{fill:TITLE_FILL}})]);
+          wsData.push(Array(numCols).fill({v:'',t:'s'}));
+          wsData.push([ hdrCell('Day / Time'), ...teaching.map(s => hdrCell(`Slot ${s.slot_number}\n${s.start_time}–${s.end_time}`)) ]);
+
+          DAYS.forEach(day => {
+            const row = [dayCell(day)];
+            teaching.forEach(slot => {
+              const se = sectionEntries.filter(e => e.day_of_week===day && e.time_slot_id===slot.id);
+              if (!se.length) { row.push(nlfCell()); return; }
+              
+              if (se.some(e => e.subsection)) {
+                const xlC = getSectionXlColor(se[0].subject_id);
+                const isBtu = se[0].subject_category === 'btu';
+                const txt = se[0].subject_name + (isBtu ? ' [B.T.U.] LAB' : ' [LAB]') + '\n' +
+                  se.map(e => `Batch ${e.subsection}: ${e.faculty_name||'—'} | ${e.room_name||''}`).join('\n');
+                row.push(subjectCell(txt, xlC, isBtu));
+              } else {
+                const e = se[0];
+                const xlC = getSectionXlColor(e.subject_id);
+                const isBtu = e.subject_category === 'btu';
+                const tag = isBtu ? ' [B.T.U.]' : e.subject_type==='lab' ? ' [LAB]' : '';
+                const batch = e.subsection ? `\nBatch ${e.subsection}` : '';
+                const txt = `${e.subject_name}${tag}${batch}\n${e.faculty_name||'—'}\n${e.room_name||'—'}`;
+                row.push(subjectCell(txt, xlC, isBtu));
+              }
+            });
+            wsData.push(row);
+          });
+
+          const ws = XLSX.utils.aoa_to_sheet(wsData);
+          ws['!cols'] = [{wch:14}, ...teaching.map(()=>({wch:28}))];
+          ws['!rows'] = [
+            {hpt:22},{hpt:20},{hpt:18},{hpt:8},{hpt:32},
+            ...DAYS.map(()=>({hpt:54}))
+          ];
+          ws['!merges'] = [
+            {s:{r:0,c:0},e:{r:0,c:numCols-1}},
+            {s:{r:1,c:0},e:{r:1,c:numCols-1}},
+            {s:{r:2,c:0},e:{r:2,c:numCols-1}},
+            {s:{r:3,c:0},e:{r:3,c:numCols-1}},
+          ];
+
+          const sheetName = `${year ? year.display_name.replace(/[^a-z0-9]/gi,'') : 'Y'}_${section.name}`.substring(0, 31);
+          XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        }
+
+        const fileName = `All_Class_Timetables_${collegeName.replace(/[^a-z0-9]/gi,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`;
+        XLSX.writeFile(wb, fileName);
+
+        document.body.removeChild(loadingMsg);
+        
+        const successMsg = document.createElement('div');
+        successMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#2e7d32;color:white;padding:24px 48px;border-radius:8px;z-index:10000;font-size:16px;box-shadow:0 4px 16px rgba(0,0,0,0.3);';
+        successMsg.textContent = `✅ Exported ${allSections.length} sections successfully!`;
+        document.body.appendChild(successMsg);
+        setTimeout(() => document.body.removeChild(successMsg), 3000);
+        
+      } catch (error) {
+        console.error('Export failed:', error);
+        document.body.removeChild(loadingMsg);
+        alert('Failed to export all classes: ' + error.message);
+      }
+    }
+
+    async function exportAllFaculty() {
+      const loadingMsg = document.createElement('div');
+      loadingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a237e;color:white;padding:24px 48px;border-radius:8px;z-index:10000;font-size:16px;box-shadow:0 4px 16px rgba(0,0,0,0.3);';
+      loadingMsg.textContent = '⏳ Generating Excel for all faculty...';
+      document.body.appendChild(loadingMsg);
+
+      try {
+        const deptId = localStorage.getItem('selectedDepartmentId') || '1';
+        const [facRes, slRes, settingsRes] = await Promise.all([
+          fetch(`/api/faculty?department_id=${deptId}`),
+          fetch(`/api/timeslots?department_id=${deptId}`),
+          fetch('/api/settings')
+        ]);
+        
+        const allFaculty = await facRes.json();
+        const allSlots = await slRes.json();
+        const settings = await settingsRes.json();
+        const deptName = settings.department_name || 'Department of Technology';
+        const collegeName = settings.college_name || 'JIET Universe';
+
+        if (allFaculty.length === 0) {
+          alert('No faculty found to export.');
+          document.body.removeChild(loadingMsg);
+          return;
+        }
+
+        const wb = XLSX.utils.book_new();
+        const teaching = allSlots.filter(s => !s.is_break);
+        const numCols = teaching.length + 1;
+
+        for (const faculty of allFaculty) {
+          const facultyTitle = `${faculty.name}${faculty.designation ? ' — ' + faculty.designation : ''}`;
+          
+          const entriesRes = await fetch(`/api/timetable/faculty?faculty_id=${faculty.id}`);
+          const facultyEntries = await entriesRes.json();
+
+          const facultySubjectColorMap = {};
+          const facultySubjectXlColorMap = {};
+          
+          function getFacultyColor(id) {
+            if (!facultySubjectColorMap[id]) {
+              const idx = Object.keys(facultySubjectColorMap).length % COLORS.length;
+              facultySubjectColorMap[id] = COLORS[idx];
+              facultySubjectXlColorMap[id] = XL_COLORS[idx];
+            }
+            return facultySubjectColorMap[id];
+          }
+          function getFacultyXlColor(id) { 
+            getFacultyColor(id); 
+            return facultySubjectXlColorMap[id]; 
+          }
+
+          const wsData = [];
+          wsData.push([titleCell(collegeName), ...Array(numCols-1).fill({v:'',t:'s',s:{fill:TITLE_FILL}})]);
+          wsData.push([titleCell(deptName), ...Array(numCols-1).fill({v:'',t:'s',s:{fill:TITLE_FILL}})]);
+          wsData.push([titleCell(facultyTitle), ...Array(numCols-1).fill({v:'',t:'s',s:{fill:TITLE_FILL}})]);
+          wsData.push(Array(numCols).fill({v:'',t:'s'}));
+          wsData.push([ hdrCell('Day / Time'), ...teaching.map(s => hdrCell(`Slot ${s.slot_number}\n${s.start_time}–${s.end_time}`)) ]);
+
+          DAYS.forEach(day => {
+            const row = [dayCell(day)];
+            teaching.forEach(slot => {
+              const se = facultyEntries.filter(e => e.day_of_week===day && e.time_slot_id===slot.id);
+              if (!se.length) { row.push(nlfCell()); return; }
+              
+              const e = se[0];
+              const xlC = getFacultyXlColor(e.subject_id);
+              const isBtu = e.subject_category === 'btu';
+              const tag = isBtu ? ' [B.T.U.]' : e.subject_type==='lab' ? ' [LAB]' : '';
+              const batch = e.subsection ? `\nBatch ${e.subsection}` : '';
+              const txt = `${e.subject_name}${tag}${batch}\n${e.section_display||'—'}\n${e.room_name||'—'}`;
+              row.push(subjectCell(txt, xlC, isBtu));
+            });
+            wsData.push(row);
+          });
+
+          const ws = XLSX.utils.aoa_to_sheet(wsData);
+          ws['!cols'] = [{wch:14}, ...teaching.map(()=>({wch:28}))];
+          ws['!rows'] = [
+            {hpt:22},{hpt:20},{hpt:18},{hpt:8},{hpt:32},
+            ...DAYS.map(()=>({hpt:54}))
+          ];
+          ws['!merges'] = [
+            {s:{r:0,c:0},e:{r:0,c:numCols-1}},
+            {s:{r:1,c:0},e:{r:1,c:numCols-1}},
+            {s:{r:2,c:0},e:{r:2,c:numCols-1}},
+            {s:{r:3,c:0},e:{r:3,c:numCols-1}},
+          ];
+
+          const sheetName = faculty.name.replace(/[^a-z0-9]/gi,'_').substring(0, 31);
+          XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        }
+
+        const fileName = `All_Faculty_Timetables_${collegeName.replace(/[^a-z0-9]/gi,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`;
+        XLSX.writeFile(wb, fileName);
+
+        document.body.removeChild(loadingMsg);
+        
+        const successMsg = document.createElement('div');
+        successMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#2e7d32;color:white;padding:24px 48px;border-radius:8px;z-index:10000;font-size:16px;box-shadow:0 4px 16px rgba(0,0,0,0.3);';
+        successMsg.textContent = `✅ Exported ${allFaculty.length} faculty timetables successfully!`;
+        document.body.appendChild(successMsg);
+        setTimeout(() => document.body.removeChild(successMsg), 3000);
+        
+      } catch (error) {
+        console.error('Export failed:', error);
+        document.body.removeChild(loadingMsg);
+        alert('Failed to export all faculty: ' + error.message);
+      }
+    }
   </script>
 </body>
 </html>
