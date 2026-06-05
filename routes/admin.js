@@ -16,6 +16,29 @@ function requireAdmin(req, res, next) {
   }
 }
 
+// ==================== SETTINGS ====================
+
+router.get('/settings', requireAdmin, async (req, res) => {
+  try {
+    const rows = await query('SELECT key, value FROM settings');
+    const settings = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    res.json(settings);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.put('/settings', requireAdmin, async (req, res) => {
+  try {
+    const updates = req.body; // { department_name: '...', college_name: '...' }
+    for (const [key, value] of Object.entries(updates)) {
+      await run(
+        'INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value',
+        [key, value]
+      );
+    }
+    res.json({ message: 'Settings saved' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ==================== SUBJECTS ====================
 
 router.post('/subjects', requireAdmin, async (req, res) => {
@@ -261,7 +284,7 @@ router.post('/generate', requireAdmin, async (req, res) => {
     const classrooms = allRooms.filter(r => r.type === 'classroom');
     const labs       = allRooms.filter(r => r.type === 'lab');
 
-    // Track busy slots
+    // Track busy slots across ALL sections (prevent double-booking)
     const facultyBusy = {};
     const roomBusy = {};
     const isFacultyFree = (d,s,f) => !facultyBusy[`${d}_${s}`]?.has(f);
@@ -270,29 +293,54 @@ router.post('/generate', requireAdmin, async (req, res) => {
     const markRoom      = (d,s,r) => { const k=`${d}_${s}`; if(!roomBusy[k]) roomBusy[k]=new Set(); roomBusy[k].add(r); };
     const shuffle = a => { const b=[...a]; for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];} return b; };
 
+    // ── Max-utilization: assign each section a dedicated classroom ──────────
+    // Rotate classrooms across sections so each gets a unique primary room.
+    // If classrooms < sections, rooms are reused in round-robin.
+    const shuffledClassrooms = shuffle([...classrooms]);
+    const sectionRoomMap = {}; // section.id → preferred classroom id
+    sections.forEach((sec, idx) => {
+      if (shuffledClassrooms.length > 0)
+        sectionRoomMap[sec.id] = shuffledClassrooms[idx % shuffledClassrooms.length].id;
+    });
+
     for (const section of sections) {
       const subjects = await query('SELECT * FROM subjects WHERE year_id=$1', [section.year_id]);
       if (!subjects.length) continue;
 
+      // Expand subjects into periods list
       let periods = [];
       for (const subj of subjects)
         for (let i = 0; i < subj.hours_per_week; i++)
           periods.push(subj);
       periods = shuffle(periods);
 
-      let slots = shuffle(days.flatMap(day => allSlots.map(slot => ({ day, slot }))));
+      // Build ordered slots: prefer to fill each day before moving on (maximises utilization)
+      let slots = [];
+      for (const day of days)
+        for (const slot of allSlots)
+          slots.push({ day, slot });
+      // Slight shuffle within each day to vary start positions across sections
+      const perDay = allSlots.length;
+      const orderedSlots = [];
+      for (let d = 0; d < days.length; d++) {
+        const daySlots = slots.slice(d * perDay, (d + 1) * perDay);
+        orderedSlots.push(...shuffle(daySlots));
+      }
+
       const usedSlots = new Set();
       const daySubjects = Object.fromEntries(days.map(d => [d, new Set()]));
+      const preferredRoomId = sectionRoomMap[section.id];
 
       let pi = 0, si = 0;
-      while (pi < periods.length && si < slots.length * 3) {
-        const { day, slot } = slots[si % slots.length]; si++;
+      while (pi < periods.length && si < orderedSlots.length * 3) {
+        const { day, slot } = orderedSlots[si % orderedSlots.length]; si++;
         const key = `${day}_${slot.id}`;
         if (usedSlots.has(key)) continue;
 
         const subj = periods[pi];
         if (daySubjects[day].has(subj.id)) continue;
 
+        // Faculty selection
         const eligible = allFaculty.filter(f => {
           try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; }
         });
@@ -300,8 +348,21 @@ router.post('/generate', requireAdmin, async (req, res) => {
         const chosenF = fPool.find(f => isFacultyFree(day, slot.id, f.id));
         if (!chosenF) continue;
 
-        const rPool = shuffle(subj.type === 'lab' ? (labs.length ? labs : allRooms) : (classrooms.length ? classrooms : allRooms));
-        const chosenR = rPool.find(r => isRoomFree(day, slot.id, r.id));
+        // Room selection — lab subjects go to labs; theory subjects prefer the section's dedicated room
+        let chosenR = null;
+        if (subj.type === 'lab') {
+          const labPool = shuffle(labs.length ? labs : allRooms);
+          chosenR = labPool.find(r => isRoomFree(day, slot.id, r.id));
+        } else {
+          // Try preferred room first, then any free classroom, then any room
+          const preferred = classrooms.find(r => r.id === preferredRoomId);
+          if (preferred && isRoomFree(day, slot.id, preferred.id)) {
+            chosenR = preferred;
+          } else {
+            const clPool = shuffle(classrooms.length ? classrooms : allRooms);
+            chosenR = clPool.find(r => isRoomFree(day, slot.id, r.id));
+          }
+        }
         if (!chosenR) continue;
 
         await run(

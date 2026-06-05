@@ -173,7 +173,7 @@
             <td style="max-width:200px;font-size:0.78rem;">${subjectNames.length > 0 ? subjectNames.slice(0, 3).join(', ') + (subjectNames.length > 3 ? ` +${subjectNames.length - 3} more` : '') : '<span class="text-muted">None assigned</span>'}</td>
             <td>
               <button class="btn btn-outline btn-sm" onclick="editFaculty(${f.id})">Edit</button>
-              <button class="btn btn-danger btn-sm" onclick="deleteFaculty(${f.id}, '${f.name.replace(/'/g, "\\'")}')">Delete</button>
+              <button class="btn btn-danger btn-sm" data-id="${f.id}" onclick="deleteFacultyById(this)">Delete</button>
             </td>
           </tr>
         `;
@@ -206,15 +206,13 @@
       if (f) openModal(f);
     }
 
-    async function deleteFaculty(id, name) {
-      if (!confirm(`Delete faculty "${name}"?`)) return;
-      const res = await fetch(`/api/admin/faculty/${id}`, { method: 'DELETE' });
-      const data = await res.json();
-      showAlert(data.message, 'success');
-      const fRes = await fetch('/api/faculty');
-      faculty = await fRes.json();
-      renderTable();
+    function deleteFacultyById(btn) {
+      const id = btn.getAttribute('data-id');
+      const name = faculty.find(f => f.id == id)?.name || 'this faculty';
+      deleteFaculty(id, name);
     }
+
+    async function deleteFaculty(id, name) {
 
     document.getElementById('facultyForm').addEventListener('submit', async (e) => {
       e.preventDefault();

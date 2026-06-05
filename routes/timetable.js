@@ -2,6 +2,17 @@ const express = require('express');
 const router = express.Router();
 const { query, queryOne } = require('../database');
 
+// Public: GET settings (department name, Google Client ID, etc.)
+router.get('/settings', async (req, res) => {
+  try {
+    const rows = await query('SELECT key, value FROM settings');
+    const settings = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    // Add env-based Google Client ID (not stored in DB for security)
+    settings.google_client_id = process.env.GOOGLE_CLIENT_ID || '';
+    res.json(settings);
+  } catch (err) { res.status(500).json({ error: err.message}); }
+});
+
 router.get('/years', async (req, res) => {
   try {
     const rows = await query('SELECT * FROM years ORDER BY id');

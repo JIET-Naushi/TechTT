@@ -3,15 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard — Admin</title>
+  <title>Dashboard — JIET Universe Timetable</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
   <header class="header">
-    <div class="logo">🎓 <span>College</span> Timetable — Admin</div>
+    <div class="logo">🎓 <span>JIET Universe</span> Timetable</div>
     <nav>
       <a href="/index.html">Home</a>
       <a href="/views/class-timetable.html">View Timetables</a>
+      <span id="userBadge" style="color:rgba(255,255,255,0.8);font-size:0.82rem;margin-left:12px;display:flex;align-items:center;gap:6px;"></span>
       <button class="btn-logout" onclick="logout()">Logout</button>
     </nav>
   </header>
@@ -43,7 +44,7 @@
         <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">Timetable Entries</div></div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;flex-wrap:wrap;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
         <div class="card">
           <div class="card-title">Quick Actions</div>
           <div style="display:flex;flex-direction:column;gap:10px;">
@@ -60,33 +61,63 @@
         </div>
       </div>
 
+      <!-- Editable Department Settings -->
       <div class="card mt-3">
-        <div class="card-title">System Info</div>
-        <table>
-          <tr><td style="width:200px;color:#666;">Department</td><td><strong>Department of Technology</strong></td></tr>
-          <tr><td style="color:#666;">Programs</td><td>B.Tech I Year, II Year, III Year</td></tr>
-          <tr><td style="color:#666;">Sections per Year</td><td>A, B, C</td></tr>
-          <tr><td style="color:#666;">Working Days</td><td>Monday to Saturday</td></tr>
-          <tr><td style="color:#666;">Teaching Periods/Day</td><td>7 (08:00 – 15:00, Lunch 11:30–12:30)</td></tr>
-          <tr><td style="color:#666;">Admin Login</td><td>admin / admin123</td></tr>
-        </table>
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Department Settings</span>
+          <button class="btn btn-outline btn-sm" onclick="toggleEditSettings()" id="editSettingsBtn">✏️ Edit</button>
+        </div>
+        <div id="settingsView">
+          <table>
+            <tr><td style="width:200px;color:#666;">Department Name</td><td><strong id="deptDisplay">—</strong></td></tr>
+            <tr><td style="color:#666;">College Name</td><td><strong id="collegeDisplay">—</strong></td></tr>
+            <tr><td style="color:#666;">Programs</td><td>B.Tech I Year, II Year, III Year</td></tr>
+            <tr><td style="color:#666;">Working Days</td><td>Monday to Saturday</td></tr>
+            <tr><td style="color:#666;">Teaching Periods/Day</td><td>7 (08:00 – 15:00, Lunch 11:30–12:30)</td></tr>
+          </table>
+        </div>
+        <div id="settingsEdit" style="display:none;">
+          <div class="form-row" style="margin-bottom:12px;">
+            <div class="form-group">
+              <label>Department Name</label>
+              <input type="text" id="deptInput" class="form-control" placeholder="e.g. Department of Technology">
+            </div>
+            <div class="form-group">
+              <label>College Name</label>
+              <input type="text" id="collegeInput" class="form-control" placeholder="e.g. JIET Universe">
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <button class="btn btn-primary btn-sm" onclick="saveSettings()">Save</button>
+            <button class="btn btn-secondary btn-sm" onclick="toggleEditSettings()">Cancel</button>
+          </div>
+          <div id="settingsAlert" style="margin-top:10px;"></div>
+        </div>
       </div>
     </main>
   </div>
 
   <script>
-    // Auth check
+    let currentSettings = {};
+
+    // Auth check + show user badge
     fetch('/api/auth/status').then(r => r.json()).then(d => {
-      if (!d.loggedIn) location.href = '/login.html';
+      if (!d.loggedIn) { location.href = '/login.html'; return; }
+      const badge = document.getElementById('userBadge');
+      if (d.user.loginType === 'google') {
+        badge.innerHTML = (d.user.picture
+          ? `<img src="${d.user.picture}" style="width:24px;height:24px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);">`
+          : '') + `<span>${d.user.name || d.user.username}</span>`;
+      } else {
+        badge.innerHTML = `<span>👤 ${d.user.username}</span>`;
+      }
     });
 
     async function loadStats() {
       const res = await fetch('/api/admin/stats');
       const s = await res.json();
-      const grid = document.getElementById('statsGrid');
       const vals = [s.years, s.sections, s.subjects, s.faculty, s.rooms, s.timetable_entries];
-      const cards = grid.querySelectorAll('.stat-card .stat-value');
-      cards.forEach((c, i) => c.textContent = vals[i]);
+      document.querySelectorAll('.stat-card .stat-value').forEach((c, i) => c.textContent = vals[i]);
     }
 
     async function loadConflicts() {
@@ -103,6 +134,54 @@
       }
     }
 
+    async function loadSettings() {
+      const res = await fetch('/api/settings');
+      currentSettings = await res.json();
+      document.getElementById('deptDisplay').textContent   = currentSettings.department_name || '—';
+      document.getElementById('collegeDisplay').textContent = currentSettings.college_name || '—';
+      document.getElementById('deptInput').value    = currentSettings.department_name || '';
+      document.getElementById('collegeInput').value = currentSettings.college_name || '';
+    }
+
+    function toggleEditSettings() {
+      const view = document.getElementById('settingsView');
+      const edit = document.getElementById('settingsEdit');
+      const btn  = document.getElementById('editSettingsBtn');
+      const editing = edit.style.display === 'none';
+      view.style.display = editing ? 'none' : 'block';
+      edit.style.display = editing ? 'block' : 'none';
+      btn.textContent = editing ? '✖ Cancel' : '✏️ Edit';
+      // Reset inputs on cancel
+      if (!editing) {
+        document.getElementById('deptInput').value    = currentSettings.department_name || '';
+        document.getElementById('collegeInput').value = currentSettings.college_name || '';
+        document.getElementById('settingsAlert').innerHTML = '';
+      }
+    }
+
+    async function saveSettings() {
+      const body = {
+        department_name: document.getElementById('deptInput').value.trim(),
+        college_name:    document.getElementById('collegeInput').value.trim()
+      };
+      if (!body.department_name) {
+        document.getElementById('settingsAlert').innerHTML = '<div class="alert alert-error">Department name cannot be empty</div>';
+        return;
+      }
+      const res = await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        await loadSettings();
+        toggleEditSettings();
+      } else {
+        document.getElementById('settingsAlert').innerHTML = `<div class="alert alert-error">${data.error || 'Error saving'}</div>`;
+      }
+    }
+
     async function logout() {
       await fetch('/api/auth/logout', { method: 'POST' });
       location.href = '/login.html';
@@ -110,6 +189,7 @@
 
     loadStats();
     loadConflicts();
+    loadSettings();
   </script>
 </body>
 </html>

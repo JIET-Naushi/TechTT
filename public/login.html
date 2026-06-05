@@ -3,55 +3,118 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin Login — Timetable System</title>
+  <title>Login — JIET Universe Timetable</title>
   <link rel="stylesheet" href="/css/style.css">
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body class="login-page">
-  <div class="login-card">
+  <div class="login-card" style="max-width:440px;">
     <div class="login-logo">
-      <div style="font-size:2.5rem;">🎓</div>
-      <h2>Timetable System</h2>
-      <p>Department of Technology — Admin Login</p>
+      <div style="font-size:2.8rem;">🎓</div>
+      <h2 style="font-size:1.4rem;">JIET Universe Timetable</h2>
+      <p id="deptSubtitle" style="color:#555;font-size:0.88rem;">Loading...</p>
     </div>
+
     <div id="alertBox"></div>
+
+    <!-- Google Sign-In Button -->
+    <div style="margin-bottom:20px;">
+      <p style="text-align:center;font-size:0.82rem;color:#888;margin-bottom:12px;">Sign in with your Google account</p>
+      <div id="g_id_onload"
+           data-callback="handleGoogleLogin"
+           data-auto_prompt="false">
+      </div>
+      <div class="g_id_signin"
+           data-type="standard"
+           data-size="large"
+           data-theme="outline"
+           data-text="sign_in_with"
+           data-shape="rectangular"
+           data-logo_alignment="left"
+           data-width="360">
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+      <hr style="flex:1;border:none;border-top:1px solid #ddd;">
+      <span style="font-size:0.78rem;color:#aaa;">or use password</span>
+      <hr style="flex:1;border:none;border-top:1px solid #ddd;">
+    </div>
+
+    <!-- Fallback password login -->
     <form id="loginForm">
       <div class="form-group">
         <label for="username">Username</label>
-        <input type="text" id="username" class="form-control" placeholder="Enter username" value="admin" required>
+        <input type="text" id="username" class="form-control" placeholder="admin" required>
       </div>
       <div class="form-group">
         <label for="password">Password</label>
-        <input type="password" id="password" class="form-control" placeholder="Enter password" value="admin123" required>
+        <input type="password" id="password" class="form-control" placeholder="Password" required>
       </div>
-      <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px;" id="loginBtn">
+      <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;" id="loginBtn">
         Login
       </button>
     </form>
+
     <div style="text-align:center;margin-top:16px;">
       <a href="/index.html" style="color:#666;font-size:0.85rem;">← Back to Home</a>
     </div>
   </div>
 
   <script>
+    // Load department name and inject Google Client ID
+    fetch('/api/settings').then(r => r.json()).then(s => {
+      document.getElementById('deptSubtitle').textContent =
+        (s.department_name || 'Department of Technology') + ' — Admin Login';
+      
+      // Dynamically inject Google Client ID into the button
+      if (s.google_client_id) {
+        document.getElementById('g_id_onload').setAttribute('data-client_id', s.google_client_id);
+      }
+    }).catch(() => {
+      document.getElementById('deptSubtitle').textContent = 'Department of Technology — Admin Login';
+    });
+
     // If already logged in, redirect
     fetch('/api/auth/status').then(r => r.json()).then(d => {
       if (d.loggedIn) location.href = '/admin/dashboard.html';
     });
 
+    // Google Sign-In callback
+    async function handleGoogleLogin(response) {
+      showAlert('Signing in...', 'info');
+      try {
+        const res = await fetch('/api/auth/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential: response.credential })
+        });
+        const data = await res.json();
+        if (data.success) {
+          location.href = '/admin/dashboard.html';
+        } else {
+          showAlert(data.message || 'Google login failed', 'error');
+        }
+      } catch (err) {
+        showAlert('Server error. Please try again.', 'error');
+      }
+    }
+
+    // Password login
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('loginBtn');
       btn.innerHTML = '<span class="spinner"></span> Logging in...';
       btn.disabled = true;
-
-      const username = document.getElementById('username').value;
-      const password = document.getElementById('password').value;
-
       try {
         const res = await fetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
+          body: JSON.stringify({
+            username: document.getElementById('username').value,
+            password: document.getElementById('password').value
+          })
         });
         const data = await res.json();
         if (data.success) {

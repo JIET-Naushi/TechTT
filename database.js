@@ -113,6 +113,26 @@ async function initializeDatabase() {
     )
   `);
 
+  // Settings table (department name, etc.)
+  await run(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
+  // Google OAuth users table (email-based, multi-account)
+  await run(`
+    CREATE TABLE IF NOT EXISTS oauth_users (
+      id SERIAL PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      name TEXT,
+      picture TEXT,
+      role TEXT NOT NULL DEFAULT 'admin',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   // Seed only on first run
   const userCount    = await queryOne('SELECT COUNT(*) as cnt FROM users');
   const roomCount    = await queryOne('SELECT COUNT(*) as cnt FROM rooms');
@@ -122,6 +142,12 @@ async function initializeDatabase() {
     await seedDatabase();
     console.log('Database seeded successfully.');
   }
+
+  // Ensure default settings exist
+  await run(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
+    ['department_name', 'Department of Technology']);
+  await run(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
+    ['college_name', 'JIET Universe']);
 }
 
 async function seedDatabase() {

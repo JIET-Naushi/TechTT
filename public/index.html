@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>College Timetable System</title>
+  <title>JIET Universe Timetable</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
   <header class="header">
-    <div class="logo">🎓 <span>College</span> Timetable System</div>
+    <div class="logo">🎓 <span>JIET Universe</span> Timetable</div>
     <nav>
       <a href="/index.html" class="active">Home</a>
       <a href="/views/class-timetable.html">Class View</a>
@@ -19,7 +19,7 @@
   </header>
 
   <div class="hero">
-    <h1>Department of Technology</h1>
+    <h1 id="heroTitle">Department of Technology</h1>
     <p>B.Tech Timetable Management System — View class schedules, faculty timetables, and room allocations.</p>
     <a href="/views/class-timetable.html" class="btn btn-primary btn-lg" style="margin-right:12px;">View Timetables</a>
     <a href="/login.html" class="btn btn-outline btn-lg" style="border-color:white;color:white;">Admin Panel</a>
@@ -48,6 +48,11 @@
   </div>
 
   <script>
+    fetch('/api/settings').then(r => r.json()).then(s => {
+      const dept = s.department_name || 'Department of Technology';
+      document.getElementById('heroTitle').textContent = dept;
+      document.querySelector('footer-text') && (document.querySelector('footer-text').textContent = dept);
+    }).catch(() => {});
     // Check if admin is logged in and update link
     fetch('/api/auth/status').then(r => r.json()).then(data => {
       if (data.loggedIn) {
