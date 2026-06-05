@@ -26,6 +26,7 @@
       <div class="sidebar-title">Timetable</div>
       <a href="/admin/generate.html" class="active"><span class="icon">⚡</span> Generate</a>
       <a href="/admin/editor.html"><span class="icon">✏️</span> Editor</a>
+      <a href="/admin/conflicts.html"><span class="icon">⚠️</span> Conflicts</a>
       <div class="sidebar-title">Views</div>
       <a href="/views/class-timetable.html"><span class="icon">📅</span> Class View</a>
       <a href="/views/faculty-timetable.html"><span class="icon">👤</span> Faculty View</a>
@@ -173,7 +174,23 @@
         const data = await res.json();
         setLoading(false);
         if (res.ok && data.success) {
-          showResult(`<div class="alert alert-success">✅ ${data.message}</div>`);
+          let resultHTML = `<div class="alert alert-success">✅ ${data.message}</div>`;
+          
+          // Show conflict statistics if available
+          if (data.stats) {
+            resultHTML += `
+              <div style="margin-top: 16px; padding: 12px; background: #f5f5f5; border-radius: 6px;">
+                <h4 style="margin: 0 0 8px 0; font-size: 0.9rem; color: #666;">📊 Generation Statistics</h4>
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; font-size: 0.85rem;">
+                  <div><strong>Total Entries:</strong> ${data.stats.totalEntries}</div>
+                  <div><strong>Sections Processed:</strong> ${data.stats.sectionsProcessed}</div>
+                  <div><strong>Conflicts Detected:</strong> <span style="color: ${data.stats.conflictsDetected > 0 ? '#d32f2f' : '#388e3c'}; font-weight: 600;">${data.stats.conflictsDetected}</span></div>
+                </div>
+              </div>
+            `;
+          }
+          
+          showResult(resultHTML);
         } else {
           showResult(`<div class="alert alert-error">❌ ${data.error || 'Generation failed'}</div>`);
         }
