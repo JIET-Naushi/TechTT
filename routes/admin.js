@@ -935,8 +935,18 @@ router.post('/generate', requireAuth, async (req, res) => {
       const theorySubjects = subjects.filter(s => s.type !== 'lab');
       const labSubjects    = subjects.filter(s => s.type === 'lab');
 
+      // ── Determine if this section is a BTU section ─────────────────────
+      // BTU section: name contains "BTU" (case-insensitive) or is explicitly flagged
+      const isBtuSection = /btu/i.test(section.name);
+
+      // BTU subjects → only scheduled in BTU sections
+      // Non-BTU sections get only regular (non-btu) theory subjects
+      const eligibleTheory = theorySubjects.filter(s =>
+        s.category === 'btu' ? isBtuSection : true
+      );
+
       // ── Cap theory subjects at 6 (pick highest-credit ones first) ─────────
-      const cappedTheory = [...theorySubjects]
+      const cappedTheory = [...eligibleTheory]
         .sort((a, b) => (b.credits || 0) - (a.credits || 0))
         .slice(0, 6);
 

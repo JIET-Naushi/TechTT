@@ -335,7 +335,7 @@
 
       // Meta info
       document.getElementById('modalMeta').textContent =
-        subsection ? `Lab batch ${subsection} — edit faculty and room` : 'Theory / B.T.U. slot';
+        subsection ? `Lab batch ${subsection} — change faculty or room` : 'Theory / B.T.U. slot';
 
       // Hidden fields
       document.getElementById('mSectionId').value  = currentSectionId;
@@ -344,20 +344,21 @@
       document.getElementById('mEntryId').value    = entryId || '';
       document.getElementById('mSubsection').value = subsection || '';
 
-      // Pre-fill
+      // Pre-fill from existing entry
       const e = entryId ? entries.find(x => x.id === entryId) : null;
       document.getElementById('mSubject').value = e?.subject_id || '';
       document.getElementById('mFaculty').value = e?.faculty_id || '';
       document.getElementById('mRoom').value    = e?.room_id    || '';
 
-      // For lab batch: subject is read-only (shown but not changeable)
+      // For lab batch: subject is read-only display only — keep it ENABLED
+      // so the value is sent with the form, but hide the group visually
       const subjectGroup = document.getElementById('mSubject').closest('.form-group');
+      document.getElementById('mSubject').disabled = false; // always enabled so value submits
       if (subsection) {
-        subjectGroup.style.opacity = '0.5';
-        document.getElementById('mSubject').disabled = true;
+        subjectGroup.style.display = 'none'; // hide subject dropdown for lab batches
       } else {
-        subjectGroup.style.opacity = '1';
-        document.getElementById('mSubject').disabled = false;
+        subjectGroup.style.display = '';
+        onSubjectChange(); // apply room filter for theory
       }
 
       // Clear button only visible for existing entries
@@ -368,6 +369,7 @@
 
     function closeModal() {
       document.getElementById('editModal').classList.remove('active');
+      document.getElementById('mSubject').closest('.form-group').style.display = '';
       document.getElementById('mSubject').disabled = false;
     }
 
