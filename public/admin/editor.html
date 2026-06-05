@@ -41,27 +41,44 @@
     .empty-cell:hover { background: #f0f4ff; color: #1a237e; }
 
     /* ── Lab cell (slot has batches) ──────────────────────────────────── */
-    .lab-slot-cell { padding: 0; }
+    .lab-slot-cell { 
+      padding: 0; display: flex; flex-direction: column; 
+      min-height: 72px; max-height: 280px; overflow: hidden;
+    }
     .lab-subj-header {
-      font-weight: 700; font-size: 0.72rem; color: #fff;
-      background: #1565c0; padding: 4px 8px; letter-spacing: 0.3px;
+      font-weight: 700; font-size: 0.73rem; color: #fff;
+      background: #1565c0; padding: 5px 8px; letter-spacing: 0.3px;
+      flex-shrink: 0; border-bottom: 2px solid #0d47a1;
+    }
+    .lab-batches-container {
+      display: flex; flex-direction: column; flex: 1; 
+      overflow-y: auto; overflow-x: hidden; 
+      min-height: 0; padding: 2px 0;
     }
     .batch-row {
-      display: flex; align-items: stretch;
-      border-top: 1px solid #ddd; cursor: pointer;
-      transition: background 0.12s;
+      display: flex; align-items: center; gap: 0;
+      border-bottom: 1px solid #e0e0e0; cursor: pointer;
+      transition: background-color 0.15s ease; flex-shrink: 0;
+      min-height: 40px; font-size: 0.7rem;
+      padding: 0;
     }
-    .batch-row:hover { background: #e3f2fd; }
+    .batch-row:hover { background-color: #e3f2fd; }
+    .batch-row:active { background-color: #bbdefb; }
     .batch-tag {
       background: #1976d2; color: #fff;
-      font-weight: 700; font-size: 0.68rem;
-      padding: 4px 7px; display: flex; align-items: center;
-      min-width: 30px; justify-content: center; flex-shrink: 0;
+      font-weight: 700; font-size: 0.69rem;
+      padding: 6px 8px; display: flex; align-items: center;
+      min-width: 36px; justify-content: center; flex-shrink: 0;
+      height: 100%;
     }
-    .batch-body { padding: 4px 7px; flex: 1; min-height: 44px; }
-    .batch-body .b-fac { font-size: 0.7rem;  color: #333; font-weight: 500; }
-    .batch-body .b-rm  { font-size: 0.66rem; color: #666; }
-    .batch-body .b-empty { font-size: 0.67rem; color: #aaa; font-style: italic; }
+    .batch-body { 
+      padding: 4px 8px; flex: 1; 
+      display: flex; flex-direction: column; justify-content: center;
+      min-height: 40px; overflow: hidden; gap: 1px;
+    }
+    .batch-body .b-fac { font-size: 0.7rem; color: #222; font-weight: 600; line-height: 1.1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+    .batch-body .b-rm  { font-size: 0.65rem; color: #555; line-height: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+    .batch-body .b-empty { font-size: 0.65rem; color: #999; font-style: italic; line-height: 1.1; }
 
     /* ── Modal ────────────────────────────────────────────────────────── */
     .modal { max-width: 500px; }
@@ -295,6 +312,7 @@
         const subjName = slotEntries[0].subject_name || '?';
         const color    = getColor(slotEntries[0].subject_id);
         let inner = `<div class="lab-subj-header">${subjName} <span style="opacity:.7;font-weight:400;font-size:.65rem;">LAB</span></div>`;
+        inner += `<div class="lab-batches-container">`;
         slotEntries.forEach(e => {
           inner += `
             <div class="batch-row"
@@ -307,6 +325,7 @@
               </div>
             </div>`;
         });
+        inner += `</div>`;
         return `<td class="lab-slot-cell ${color}" style="background:inherit;">${inner}</td>`;
       }
 

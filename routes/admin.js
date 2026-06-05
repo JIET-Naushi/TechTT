@@ -936,14 +936,24 @@ router.post('/generate', requireAuth, async (req, res) => {
       const labSubjects    = subjects.filter(s => s.type === 'lab');
 
       // ── Determine if this section is a BTU section ─────────────────────
-      // BTU section: name contains "BTU" (case-insensitive) or is explicitly flagged
+      // BTU section: name contains "BTU" (case-insensitive)
       const isBtuSection = /btu/i.test(section.name);
 
-      // BTU subjects → only scheduled in BTU sections
-      // Non-BTU sections get only regular (non-btu) theory subjects
-      const eligibleTheory = theorySubjects.filter(s =>
-        s.category === 'btu' ? isBtuSection : true
-      );
+      // Separate regular and BTU theory subjects
+      const regularTheory = theorySubjects.filter(s => s.category !== 'btu');
+      const btuTheory     = theorySubjects.filter(s => s.category === 'btu');
+
+      // Eligible theory for this section:
+      // - BTU sections: regular subjects + BTU subjects (max 6 total)
+      // - Non-BTU sections: only regular subjects (max 6)
+      let eligibleTheory = [];
+      if (isBtuSection) {
+        // BTU section gets both regular and BTU subjects (up to 6 total)
+        eligibleTheory = [...regularTheory, ...btuTheory];
+      } else {
+        // Non-BTU section gets only regular subjects
+        eligibleTheory = [...regularTheory];
+      }
 
       // ── Cap theory subjects at 6 (pick highest-credit ones first) ─────────
       const cappedTheory = [...eligibleTheory]
@@ -959,6 +969,7 @@ router.post('/generate', requireAuth, async (req, res) => {
       // Rule: since one faculty teaches one batch, batches must be staggered —
       // each batch of a subject occupies different slots (can be same or diff day).
       // Each batch still occupies hours_per_week consecutive slots.
+      // IMPORTANT: Each faculty can only teach ONE batch per subject (no duplicates)
       const labFacultyUsage = {}; // subjectId → Set of facultyIds already assigned
 
       for (const subj of labSubjects) {
@@ -984,11 +995,12 @@ router.post('/generate', requireAuth, async (req, res) => {
           const preId = preAssigned[batchName];
           if (preId) {
             const pre = allFaculty.find(f => f.id === preId);
+            // Use pre-assigned faculty ONLY if not already assigned to another batch of this subject
             if (pre && !labFacultyUsage[subj.id].has(pre.id)) batchFaculty = pre;
           }
           if (!batchFaculty) {
+            // Find faculty not yet assigned to any batch of this subject
             const pool = shuffle(facPool.filter(f => !labFacultyUsage[subj.id].has(f.id)));
-            // Pick any faculty not already assigned to another batch of this subject
             batchFaculty = pool[0] || null;
           }
           if (!batchFaculty) {
@@ -996,7 +1008,7 @@ router.post('/generate', requireAuth, async (req, res) => {
             continue;
           }
 
-          // Reserve this faculty for this batch now
+          // Reserve this faculty for this batch now (mark as used)
           labFacultyUsage[subj.id].add(batchFaculty.id);
 
           // Find a consecutive window where: faculty is free + at least 1 lab room free

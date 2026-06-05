@@ -29,13 +29,15 @@ A full-stack college timetable management system for JIET — covering B.Tech I,
 
 ### Lab Subjects
 - Each **batch** (A, B, C…) gets its **own separate consecutive time window** — they are staggered, not parallel
-- One faculty teaches one batch for the full duration; the same faculty and same lab room are used across all consecutive slots of that batch
+- One faculty teaches **only one batch** of each lab subject — no faculty is assigned to multiple batches of the same lab
+- Same faculty and same lab room are used across all consecutive slots of that batch
 - Consecutive slots never straddle the lunch break
 - Pre-assigned faculty (set via Lab Faculty Assignment) take priority; unassigned batches auto-fill
 
 ### Theory / B.T.U. Subjects
-- Maximum **6 theory subjects** are scheduled per section (highest-credit subjects prioritized)
-- **B.T.U. (Bikaner Technical University) subjects** are scheduled **only for BTU sections** — sections whose name contains "BTU" (e.g., Section BTU, Section A-BTU)
+- **B.T.U. (Bikaner Technical University)** subjects are scheduled **only for BTU sections** — sections whose name contains "BTU" (e.g., "Section BTU", "BTU-A", or "A-BTU")
+- Non-BTU sections receive only regular (non-BTU) theory subjects
+- Maximum **6 theory subjects total** are scheduled per section (highest-credit subjects prioritized)
 - Subjects spread evenly across Mon–Sat; no subject appears twice on the same day
 - Faculty assigned from their "subjects can teach" list; rooms prefer the section's dedicated classroom
 
@@ -118,12 +120,12 @@ Default admin: **admin / admin123**
 
 ```
 Admin → Years & Sections
-  → Add section (e.g., "A", "B", "BTU")
+  → Add section (e.g., "A", "B", "BTU", "BTU-A", or "A-BTU")
   → Click ⚙️ on a section to set batch count and names
     e.g., 2 batches named "A" and "B"
 ```
 
-> To create a BTU section, include "BTU" in the section name.
+> To create a BTU section, include "BTU" anywhere in the section name (e.g., "Section BTU", "BTU-A", "A-BTU"). BTU sections will receive BTU theory subjects during auto-generation.
 
 ### 2. Assign Lab Faculty (Optional)
 
@@ -279,12 +281,25 @@ settings      (key, value)
 ## Troubleshooting
 
 **Lab batches overlapping in editor?**
-- Each batch is in its own slot — click the batch row (not the header) to edit it
-- If slots look wrong, regenerate the timetable
+- Batches now display in a scrollable container if there are many per slot
+- Click the batch row (not the lab subject header) to edit each batch's faculty/room
+- If layout still appears crowded, adjust the minimum height in `public/admin/editor.html` (`.batch-row` min-height)
+
+**Multiple faculties assigned to same lab subject?**
+- The algorithm now enforces: one faculty per batch within a subject
+- If this issue persists after regenerating, check faculty qualifications and subject assignments
+- Use "Lab Faculty Assignment" to pre-assign specific faculties to batches
 
 **BTU subjects appearing in all sections?**
-- Name BTU sections with "BTU" in the name (e.g., "Section BTU" or "BTU-A")
-- Regenerate after renaming
+- Name BTU sections with "BTU" in the name (e.g., "Section BTU", "BTU-A", "A-BTU")
+- Mark all BTU theory subjects with category = "BTU" (in Subjects page)
+- Regenerate after making changes
+
+**BTU subjects not appearing in BTU sections?**
+- Ensure subject category is set to "BTU" (not "regular")
+- Verify section name contains "BTU" (case-insensitive)
+- Check that subjects are assigned to the correct year
+- Regenerate the timetable
 
 **Conflicts after generation?**
 - Go to Admin → Conflicts → Scan Now
@@ -305,6 +320,7 @@ settings      (key, value)
 
 | Version | Date | Notes |
 |---------|------|-------|
+| v3.1 | June 2026 | Fixed lab batch display with scrollable container, enforced one-faculty-per-batch rule, improved BTU subject filtering, enhanced editor UI for better batch visibility |
 | v3.0 | June 2026 | Staggered lab batches, BTU-section filtering, unified editor grid, 6-subject theory cap, lab room consistency fix |
 | v2.0 | June 2026 | Batch-wise lab assignment, conflicts page, multi-department support, improved algorithm |
 | v1.0 | — | Basic generation, simple conflict detection, standard CRUD |
