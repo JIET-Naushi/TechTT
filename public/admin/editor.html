@@ -6,205 +6,82 @@
   <title>Timetable Editor — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
   <style>
-    .editor-table td { cursor: pointer; }
-    .editor-table td:hover { background: #e8eaf6 !important; }
-    .cell-content { padding: 6px; min-height: 60px; font-size: 0.78rem; }
-    .cell-content .subj { font-weight: 700; color: #1a237e; }
-    .cell-content .fac { color: #555; font-size: 0.72rem; }
-    .cell-content .rm { color: #777; font-size: 0.7rem; }
-    .cell-content.empty { color: #ccc; text-align: center; padding-top: 20px; }
-    
-    /* Lab Batch Viewer Styles */
-    .tabs {
-      display: flex;
-      gap: 0;
-      border-bottom: 2px solid #e0e0e0;
-      margin-bottom: 20px;
+    /* ── Editor table ─────────────────────────────────────────────────── */
+    .editor-table { width: 100%; border-collapse: collapse; min-width: 820px; }
+    .editor-table th {
+      background: #1a237e; color: #fff;
+      padding: 10px 8px; font-size: 0.78rem; text-align: center; white-space: nowrap;
     }
-    .tab-btn {
-      padding: 12px 24px;
-      background: none;
-      border: none;
-      cursor: pointer;
-      font-size: 0.95rem;
-      font-weight: 500;
-      color: #666;
-      border-bottom: 3px solid transparent;
-      transition: all 0.2s;
+    .editor-table th.day-hdr {
+      background: #283593; min-width: 80px; position: sticky; left: 0; z-index: 2;
     }
-    .tab-btn.active {
-      color: #1976d2;
-      border-bottom-color: #1976d2;
+    .editor-table td {
+      border: 1px solid #ddd; padding: 0; vertical-align: top; min-width: 130px;
     }
-    .tab-btn:hover {
-      color: #1976d2;
+    .editor-table td.day-cell {
+      background: #e8eaf6; font-weight: 700; color: #1a237e;
+      text-align: center; font-size: 0.82rem; padding: 6px 4px;
+      white-space: nowrap; position: sticky; left: 0; z-index: 1;
     }
-    
-    .tab-content { display: none; }
-    .tab-content.active { display: block; }
-    
-    .lab-batch-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 16px;
+
+    /* ── Theory cell ──────────────────────────────────────────────────── */
+    .theory-cell {
+      display: flex; flex-direction: column; justify-content: center;
+      padding: 6px 8px; min-height: 72px; cursor: pointer;
+      transition: filter 0.15s;
     }
-    
-    .lab-batch-card {
-      background: white;
-      border: 1px solid #e0e0e0;
-      border-radius: 8px;
-      padding: 16px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    .theory-cell:hover { filter: brightness(0.92); }
+    .theory-cell .subj { font-weight: 700; font-size: 0.78rem; color: #0d47a1; line-height: 1.3; }
+    .theory-cell .fac  { font-size: 0.7rem;  color: #444; margin-top: 2px; }
+    .theory-cell .rm   { font-size: 0.67rem; color: #777; }
+    .empty-cell {
+      color: #bbb; text-align: center; font-size: 0.75rem;
+      padding: 24px 4px; cursor: pointer; min-height: 72px;
     }
-    
-    .lab-batch-card.warning {
-      border-color: #ffa726;
-      background: #fff8e1;
+    .empty-cell:hover { background: #f0f4ff; color: #1a237e; }
+
+    /* ── Lab cell (slot has batches) ──────────────────────────────────── */
+    .lab-slot-cell { padding: 0; }
+    .lab-subj-header {
+      font-weight: 700; font-size: 0.72rem; color: #fff;
+      background: #1565c0; padding: 4px 8px; letter-spacing: 0.3px;
     }
-    
-    .lab-batch-card h4 {
-      margin: 0 0 8px 0;
-      color: #1a237e;
-      font-size: 1rem;
+    .batch-row {
+      display: flex; align-items: stretch;
+      border-top: 1px solid #ddd; cursor: pointer;
+      transition: background 0.12s;
     }
-    
-    .batch-info {
-      font-size: 0.85rem;
-      margin: 8px 0;
-      padding: 8px;
-      background: rgba(0,0,0,0.02);
-      border-radius: 4px;
+    .batch-row:hover { background: #e3f2fd; }
+    .batch-tag {
+      background: #1976d2; color: #fff;
+      font-weight: 700; font-size: 0.68rem;
+      padding: 4px 7px; display: flex; align-items: center;
+      min-width: 30px; justify-content: center; flex-shrink: 0;
     }
-    
-    .batch-info strong {
-      display: block;
-      color: #666;
-      margin-bottom: 4px;
+    .batch-body { padding: 4px 7px; flex: 1; min-height: 44px; }
+    .batch-body .b-fac { font-size: 0.7rem;  color: #333; font-weight: 500; }
+    .batch-body .b-rm  { font-size: 0.66rem; color: #666; }
+    .batch-body .b-empty { font-size: 0.67rem; color: #aaa; font-style: italic; }
+
+    /* ── Modal ────────────────────────────────────────────────────────── */
+    .modal { max-width: 500px; }
+    .modal-badge {
+      display: inline-block; background: #1976d2; color: #fff;
+      font-size: 0.72rem; font-weight: 700; border-radius: 4px;
+      padding: 2px 8px; margin-left: 8px; vertical-align: middle;
     }
-    
-    .batch-info span {
-      color: #1a237e;
-      font-weight: 600;
-    }
-    
-    .batch-slots {
-      background: #f5f5f5;
-      border-radius: 4px;
-      padding: 8px;
-      font-size: 0.8rem;
-      max-height: 100px;
-      overflow-y: auto;
-      margin: 8px 0;
-    }
-    
-    .batch-slot-item {
-      padding: 4px 8px;
-      margin: 2px 0;
-      background: white;
-      border-left: 3px solid #1976d2;
-      border-radius: 2px;
-    }
-    
-    .empty-batches {
-      text-align: center;
-      padding: 40px 20px;
-      color: #999;
-    }
-    
-    .empty-batches .icon {
-      font-size: 2.5rem;
-      margin-bottom: 12px;
-      opacity: 0.6;
-    }
-    
-    /* Lab batch table styles */
-    .lab-batch-table {
-      width: 100%;
-      border-collapse: collapse;
-      background: white;
-    }
-    
-    .lab-batch-table thead {
-      background: #f5f5f5;
-      border-bottom: 2px solid #ddd;
-    }
-    
-    .lab-batch-table th {
-      padding: 12px;
-      text-align: left;
-      font-weight: 600;
-      color: #333;
-      border-right: 1px solid #ddd;
-    }
-    
-    .lab-batch-table tbody tr {
-      border-bottom: 1px solid #e0e0e0;
-    }
-    
-    .lab-batch-table tbody tr:hover {
-      background: #f9f9f9;
-    }
-    
-    .lab-batch-table td {
-      padding: 12px;
-      border-right: 1px solid #ddd;
-    }
-    
-    .lab-batch-table .day-cell {
-      font-weight: 600;
-      color: #1a237e;
-      background: #f9f9f9;
-      min-width: 100px;
-      white-space: nowrap;
-    }
-    
-    .lab-batch-table .day-cell small {
-      display: block;
-      color: #666;
-      font-weight: 400;
-      font-size: 0.8rem;
-    }
-    
-    .batch-item {
-      background: #e3f2fd;
-      border: 1px solid #90caf9;
-      border-radius: 6px;
-      padding: 8px;
-      font-size: 0.85rem;
-      text-align: center;
-    }
-    
-    .batch-item strong {
-      display: block;
-      color: #1a237e;
-      margin-bottom: 2px;
-    }
-    
-    .batch-item small {
-      display: block;
-      color: #555;
-      font-size: 0.8rem;
-    }
-    
-    .batch-item .faculty {
-      margin: 2px 0;
-    }
-    
-    .batch-item .room {
-      color: #1976d2;
-      font-weight: 500;
-      margin-top: 2px;
-    }
+    .modal-badge.lab { background: #2e7d32; }
   </style>
 </head>
 <body>
   <header class="header">
-    <div class="logo">🎓 <span>College</span> Timetable — Admin</div>
+    <div class="logo">🎓 <span>JIET</span> Timetable — Admin</div>
     <nav>
       <a href="/index.html">Home</a>
       <button class="btn-logout" onclick="logout()">Logout</button>
     </nav>
   </header>
+
   <div class="admin-layout">
     <nav class="sidebar">
       <div class="sidebar-title">Main</div>
@@ -223,10 +100,12 @@
       <a href="/views/faculty-timetable.html"><span class="icon">👤</span> Faculty View</a>
       <a href="/views/location-timetable.html"><span class="icon">📍</span> Location View</a>
     </nav>
+
     <main class="admin-content">
       <div class="page-title">Timetable Editor</div>
       <div id="alertBox"></div>
 
+      <!-- Filter bar -->
       <div class="card no-print">
         <div class="filter-bar">
           <div class="form-group">
@@ -242,38 +121,20 @@
             </select>
           </div>
           <button class="btn btn-primary" onclick="loadTimetable()">Load</button>
-          <button class="btn btn-secondary" onclick="window.print()">🖨️ Print</button>
+          <button class="btn btn-secondary no-print" onclick="window.print()">🖨️ Print</button>
         </div>
       </div>
 
+      <!-- Timetable grid (single, no tabs) -->
       <div id="timetableArea" style="display:none;">
         <div class="card">
           <div class="card-title" id="tableTitle">Timetable</div>
-          
-          <!-- Tab Navigation -->
-          <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('theory-view', this)">📚 Theory / B.T.U.</button>
-            <button class="tab-btn" onclick="switchTab('lab-view', this)">🔬 Lab Batches</button>
-          </div>
-          
-          <!-- Theory View Tab -->
-          <div id="theory-view" class="tab-content active">
-            <div class="timetable-grid">
-              <table class="timetable-table editor-table" id="editorTable"></table>
-            </div>
-          </div>
-          
-          <!-- Lab Batches View Tab -->
-          <div id="lab-view" class="tab-content">
-            <div id="labBatchesContainer">
-              <div class="empty-batches">
-                <div class="icon">🔬</div>
-                <p>No lab subjects found. Check if lab subjects are assigned to this section.</p>
-              </div>
-            </div>
+          <div style="overflow-x:auto;">
+            <table class="editor-table" id="editorTable"></table>
           </div>
         </div>
       </div>
+
       <div id="emptyState" class="empty-state">
         <div class="empty-icon">📅</div>
         <p>Select a year and section to edit the timetable</p>
@@ -281,304 +142,248 @@
     </main>
   </div>
 
-  <!-- Edit Cell Modal -->
+  <!-- ── Edit modal ───────────────────────────────────────────────────── -->
   <div class="modal-overlay" id="editModal">
     <div class="modal">
       <div class="modal-header">
-        <div class="modal-title" id="editModalTitle">Edit Slot</div>
-        <button class="modal-close" onclick="closeEditModal()">×</button>
+        <div class="modal-title" id="modalTitle">Edit Slot</div>
+        <button class="modal-close" onclick="closeModal()">×</button>
       </div>
-      <div id="editModalInfo" style="background:#f5f5f5;padding:10px;border-radius:6px;margin-bottom:16px;font-size:0.85rem;"></div>
-      <form id="editForm">
-        <input type="hidden" id="editSectionId">
-        <input type="hidden" id="editSlotId">
-        <input type="hidden" id="editDay">
-        <input type="hidden" id="editEntryId">
-        <div class="form-group">
-          <label>Subject</label>
-          <select id="editSubject" class="form-control">
-            <option value="">— Free Period —</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Faculty</label>
-          <select id="editFaculty" class="form-control">
-            <option value="">— No Faculty —</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Room</label>
-          <select id="editRoom" class="form-control">
-            <option value="">— No Room —</option>
-          </select>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-danger btn-sm" onclick="clearEntry()">Clear Slot</button>
-          <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save</button>
-        </div>
-      </form>
+      <div id="modalMeta" style="background:#f5f5f5;padding:10px;border-radius:6px;margin-bottom:16px;font-size:0.82rem;color:#555;"></div>
+
+      <!-- Hidden state -->
+      <input type="hidden" id="mSectionId">
+      <input type="hidden" id="mSlotId">
+      <input type="hidden" id="mDay">
+      <input type="hidden" id="mEntryId">   <!-- existing DB id, blank = new -->
+      <input type="hidden" id="mSubsection"><!-- batch name for lab, blank = theory -->
+
+      <div class="form-group">
+        <label>Subject</label>
+        <select id="mSubject" class="form-control" onchange="onSubjectChange()">
+          <option value="">— Free Period —</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Faculty</label>
+        <select id="mFaculty" class="form-control">
+          <option value="">— No Faculty —</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Room</label>
+        <select id="mRoom" class="form-control">
+          <option value="">— No Room —</option>
+        </select>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger btn-sm" id="clearBtn" onclick="clearEntry()">Clear</button>
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="saveEntry()">Save</button>
+      </div>
     </div>
   </div>
 
   <script>
-    fetch('/api/auth/status').then(r => r.json()).then(d => { if (!d.loggedIn) location.href = '/login.html'; });
+    /* ── Bootstrap ─────────────────────────────────────────────────────── */
+    fetch('/api/auth/status').then(r => r.json()).then(d => {
+      if (!d.loggedIn) { location.href = '/login.html'; return; }
+      init();
+    });
 
-    const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const DAYS   = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const COLORS = ['color-0','color-1','color-2','color-3','color-4','color-5',
+                    'color-6','color-7','color-8','color-9','color-10','color-11'];
+    const colMap = {};
+    function getColor(subId) {
+      if (!colMap[subId]) colMap[subId] = COLORS[Object.keys(colMap).length % COLORS.length];
+      return colMap[subId];
+    }
+
     let slots = [], entries = [], subjects = [], faculty = [], rooms = [];
     let currentSectionId = null;
 
-    function switchTab(tabName, btn) {
-      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.getElementById(tabName).classList.add('active');
-      if (btn) btn.classList.add('active');
-      if (tabName === 'lab-view') loadLabBatches();
-    }
-
     async function init() {
-      const [yRes, slRes, subRes, fRes, rRes] = await Promise.all([
-        fetch('/api/years'), fetch('/api/timeslots'), fetch('/api/subjects'),
-        fetch('/api/faculty'), fetch('/api/rooms')
+      const [yR, slR, subR, fR, rR] = await Promise.all([
+        fetch('/api/years'), fetch('/api/timeslots'),
+        fetch('/api/subjects'), fetch('/api/faculty'), fetch('/api/rooms')
       ]);
-      const years = await yRes.json();
-      slots = await slRes.json();
-      subjects = await subRes.json();
-      faculty = await fRes.json();
-      rooms = await rRes.json();
+      const years = await yR.json();
+      slots    = await slR.json();
+      subjects = await subR.json();
+      faculty  = await fR.json();
+      rooms    = await rR.json();
 
-      const sel = document.getElementById('yearSelect');
-      years.forEach(y => sel.innerHTML += `<option value="${y.id}">${y.display_name}</option>`);
+      const ySel = document.getElementById('yearSelect');
+      years.forEach(y => ySel.insertAdjacentHTML('beforeend',
+        `<option value="${y.id}">${y.display_name}</option>`));
 
-      // Populate edit modal dropdowns
-      const subSel = document.getElementById('editSubject');
-      subjects.forEach(s => subSel.innerHTML += `<option value="${s.id}">[${s.year_name || 'Y' + s.year_id}] ${s.name}</option>`);
+      // Populate modal dropdowns
+      const subSel = document.getElementById('mSubject');
+      subjects.forEach(s => subSel.insertAdjacentHTML('beforeend',
+        `<option value="${s.id}" data-type="${s.type}">[${s.year_name||'Y'+s.year_id}] ${s.name}</option>`));
 
-      const facSel = document.getElementById('editFaculty');
-      faculty.forEach(f => facSel.innerHTML += `<option value="${f.id}">${f.name}</option>`);
+      const fSel = document.getElementById('mFaculty');
+      faculty.forEach(f => fSel.insertAdjacentHTML('beforeend',
+        `<option value="${f.id}">${f.name}</option>`));
 
-      const roomSel = document.getElementById('editRoom');
-      rooms.forEach(r => roomSel.innerHTML += `<option value="${r.id}">${r.name} (${r.type})</option>`);
+      const rSel = document.getElementById('mRoom');
+      rooms.forEach(r => rSel.insertAdjacentHTML('beforeend',
+        `<option value="${r.id}">${r.name} (${r.type})</option>`));
     }
 
+    /* ── Section loading ────────────────────────────────────────────────── */
     async function loadSections() {
-      const yearId = document.getElementById('yearSelect').value;
-      if (!yearId) return;
-      const res = await fetch(`/api/sections?year_id=${yearId}`);
-      const sections = await res.json();
-      const sel = document.getElementById('sectionSelect');
+      const yId = document.getElementById('yearSelect').value;
+      if (!yId) return;
+      const secs = await (await fetch(`/api/sections?year_id=${yId}`)).json();
+      const sel  = document.getElementById('sectionSelect');
       sel.innerHTML = '<option value="">Select Section</option>' +
-        sections.map(s => `<option value="${s.id}">Section ${s.name}</option>`).join('');
+        secs.map(s => `<option value="${s.id}">Section ${s.name}</option>`).join('');
     }
 
+    /* ── Timetable loading ──────────────────────────────────────────────── */
     async function loadTimetable() {
-      const sectionId = document.getElementById('sectionSelect').value;
-      if (!sectionId) return;
-      currentSectionId = sectionId;
+      const sId = document.getElementById('sectionSelect').value;
+      if (!sId) return;
+      currentSectionId = sId;
 
-      const res = await fetch(`/api/timetable/class?section_id=${sectionId}`);
-      entries = await res.json();
+      entries = await (await fetch(`/api/timetable/class?section_id=${sId}`)).json();
 
-      const yearName = document.getElementById('yearSelect').options[document.getElementById('yearSelect').selectedIndex].text;
-      const secName = document.getElementById('sectionSelect').options[document.getElementById('sectionSelect').selectedIndex].text;
-      document.getElementById('tableTitle').textContent = `${yearName} — ${secName}`;
+      const yText = document.getElementById('yearSelect').selectedOptions[0].text;
+      const sText = document.getElementById('sectionSelect').selectedOptions[0].text;
+      document.getElementById('tableTitle').textContent = `${yText} — ${sText}`;
 
       renderTable();
       document.getElementById('timetableArea').style.display = 'block';
-      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('emptyState').style.display   = 'none';
     }
 
-    async function loadLabBatches() {
-      if (!currentSectionId) return;
-      try {
-        const res = await fetch(`/api/admin/lab-entries/${currentSectionId}`);
-        if (!res.ok) throw new Error('Failed to load lab batches');
-        const subjects = await res.json();
-        renderLabBatches(subjects);
-      } catch (error) {
-        showAlert('Failed to load lab batches: ' + error.message, 'error');
-      }
-    }
-
-    function renderLabBatches(subjects) {
-      const container = document.getElementById('labBatchesContainer');
-      
-      if (!subjects || subjects.length === 0) {
-        container.innerHTML = `
-          <div class="empty-batches">
-            <div class="icon">🔬</div>
-            <p>No lab subjects with scheduled entries found for this section.</p>
-            <p style="font-size: 0.85rem; color: #aaa;">Generate timetable or manually add lab entries.</p>
-          </div>
-        `;
-        return;
-      }
-
-      let html = '';
-      subjects.forEach(subject => {
-        html += `
-          <div style="margin-bottom: 32px; background: white; border-radius: 8px; padding: 20px; border: 1px solid #e0e0e0;">
-            <h3 style="margin: 0 0 16px 0; color: #1a237e; font-size: 1.1rem;">
-              🔬 ${subject.subject_name}
-              <span style="font-size: 0.8rem; color: #999; margin-left: 8px;">(${subject.hours_per_week} hrs/week)</span>
-            </h3>
-            
-            <div style="overflow-x: auto;">
-              <table style="width: 100%; border-collapse: collapse;">
-                <thead>
-                  <tr style="background: #f5f5f5; border-bottom: 2px solid #ddd;">
-                    <th style="padding: 12px; text-align: left; font-weight: 600; color: #333; border-right: 1px solid #ddd;">Day & Time</th>
-                    ${Array.from({length: Math.max(...subject.slots.map(s => s.batches.length))}, (_, i) => 
-                      `<th style="padding: 12px; text-align: center; font-weight: 600; color: #333; border-right: 1px solid #ddd;">Batch ${String.fromCharCode(65 + i)}</th>`
-                    ).join('')}
-                  </tr>
-                </thead>
-                <tbody>
-                  ${subject.slots.map(slot => {
-                    const maxBatches = Math.max(...subject.slots.map(s => s.batches.length));
-                    return `
-                      <tr style="border-bottom: 1px solid #e0e0e0;">
-                        <td style="padding: 12px; font-weight: 600; color: #1a237e; background: #f9f9f9; border-right: 1px solid #ddd; white-space: nowrap;">
-                          <strong>${slot.day}</strong><br>
-                          <small style="color: #666;">${slot.start_time}–${slot.end_time}</small>
-                        </td>
-                        ${Array.from({length: maxBatches}, (_, batchIdx) => {
-                          const batch = slot.batches[batchIdx];
-                          if (!batch) {
-                            return `<td style="padding: 12px; text-align: center; color: #ccc; border-right: 1px solid #ddd;">—</td>`;
-                          }
-                          return `
-                            <td style="padding: 12px; text-align: center; border-right: 1px solid #ddd;">
-                              <div style="background: #e3f2fd; border: 1px solid #90caf9; border-radius: 6px; padding: 8px; font-size: 0.85rem;">
-                                <strong>${batch.batch_name}</strong><br>
-                                <small style="color: #555;">${batch.faculty_name || '—'}</small><br>
-                                <small style="color: #1976d2;">${batch.room_name || '—'}</small>
-                              </div>
-                            </td>
-                          `;
-                        }).join('')}
-                      </tr>
-                    `;
-                  }).join('')}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        `;
-      });
-      
-      container.innerHTML = html;
-    }
-
-    const COLORS = ['color-0','color-1','color-2','color-3','color-4','color-5','color-6','color-7','color-8','color-9','color-10','color-11'];
-    const subjectColorMap = {};
-    function getSubjectColor(subjectId) {
-      if (!subjectColorMap[subjectId]) {
-        const keys = Object.keys(subjectColorMap).length;
-        subjectColorMap[subjectId] = COLORS[keys % COLORS.length];
-      }
-      return subjectColorMap[subjectId];
-    }
-
+    /* ── Render ─────────────────────────────────────────────────────────── */
     function renderTable() {
-      const teachingSlots = slots.filter(s => !s.is_break);
-      const table = document.getElementById('editorTable');
-
-      // Header row
-      let html = '<thead><tr><th class="day-header">Day</th>';
-      teachingSlots.forEach(s => {
-        html += `<th class="slot-header">Slot ${s.slot_number}<br><small>${s.start_time}–${s.end_time}</small></th>`;
+      const teaching = slots.filter(s => !s.is_break);
+      let html = '<thead><tr><th class="day-hdr">Day</th>';
+      teaching.forEach(s => {
+        html += `<th>Slot ${s.slot_number}<br><small>${s.start_time}–${s.end_time}</small></th>`;
       });
       html += '</tr></thead><tbody>';
 
       DAYS.forEach(day => {
         html += `<tr><td class="day-cell">${day}</td>`;
-        teachingSlots.forEach(slot => {
-          // Get ALL entries for this day+slot (there can be multiple for lab batches)
-          const slotEntries = entries.filter(e => e.day_of_week === day && e.time_slot_id === slot.id);
-
-          if (slotEntries.length === 0) {
-            // Empty slot
-            html += `<td onclick="openEditModal('${day}', ${slot.id}, null)">
-              <div class="cell-content empty">+ Add</div>
-            </td>`;
-          } else if (slotEntries.length === 1 && !slotEntries[0].subsection) {
-            // Single theory entry
-            const entry = slotEntries[0];
-            const color = getSubjectColor(entry.subject_id);
-            html += `<td onclick="openEditModal('${day}', ${slot.id}, ${entry.id})">
-              <div class="cell-content ${color}">
-                <div class="subj">${entry.subject_name || '?'}</div>
-                <div class="fac">${entry.faculty_name || ''}</div>
-                <div class="rm">${entry.room_name || ''}</div>
-              </div>
-            </td>`;
-          } else {
-            // Multiple lab-batch entries in this slot — stack them
-            const subjectName = slotEntries[0].subject_name || '?';
-            const color = getSubjectColor(slotEntries[0].subject_id);
-            html += `<td>`;
-            html += `<div class="cell-content ${color}" style="min-height:auto;padding:4px 6px;">
-              <div class="subj" style="font-size:0.75rem;">${subjectName}</div>
-            </div>`;
-            slotEntries.forEach(entry => {
-              html += `<div class="cell-content" style="min-height:auto;padding:4px 6px;border-top:1px dashed #ddd;cursor:pointer;background:#e8f5e9;"
-                onclick="openEditModal('${day}', ${slot.id}, ${entry.id})">
-                <span style="font-weight:600;color:#2e7d32;font-size:0.72rem;">Batch ${entry.subsection || '?'}</span>
-                <div class="fac">${entry.faculty_name || '—'}</div>
-                <div class="rm">${entry.room_name || '—'}</div>
-              </div>`;
-            });
-            html += `</td>`;
-          }
+        teaching.forEach(slot => {
+          html += renderCell(day, slot);
         });
         html += '</tr>';
       });
-
       html += '</tbody>';
-      table.innerHTML = html;
+      document.getElementById('editorTable').innerHTML = html;
     }
 
-    function openEditModal(day, slotId, entryId) {
+    function renderCell(day, slot) {
+      const slotEntries = entries.filter(e => e.day_of_week === day && e.time_slot_id === slot.id);
+
+      /* ── Empty ── */
+      if (!slotEntries.length) {
+        return `<td><div class="empty-cell"
+          onclick="openModal('${day}',${slot.id},null,null)">+ Add</div></td>`;
+      }
+
+      /* ── Lab slot: one or more batch entries ── */
+      const hasSubsection = slotEntries.some(e => e.subsection);
+      if (hasSubsection) {
+        const subjName = slotEntries[0].subject_name || '?';
+        const color    = getColor(slotEntries[0].subject_id);
+        let inner = `<div class="lab-subj-header">${subjName} <span style="opacity:.7;font-weight:400;font-size:.65rem;">LAB</span></div>`;
+        slotEntries.forEach(e => {
+          inner += `
+            <div class="batch-row"
+              onclick="openModal('${day}',${slot.id},${e.id},'${e.subsection}')">
+              <div class="batch-tag">${e.subsection}</div>
+              <div class="batch-body">
+                ${e.faculty_name
+                  ? `<div class="b-fac">${e.faculty_name}</div><div class="b-rm">${e.room_name||''}</div>`
+                  : `<div class="b-empty">click to assign</div>`}
+              </div>
+            </div>`;
+        });
+        return `<td class="lab-slot-cell ${color}" style="background:inherit;">${inner}</td>`;
+      }
+
+      /* ── Single theory entry ── */
+      const e = slotEntries[0];
+      const color = getColor(e.subject_id);
+      return `<td>
+        <div class="theory-cell ${color}"
+          onclick="openModal('${day}',${slot.id},${e.id},null)">
+          <div class="subj">${e.subject_name||'?'}</div>
+          <div class="fac">${e.faculty_name||''}</div>
+          <div class="rm">${e.room_name||''}</div>
+        </div>
+      </td>`;
+    }
+
+    /* ── Modal open ─────────────────────────────────────────────────────── */
+    function openModal(day, slotId, entryId, subsection) {
       if (!currentSectionId) return;
       const slot = slots.find(s => s.id === slotId);
-      document.getElementById('editModalTitle').textContent = `Edit: ${day} ${slot.start_time}–${slot.end_time}`;
-      document.getElementById('editModalInfo').textContent = `${day} | ${slot.start_time} – ${slot.end_time}`;
-      document.getElementById('editSectionId').value = currentSectionId;
-      document.getElementById('editSlotId').value = slotId;
-      document.getElementById('editDay').value = day;
-      document.getElementById('editEntryId').value = entryId || '';
 
-      // Pre-fill if entry exists
-      const entry = entryId ? entries.find(e => e.id === entryId) : null;
-      document.getElementById('editSubject').value = entry ? (entry.subject_id || '') : '';
-      document.getElementById('editFaculty').value = entry ? (entry.faculty_id || '') : '';
-      document.getElementById('editRoom').value = entry ? (entry.room_id || '') : '';
+      // Title
+      const batchLabel = subsection ? `<span class="modal-badge lab">Batch ${subsection}</span>` : '';
+      document.getElementById('modalTitle').innerHTML =
+        `${day} · ${slot.start_time}–${slot.end_time}${batchLabel}`;
+
+      // Meta info
+      document.getElementById('modalMeta').textContent =
+        subsection ? `Lab batch ${subsection} — edit faculty and room` : 'Theory / B.T.U. slot';
+
+      // Hidden fields
+      document.getElementById('mSectionId').value  = currentSectionId;
+      document.getElementById('mSlotId').value     = slotId;
+      document.getElementById('mDay').value        = day;
+      document.getElementById('mEntryId').value    = entryId || '';
+      document.getElementById('mSubsection').value = subsection || '';
+
+      // Pre-fill
+      const e = entryId ? entries.find(x => x.id === entryId) : null;
+      document.getElementById('mSubject').value = e?.subject_id || '';
+      document.getElementById('mFaculty').value = e?.faculty_id || '';
+      document.getElementById('mRoom').value    = e?.room_id    || '';
+
+      // For lab batch: subject is read-only (shown but not changeable)
+      const subjectGroup = document.getElementById('mSubject').closest('.form-group');
+      if (subsection) {
+        subjectGroup.style.opacity = '0.5';
+        document.getElementById('mSubject').disabled = true;
+      } else {
+        subjectGroup.style.opacity = '1';
+        document.getElementById('mSubject').disabled = false;
+      }
+
+      // Clear button only visible for existing entries
+      document.getElementById('clearBtn').style.display = entryId ? 'inline-flex' : 'none';
 
       document.getElementById('editModal').classList.add('active');
     }
 
-    function closeEditModal() { document.getElementById('editModal').classList.remove('active'); }
-
-    async function clearEntry() {
-      const entryId = document.getElementById('editEntryId').value;
-      if (entryId) {
-        await fetch(`/api/admin/timetable/entry/${entryId}`, { method: 'DELETE' });
-      }
-      closeEditModal();
-      await loadTimetable();
-      showAlert('Slot cleared', 'success');
+    function closeModal() {
+      document.getElementById('editModal').classList.remove('active');
+      document.getElementById('mSubject').disabled = false;
     }
 
-    document.getElementById('editForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
+    /* ── Save ───────────────────────────────────────────────────────────── */
+    async function saveEntry() {
+      const entryId   = document.getElementById('mEntryId').value;
+      const subsection = document.getElementById('mSubsection').value;
       const body = {
-        section_id: parseInt(document.getElementById('editSectionId').value),
-        time_slot_id: parseInt(document.getElementById('editSlotId').value),
-        day_of_week: document.getElementById('editDay').value,
-        subject_id: document.getElementById('editSubject').value || null,
-        faculty_id: document.getElementById('editFaculty').value || null,
-        room_id: document.getElementById('editRoom').value || null
+        section_id:   parseInt(document.getElementById('mSectionId').value),
+        time_slot_id: parseInt(document.getElementById('mSlotId').value),
+        day_of_week:  document.getElementById('mDay').value,
+        subject_id:   document.getElementById('mSubject').value   || null,
+        faculty_id:   document.getElementById('mFaculty').value   || null,
+        room_id:      document.getElementById('mRoom').value      || null,
+        entry_id:     entryId ? parseInt(entryId) : undefined,
+        subsection:   subsection || null
       };
       const res = await fetch('/api/admin/timetable/entry', {
         method: 'POST',
@@ -588,12 +393,46 @@
       const data = await res.json();
       if (res.ok) {
         showAlert(data.message, 'success');
-        closeEditModal();
+        closeModal();
         await loadTimetable();
       } else {
-        showAlert(data.error || 'Error saving', 'error');
+        showAlert(data.error || 'Save failed', 'error');
       }
-    });
+    }
+
+    /* ── Clear ──────────────────────────────────────────────────────────── */
+    async function clearEntry() {
+      const entryId = document.getElementById('mEntryId').value;
+      if (!entryId) return;
+      const res = await fetch(`/api/admin/timetable/entry/${entryId}`, { method: 'DELETE' });
+      if (res.ok) {
+        showAlert('Entry cleared', 'success');
+        closeModal();
+        await loadTimetable();
+      } else {
+        showAlert('Failed to clear entry', 'error');
+      }
+    }
+
+    /* ── Helpers ────────────────────────────────────────────────────────── */
+    function onSubjectChange() {
+      // Auto-filter room dropdown to match subject type (lab ↔ classroom)
+      const opt  = document.getElementById('mSubject').selectedOptions[0];
+      const type = opt ? opt.dataset.type : '';
+      const rSel = document.getElementById('mRoom');
+      Array.from(rSel.options).forEach(o => {
+        if (!o.value) { o.style.display = ''; return; }
+        const room = rooms.find(r => r.id == o.value);
+        if (!room) return;
+        if (type === 'lab')    o.style.display = room.type === 'lab'       ? '' : 'none';
+        else if (type)         o.style.display = room.type === 'classroom'  ? '' : 'none';
+        else                   o.style.display = '';
+      });
+      // Reset room if currently selected room is hidden
+      const cur = rSel.value;
+      const curOpt = Array.from(rSel.options).find(o => o.value == cur);
+      if (curOpt && curOpt.style.display === 'none') rSel.value = '';
+    }
 
     function showAlert(msg, type) {
       const box = document.getElementById('alertBox');
@@ -601,9 +440,10 @@
       setTimeout(() => box.innerHTML = '', 3000);
     }
 
-    async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
-
-    init();
+    async function logout() {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      location.href = '/login.html';
+    }
   </script>
 </body>
 </html>

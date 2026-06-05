@@ -380,14 +380,23 @@ router.delete('/sections/:id', requireAuth, async (req, res) => {
 
 router.post('/timetable/entry', requireAuth, async (req, res) => {
   try {
-    const { section_id, time_slot_id, day_of_week, subject_id, faculty_id, room_id } = req.body;
+    const { section_id, time_slot_id, day_of_week, subject_id, faculty_id, room_id, entry_id, subsection } = req.body;
     if (!section_id || !time_slot_id || !day_of_week)
       return res.status(400).json({ error: 'section_id, time_slot_id, day_of_week required' });
     const deptId = getDeptId(req);
     if (!(await verifyDeptOwnership('sections', section_id, deptId)))
       return res.status(403).json({ error: 'Section does not belong to your department' });
+
+    // If entry_id provided, update that specific entry directly (used for batch editing)
+    if (entry_id) {
+      await run('UPDATE timetable_entries SET subject_id=$1,faculty_id=$2,room_id=$3 WHERE id=$4',
+        [subject_id||null, faculty_id||null, room_id||null, entry_id]);
+      return res.json({ id: entry_id, message: 'Entry updated' });
+    }
+
+    // For theory (no subsection): find existing by section+slot+day where subsection IS NULL
     const existing = await queryOne(
-      'SELECT id FROM timetable_entries WHERE section_id=$1 AND time_slot_id=$2 AND day_of_week=$3',
+      'SELECT id FROM timetable_entries WHERE section_id=$1 AND time_slot_id=$2 AND day_of_week=$3 AND subsection IS NULL',
       [section_id, time_slot_id, day_of_week]
     );
     if (existing) {
@@ -396,8 +405,8 @@ router.post('/timetable/entry', requireAuth, async (req, res) => {
       res.json({ id: existing.id, message: 'Entry updated' });
     } else {
       const result = await run(
-        'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
-        [section_id, time_slot_id, day_of_week, subject_id||null, faculty_id||null, room_id||null]
+        'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+        [section_id, time_slot_id, day_of_week, subject_id||null, faculty_id||null, room_id||null, subsection||null]
       );
       res.json({ id: result.rows[0].id, message: 'Entry created' });
     }
