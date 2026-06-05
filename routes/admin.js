@@ -547,57 +547,74 @@ router.post('/generate', requireAuth, async (req, res) => {
       const dayLoad     = Object.fromEntries(days.map(d => [d, 0])); // theory count per day
       const dayLabLoad  = Object.fromEntries(days.map(d => [d, 0])); // lab count per day
 
-      // ── Schedule LAB subjects first (consecutive on one day) ─────────────
+      // ── Schedule LAB subjects first (consecutive on one day, no lunch break between) ──
       for (const subj of labSubjects) {
         const hoursNeeded = subj.hours_per_week; // usually 2
-        // Try to find a day with enough consecutive free slots for ALL subsections
         let placed = false;
 
         for (const day of shuffle([...days])) {
-          // Find consecutive free slots on this day
+          // Get free teaching slots for this day
           const freeSlots = allSlots.filter(slot => !usedSlots.has(`${day}_${slot.id}`));
           if (freeSlots.length < hoursNeeded) continue;
 
-          // Check we have enough labs and faculty for all subsections at these slots
-          const slotGroup = freeSlots.slice(0, hoursNeeded);
-          let canPlace = true;
-
-          // For each slot in the group, verify resources are available
-          const tempFacultyUsed = {}; // slotId → Set of faculty ids
-          const tempRoomUsed    = {}; // slotId → Set of room ids
-
-          for (const slot of slotGroup) {
-            const availLabs = labs.filter(r =>
-              isRoomFree(day, slot.id, r.id) && !tempRoomUsed[slot.id]?.has(r.id)
-            );
-            if (availLabs.length < numSubsections) { canPlace = false; break; }
-
-            const eligible = allFaculty.filter(f => {
-              try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; }
-            });
-            const fPool = eligible.length ? eligible : allFaculty;
-            const freeFac = fPool.filter(f =>
-              isFacultyFree(day, slot.id, f.id) && !tempFacultyUsed[slot.id]?.has(f.id)
-            );
-            // Need at least 1 faculty (can share across subsections if needed)
-            if (!freeFac.length) { canPlace = false; break; }
-
-            tempRoomUsed[slot.id] = new Set(availLabs.slice(0, numSubsections).map(r => r.id));
-            tempFacultyUsed[slot.id] = new Set(freeFac.slice(0, numSubsections).map(f => f.id));
+          // ── Build consecutive groups that don't straddle the lunch break ──
+          // "Consecutive" = slot_number increases by exactly 1 (no gap).
+          // e.g. slots: [1,2,3,4] | LUNCH gap | [6,7,8]
+          // slot 4 → slot 6 is a gap of 2, so they are NOT consecutive.
+          const consecutiveGroups = [];
+          let cur = [freeSlots[0]];
+          for (let i = 1; i < freeSlots.length; i++) {
+            if (freeSlots[i].slot_number === freeSlots[i-1].slot_number + 1) {
+              cur.push(freeSlots[i]);
+            } else {
+              if (cur.length >= hoursNeeded) consecutiveGroups.push(cur);
+              cur = [freeSlots[i]];
+            }
           }
+          if (cur.length >= hoursNeeded) consecutiveGroups.push(cur);
+          if (!consecutiveGroups.length) continue;
 
-          if (!canPlace) continue;
+          // Try each consecutive group, scanning every possible window
+          let slotGroup = null;
+          outer:
+          for (const group of consecutiveGroups) {
+            for (let start = 0; start <= group.length - hoursNeeded; start++) {
+              const candidate = group.slice(start, start + hoursNeeded);
+              let canPlace = true;
+              const tmpRoom = {}, tmpFac = {};
 
-          // Place all hours consecutively on this day
+              for (const slot of candidate) {
+                const avail = labs.filter(r =>
+                  isRoomFree(day, slot.id, r.id) && !tmpRoom[slot.id]?.has(r.id)
+                );
+                if (avail.length < numSubsections) { canPlace = false; break; }
+
+                const eligible = allFaculty.filter(f => {
+                  try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; }
+                });
+                const fPool = eligible.length ? eligible : allFaculty;
+                const free  = fPool.filter(f =>
+                  isFacultyFree(day, slot.id, f.id) && !tmpFac[slot.id]?.has(f.id)
+                );
+                if (!free.length) { canPlace = false; break; }
+                tmpRoom[slot.id] = new Set(avail.slice(0, numSubsections).map(r => r.id));
+                tmpFac[slot.id]  = new Set(free.slice(0, numSubsections).map(f => f.id));
+              }
+
+              if (canPlace) { slotGroup = candidate; break outer; }
+            }
+          }
+          if (!slotGroup) continue;
+
+          // Place all hours in this consecutive, lunch-safe group
           for (const slot of slotGroup) {
             const availLabs = shuffle(labs.filter(r => isRoomFree(day, slot.id, r.id)));
             const eligible  = allFaculty.filter(f => {
               try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; }
             });
-            const fPool = shuffle(eligible.length ? eligible : allFaculty);
+            const fPool   = shuffle(eligible.length ? eligible : allFaculty);
             const freeFac = fPool.filter(f => isFacultyFree(day, slot.id, f.id));
 
-            // Assign one lab + one faculty per subsection
             const chosenFaculties = [];
             for (let i = 0; i < numSubsections; i++) {
               const f = freeFac.find(f => !chosenFaculties.includes(f)) || freeFac[0];
@@ -605,18 +622,15 @@ router.post('/generate', requireAuth, async (req, res) => {
             }
 
             for (let si2 = 0; si2 < numSubsections; si2++) {
-              const batchLabel = batchNames[si2];
-              const chosenR    = availLabs[si2];
-              const chosenF    = chosenFaculties[si2];
+              const chosenR = availLabs[si2];
+              const chosenF = chosenFaculties[si2];
               if (!chosenR || !chosenF) continue;
-
               await run(
                 'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-                [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id, batchLabel]
+                [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id, batchNames[si2]]
               );
               markRoom(day, slot.id, chosenR.id);
             }
-            // Mark faculty busy only for those actually assigned
             for (const f of chosenFaculties) markFaculty(day, slot.id, f.id);
             usedSlots.add(`${day}_${slot.id}`);
             dayLabLoad[day]++;
