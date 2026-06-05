@@ -55,6 +55,26 @@
     </main>
   </div>
 
+  <!-- Lab Faculty Assignment Modal -->
+  <div class="modal-overlay" id="labAssignModal">
+    <div class="modal" style="max-width:680px;">
+      <div class="modal-header">
+        <div class="modal-title" id="labAssignTitle">Assign Lab Faculty</div>
+        <button class="modal-close" onclick="closeLabModal()">×</button>
+      </div>
+      <p style="font-size:0.85rem;color:#555;margin-bottom:16px;">
+        Assign a specific faculty member to each lab batch. During timetable generation, these assignments are used first. Unassigned batches are filled automatically.
+      </p>
+      <div id="labAssignContent">
+        <p class="text-muted text-center">Loading…</p>
+      </div>
+      <div class="modal-footer" style="justify-content:space-between;">
+        <button class="btn btn-danger btn-sm" onclick="clearAllLabAssignments()">🗑 Clear All Assignments</button>
+        <button class="btn btn-secondary" onclick="closeLabModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     fetch('/api/auth/status').then(r => r.json()).then(d => {
       if (!d.loggedIn) { location.href = '/login.html'; return; }
@@ -131,6 +151,9 @@
             <button class="btn btn-outline btn-sm" title="Edit batch names & count"
               onclick="openBatchEditor(${s.id})"
               style="font-size:0.7rem;padding:2px 8px;border-color:#9fa8da;">⚙️</button>
+            <button class="btn btn-sm" title="Assign faculty to each lab batch"
+              onclick="openLabModal(${s.id}, '${y.display_name} – Section ${s.name}')"
+              style="font-size:0.7rem;padding:2px 8px;background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;">🧑‍🔬 Lab Faculty</button>
           </div>
 
           <!-- Inline batch editor (hidden by default) -->
@@ -280,6 +303,137 @@
     }
 
     async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
+
+    // =====================================================================
+    // LAB FACULTY ASSIGNMENT MODAL
+    // =====================================================================
+    let currentLabSectionId = null;
+    let allFaculty = [];
+
+    async function openLabModal(sectionId, title) {
+      currentLabSectionId = sectionId;
+      document.getElementById('labAssignTitle').textContent = `Lab Faculty — ${title}`;
+      document.getElementById('labAssignModal').classList.add('active');
+      document.getElementById('labAssignContent').innerHTML = '<p class="text-muted text-center">Loading…</p>';
+      await renderLabAssignContent(sectionId);
+    }
+
+    function closeLabModal() {
+      document.getElementById('labAssignModal').classList.remove('active');
+    }
+
+    async function renderLabAssignContent(sectionId) {
+      const sec = sections.find(s => s.id === sectionId);
+      if (!sec) return;
+
+      const numBatches = sec.lab_subsections || 2;
+      let batchNames;
+      try { batchNames = JSON.parse(sec.subsection_names || 'null'); } catch { batchNames = null; }
+      if (!Array.isArray(batchNames) || batchNames.length !== numBatches)
+        batchNames = Array.from({ length: numBatches }, (_, i) => String.fromCharCode(65 + i));
+
+      // Fetch lab subjects (for this section's year) and current assignments in parallel
+      const [subRes, facRes, assignRes] = await Promise.all([
+        fetch(`/api/subjects?year_id=${sec.year_id}`),
+        fetch(`/api/faculty?department_id=${deptId}`),
+        fetch(`/api/admin/lab-assignments/${sectionId}`)
+      ]);
+      const allSubjects   = await subRes.json();
+      allFaculty          = await facRes.json();
+      const assignments   = await assignRes.json();
+
+      // Map subject+batch → faculty_id
+      const assignMap = {};
+      for (const a of assignments) {
+        assignMap[`${a.subject_id}_${a.batch_name}`] = a.faculty_id;
+      }
+
+      const labSubjects = allSubjects.filter(s => s.type === 'lab');
+
+      if (!labSubjects.length) {
+        document.getElementById('labAssignContent').innerHTML =
+          '<p class="text-muted text-center" style="padding:24px;">No lab subjects found for this section\'s year. Add lab subjects first.</p>';
+        return;
+      }
+
+      const facultyOptions = allFaculty
+        .map(f => `<option value="${f.id}">${f.name}${f.designation ? ' (' + f.designation + ')' : ''}</option>`)
+        .join('');
+
+      let html = '';
+      for (const subj of labSubjects) {
+        html += `
+          <div style="margin-bottom:20px;padding:14px;background:#f8f9fa;border-radius:8px;border:1px solid #e0e0e0;">
+            <div style="font-weight:700;color:#1a237e;margin-bottom:10px;font-size:0.92rem;">
+              📚 ${subj.name}
+              <span style="font-size:0.7rem;background:#e8f5e9;color:#2e7d32;border-radius:3px;padding:1px 6px;margin-left:6px;font-weight:600;">LAB</span>
+              ${subj.category==='btu'?'<span style="font-size:0.7rem;background:#fff3e0;color:#e65100;border-radius:3px;padding:1px 6px;margin-left:4px;font-weight:600;">BTU</span>':''}
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;">
+              ${batchNames.map(batch => {
+                const key  = `${subj.id}_${batch}`;
+                const fid  = assignMap[key] || '';
+                return `
+                  <div style="background:#fff;border:1px solid #c5cae9;border-radius:6px;padding:10px;">
+                    <div style="font-size:0.8rem;font-weight:700;color:#3949ab;margin-bottom:6px;">
+                      Batch ${batch}
+                    </div>
+                    <select class="form-control" style="font-size:0.82rem;"
+                      onchange="saveLabAssignment(${sectionId}, ${subj.id}, '${batch}', this.value)">
+                      <option value="">— Auto assign —</option>
+                      ${facultyOptions}
+                    </select>
+                  </div>`;
+              }).join('')}
+            </div>
+          </div>`;
+      }
+
+      document.getElementById('labAssignContent').innerHTML = html;
+
+      // Set saved values AFTER inserting selects into DOM
+      for (const subj of labSubjects) {
+        for (const batch of batchNames) {
+          const key = `${subj.id}_${batch}`;
+          const fid = assignMap[key];
+          if (fid) {
+            const sel = document.querySelector(
+              `select[onchange="saveLabAssignment(${sectionId}, ${subj.id}, '${batch}', this.value)"]`
+            );
+            if (sel) sel.value = fid;
+          }
+        }
+      }
+    }
+
+    async function saveLabAssignment(sectionId, subjectId, batchName, facultyId) {
+      const res = await fetch('/api/admin/lab-assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section_id: sectionId,
+          subject_id: subjectId,
+          batch_name: batchName,
+          faculty_id: facultyId ? parseInt(facultyId) : null
+        })
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        showAlert(d.error || 'Error saving assignment', 'error');
+      }
+      // Subtle visual confirmation without full reload
+      showAlert('Assignment saved', 'success');
+    }
+
+    async function clearAllLabAssignments() {
+      if (!currentLabSectionId) return;
+      if (!confirm('Clear all lab faculty assignments for this section? The timetable generator will auto-assign faculty instead.')) return;
+      const res = await fetch(`/api/admin/lab-assignments/${currentLabSectionId}`, { method: 'DELETE' });
+      if (res.ok) {
+        showAlert('All assignments cleared', 'info');
+        await renderLabAssignContent(currentLabSectionId);
+      }
+    }
   </script>
 </body>
 </html>

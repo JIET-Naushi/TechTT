@@ -331,6 +331,18 @@ async function initializeDatabase() {
     ON CONFLICT (code) DO NOTHING
   `);
 
+  // Lab batch-faculty assignments: pre-assign a specific faculty to each batch
+  await run(`
+    CREATE TABLE IF NOT EXISTS lab_assignments (
+      id SERIAL PRIMARY KEY,
+      section_id INTEGER NOT NULL REFERENCES sections(id) ON DELETE CASCADE,
+      subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+      batch_name TEXT NOT NULL,
+      faculty_id INTEGER REFERENCES faculty(id) ON DELETE SET NULL,
+      UNIQUE(section_id, subject_id, batch_name)
+    )
+  `);
+
   // Seed only on first run
   const userCount = await queryOne('SELECT COUNT(*) as cnt FROM users');
   const deptCount = await queryOne('SELECT COUNT(*) as cnt FROM departments');

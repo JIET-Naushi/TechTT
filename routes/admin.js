@@ -474,6 +474,69 @@ router.get('/stats', requireAuth, async (req, res) => {
 });
 
 // =============================================================================
+// ==================== LAB BATCH FACULTY ASSIGNMENTS ==========================
+// =============================================================================
+
+// GET all assignments for a section
+router.get('/lab-assignments/:sectionId', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('sections', req.params.sectionId, deptId)))
+      return res.status(403).json({ error: 'Section not in your department' });
+
+    const rows = await query(`
+      SELECT la.*, s.name as subject_name, s.type as subject_type,
+             f.name as faculty_name
+      FROM lab_assignments la
+      JOIN subjects s ON la.subject_id = s.id
+      LEFT JOIN faculty f ON la.faculty_id = f.id
+      WHERE la.section_id = $1
+      ORDER BY s.name, la.batch_name
+    `, [req.params.sectionId]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// UPSERT a single batch assignment
+router.post('/lab-assignments', requireAuth, async (req, res) => {
+  try {
+    const { section_id, subject_id, batch_name, faculty_id } = req.body;
+    if (!section_id || !subject_id || !batch_name)
+      return res.status(400).json({ error: 'section_id, subject_id, batch_name required' });
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('sections', section_id, deptId)))
+      return res.status(403).json({ error: 'Section not in your department' });
+
+    if (faculty_id) {
+      await run(`
+        INSERT INTO lab_assignments (section_id, subject_id, batch_name, faculty_id)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (section_id, subject_id, batch_name)
+        DO UPDATE SET faculty_id = EXCLUDED.faculty_id
+      `, [section_id, subject_id, batch_name, faculty_id]);
+    } else {
+      // faculty_id = null means "remove assignment"
+      await run(
+        'DELETE FROM lab_assignments WHERE section_id=$1 AND subject_id=$2 AND batch_name=$3',
+        [section_id, subject_id, batch_name]
+      );
+    }
+    res.json({ message: 'Assignment saved' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE all assignments for a section (bulk reset)
+router.delete('/lab-assignments/:sectionId', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('sections', req.params.sectionId, deptId)))
+      return res.status(403).json({ error: 'Section not in your department' });
+    await run('DELETE FROM lab_assignments WHERE section_id=$1', [req.params.sectionId]);
+    res.json({ message: 'All lab assignments cleared for this section' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// =============================================================================
 // ==================== GENERATE ===============================================
 // =============================================================================
 
@@ -530,11 +593,21 @@ router.post('/generate', requireAuth, async (req, res) => {
       if (!subjects.length) continue;
 
       const numSubsections = section.lab_subsections || 2;
-      // Use custom batch names if set, else default A, B, C...
       let batchNames;
       try { batchNames = JSON.parse(section.subsection_names || 'null'); } catch { batchNames = null; }
       if (!Array.isArray(batchNames) || batchNames.length !== numSubsections) {
         batchNames = Array.from({ length: numSubsections }, (_, i) => String.fromCharCode(65 + i));
+      }
+
+      // Load pre-assigned lab faculty for this section
+      const labAssignments = await query(
+        'SELECT * FROM lab_assignments WHERE section_id=$1', [section.id]
+      );
+      // Map: subjectId → { batchName → facultyId }
+      const assignedFaculty = {};
+      for (const a of labAssignments) {
+        if (!assignedFaculty[a.subject_id]) assignedFaculty[a.subject_id] = {};
+        assignedFaculty[a.subject_id][a.batch_name] = a.faculty_id;
       }
 
       // ── Separate theory/BTU and lab subjects ─────────────────────────────
@@ -616,25 +689,39 @@ router.post('/generate', requireAuth, async (req, res) => {
           for (const sl of slotGroup) {
             const availLabs = shuffle(labs.filter(r => isRoomFree(day, sl.id, r.id)));
 
-            // Qualified faculty pool
-            const eligible = allFaculty.filter(f => {
-              try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
-            });
-            const fPool   = shuffle(eligible.length >= numSubsections ? eligible : allFaculty);
-            const freeFac = fPool.filter(f => isFacultyFree(day, sl.id, f.id));
-
-            // Assign unique faculty and unique rooms to each batch
+            // Build per-batch faculty list: honour pre-assignments, fill rest auto
             const chosenFaculties = [];
             const chosenRooms     = [];
+            const preAssigned = assignedFaculty[subj.id] || {};
+
             for (let bi = 0; bi < numSubsections; bi++) {
-              const f = freeFac.find(f => !chosenFaculties.includes(f));
-              const r = availLabs.find(r => !chosenRooms.includes(r));
-              if (!f || !r) {
-                console.warn(`Not enough resources for ${subj.name} batch ${bi+1} on ${day}`);
+              const batchName = batchNames[bi];
+
+              // Try pre-assigned faculty first
+              let chosenF = null;
+              const preId = preAssigned[batchName];
+              if (preId) {
+                const pre = allFaculty.find(f => f.id === preId);
+                if (pre && isFacultyFree(day, sl.id, pre.id) && !chosenFaculties.includes(pre)) {
+                  chosenF = pre;
+                }
+              }
+              // Fall back to any free qualified faculty
+              if (!chosenF) {
+                const eligible = allFaculty.filter(f => {
+                  try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
+                });
+                const pool = shuffle(eligible.length >= 1 ? eligible : allFaculty);
+                chosenF = pool.find(f => isFacultyFree(day, sl.id, f.id) && !chosenFaculties.includes(f));
+              }
+
+              const chosenR = availLabs.find(r => !chosenRooms.includes(r));
+              if (!chosenF || !chosenR) {
+                console.warn(`Not enough resources for ${subj.name} batch ${batchName} on ${day}`);
                 break;
               }
-              chosenFaculties.push(f);
-              chosenRooms.push(r);
+              chosenFaculties.push(chosenF);
+              chosenRooms.push(chosenR);
             }
 
             for (let bi = 0; bi < chosenFaculties.length; bi++) {
