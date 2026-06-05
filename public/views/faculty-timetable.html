@@ -34,6 +34,7 @@
           <button class="btn btn-primary" onclick="loadTimetable()">View</button>
           <button class="btn btn-secondary" onclick="window.print()">🖨️ Print</button>
           <button class="btn btn-outline" onclick="exportExcel()" id="excelBtn" style="display:none;">📥 Excel</button>
+          <button class="btn btn-success" onclick="exportAllFaculties()">👥 Export All Faculty</button>
         </div>
       </div>
     </div>
@@ -76,7 +77,7 @@
       'F4FAD1','FAE3D9','DDE2F7','C8EDE9','FEF6D0','EDE0DA'
     ];
     const subjectColorMap = {}, subjectXlColorMap = {};
-    let slots = [], entries = [];
+    let slots = [], entries = [], allFaculty = [];
     let currentFacultyName = 'Faculty';
     let deptId = localStorage.getItem('selectedDepartmentId') || '1';
 
@@ -101,10 +102,10 @@
         fetch(`/api/faculty?department_id=${deptId}`),
         fetch(`/api/timeslots?department_id=${deptId}`)
       ]);
-      const faculty = await fRes.json();
+      allFaculty = await fRes.json();
       slots = await slRes.json();
       const sel = document.getElementById('facultySelect');
-      faculty.forEach(f => {
+      allFaculty.forEach(f => {
         const lbl = f.role !== 'faculty' ? ` (${f.role === 'hod_mentor' ? 'HOD Mentor' : 'HOD Admin'})` : '';
         sel.innerHTML += `<option value="${f.id}">${f.name}${lbl}</option>`;
       });
@@ -218,48 +219,129 @@
       }};
     }
 
-    function exportExcel() {
-      const wb = XLSX.utils.book_new();
+    function buildFacultySheet(facEntries, facName, deptName) {
       const teaching = slots.filter(s => !s.is_break);
-      const deptName = document.getElementById('printDeptName').textContent;
       const numCols  = teaching.length + 1;
-
+      // Per-sheet color map so colors reset per faculty
+      const xlMap = {};
+      function xlC(id) {
+        if (!xlMap[id]) xlMap[id] = XL_COLORS[Object.keys(xlMap).length % XL_COLORS.length];
+        return xlMap[id];
+      }
       const wsData = [];
       wsData.push([titleCell(deptName, true), ...Array(numCols-1).fill({v:'',t:'s',s:{fill:TITLE_FILL}})]);
-      wsData.push([titleCell(currentFacultyName+' — Teaching Schedule'), ...Array(numCols-1).fill({v:'',t:'s',s:{fill:TITLE_FILL}})]);
+      wsData.push([titleCell(facName + ' — Teaching Schedule'), ...Array(numCols-1).fill({v:'',t:'s',s:{fill:TITLE_FILL}})]);
       wsData.push(Array(numCols).fill({v:'',t:'s'}));
       wsData.push([hdrCell('Day / Time'), ...teaching.map(s => hdrCell(`Slot ${s.slot_number}\n${s.start_time}–${s.end_time}`))]);
-
       DAYS.forEach(day => {
         const row = [dayCell(day)];
         teaching.forEach(slot => {
-          const se = entries.filter(e => e.day_of_week===day && e.time_slot_id===slot.id);
+          const se = facEntries.filter(e => e.day_of_week===day && e.time_slot_id===slot.id);
           if (!se.length) { row.push(nlfCell()); return; }
           if (se.some(e => e.subsection)) {
-            const xlC = getXlColor(se[0].subject_id);
             const isBtu = se[0].subject_category==='btu';
             const txt = se[0].subject_name+(isBtu?' [B.T.U.] LAB':' [LAB]')+'\n'+
               se.map(e=>`Batch ${e.subsection}: ${e.year_name} Sec ${e.section_name} | ${e.room_name||''}`).join('\n');
-            row.push(subjectCell(txt, xlC, isBtu));
+            row.push(subjectCell(txt, xlC(se[0].subject_id), isBtu));
           } else {
             const e = se[0];
-            const xlC = getXlColor(e.subject_id);
             const isBtu = e.subject_category==='btu';
             const tag = isBtu?' [B.T.U.]':e.subject_type==='lab'?' [LAB]':'';
             const batch = e.subsection?`\nBatch ${e.subsection}`:'';
-            row.push(subjectCell(`${e.subject_name}${tag}${batch}\n${e.year_name||''} — Sec ${e.section_name||''}\n${e.room_name||'—'}`, xlC, isBtu));
+            row.push(subjectCell(`${e.subject_name}${tag}${batch}\n${e.year_name||''} — Sec ${e.section_name||''}\n${e.room_name||'—'}`, xlC(e.subject_id), isBtu));
           }
         });
         wsData.push(row);
       });
-
       const ws = XLSX.utils.aoa_to_sheet(wsData);
       ws['!cols'] = [{wch:14},...teaching.map(()=>({wch:28}))];
       ws['!rows'] = [{hpt:22},{hpt:18},{hpt:8},{hpt:32},...DAYS.map(()=>({hpt:54}))];
       ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:numCols-1}},{s:{r:1,c:0},e:{r:1,c:numCols-1}},{s:{r:2,c:0},e:{r:2,c:numCols-1}}];
-      XLSX.utils.book_append_sheet(wb, ws, 'Schedule');
+      return ws;
+    }
 
+    function exportExcel() {
+      const wb = XLSX.utils.book_new();
+      const deptName = document.getElementById('printDeptName').textContent;
+      const ws = buildFacultySheet(entries, currentFacultyName, deptName);
+      XLSX.utils.book_append_sheet(wb, ws, 'Schedule');
       XLSX.writeFile(wb, `Faculty_${currentFacultyName.replace(/[^a-z0-9]/gi,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    }
+
+    async function exportAllFaculties() {
+      const loadingMsg = document.createElement('div');
+      loadingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a237e;color:white;padding:24px 48px;border-radius:8px;z-index:10000;font-size:16px;box-shadow:0 4px 16px rgba(0,0,0,0.3);';
+      loadingMsg.textContent = '⏳ Generating Excel for all faculty...';
+      document.body.appendChild(loadingMsg);
+      try {
+        const wb       = XLSX.utils.book_new();
+        const deptName = document.getElementById('printDeptName').textContent;
+        const teaching = slots.filter(s => !s.is_break);
+
+        // ── Summary sheet ──────────────────────────────────────────────────
+        const SUMM_FILL = { patternType:'solid', fgColor:{rgb:'1A237E'} };
+        const summHdr = ['Faculty','Total Periods','Subjects','Sections'].map(v =>
+          ({v,t:'s',s:{font:{bold:true,color:{rgb:'FFFFFF'},sz:10},fill:SUMM_FILL,alignment:{horizontal:'center'},border:FULL_BORDER}})
+        );
+        const summRows = [
+          // Title rows
+          [{v:deptName,t:'s',s:{font:{bold:true,color:{rgb:'FFFFFF'},sz:13},fill:{patternType:'solid',fgColor:{rgb:'283593'}},alignment:{horizontal:'center'}}},...Array(3).fill({v:'',t:'s',s:{fill:{patternType:'solid',fgColor:{rgb:'283593'}}}})],
+          [{v:'Faculty Workload Summary',t:'s',s:{font:{bold:true,color:{rgb:'FFFFFF'},sz:11},fill:SUMM_FILL,alignment:{horizontal:'center'}}},...Array(3).fill({v:'',t:'s',s:{fill:SUMM_FILL}})],
+          Array(4).fill({v:'',t:'s'}),
+          summHdr
+        ];
+
+        for (const fac of allFaculty) {
+          const facEntries = await (await fetch(`/api/timetable/faculty?faculty_id=${fac.id}`)).json();
+          const total    = facEntries.filter(e => e.subject_id).length;
+          const subjects = [...new Set(facEntries.filter(e => e.subject_id).map(e => e.subject_name))];
+          const sections = [...new Set(facEntries.filter(e => e.section_id).map(e => `${e.year_name} Sec ${e.section_name}`))];
+
+          // Color summary row by workload level
+          const wlFill = total > 25 ? 'FFE0E0' : total > 15 ? 'FFF9C4' : 'E8F5E9';
+          summRows.push([
+            {v:fac.name,t:'s',s:{font:{bold:true,sz:10},alignment:{horizontal:'left'},border:FULL_BORDER}},
+            {v:total,t:'n',s:{fill:{patternType:'solid',fgColor:{rgb:wlFill}},alignment:{horizontal:'center'},border:FULL_BORDER}},
+            {v:subjects.join(', ') || 'None',t:'s',s:{alignment:{horizontal:'left',wrapText:true},border:FULL_BORDER}},
+            {v:sections.join(', ') || 'None',t:'s',s:{alignment:{horizontal:'left',wrapText:true},border:FULL_BORDER}}
+          ]);
+
+          // Skip faculty with no entries — still show in summary but no sheet
+          if (!total) continue;
+
+          const ws       = buildFacultySheet(facEntries, fac.name, deptName);
+          // Sheet name: max 31 chars, strip invalid chars
+          const sheetName = fac.name.replace(/[\\\/\?\*\[\]:]/g,'').slice(0,31);
+          XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        }
+
+        // Build summary sheet
+        const wsSumm = XLSX.utils.aoa_to_sheet(summRows);
+        wsSumm['!cols'] = [{wch:28},{wch:14},{wch:36},{wch:30}];
+        wsSumm['!rows'] = [{hpt:22},{hpt:18},{hpt:8},{hpt:20},...allFaculty.map(()=>({hpt:22}))];
+        wsSumm['!merges'] = [
+          {s:{r:0,c:0},e:{r:0,c:3}},
+          {s:{r:1,c:0},e:{r:1,c:3}},
+          {s:{r:2,c:0},e:{r:2,c:3}}
+        ];
+        wb.SheetNames.unshift('Summary');
+        wb.Sheets['Summary'] = wsSumm;
+
+        const date = new Date().toISOString().slice(0,10);
+        XLSX.writeFile(wb, `All_Faculty_${deptName.replace(/[^a-z0-9]/gi,'_')}_${date}.xlsx`);
+        
+        document.body.removeChild(loadingMsg);
+        
+        const successMsg = document.createElement('div');
+        successMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#2e7d32;color:white;padding:24px 48px;border-radius:8px;z-index:10000;font-size:16px;box-shadow:0 4px 16px rgba(0,0,0,0.3);';
+        successMsg.textContent = `✅ Exported ${allFaculty.length} faculty timetables successfully!`;
+        document.body.appendChild(successMsg);
+        setTimeout(() => document.body.removeChild(successMsg), 3000);
+      } catch (error) {
+        console.error('Export failed:', error);
+        if (document.body.contains(loadingMsg)) document.body.removeChild(loadingMsg);
+        alert('Failed to export all faculty: ' + error.message);
+      }
     }
 
     init();
