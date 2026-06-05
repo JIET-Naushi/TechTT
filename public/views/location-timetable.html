@@ -227,7 +227,7 @@
       ws['!cols'] = [{wch:12},...teaching.map(()=>({wch:26}))];
       const tc = teaching.length+1;
       ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:tc-1}},{s:{r:1,c:0},e:{r:1,c:tc-1}},{s:{r:2,c:0},e:{r:2,c:tc-1}}];
-      XLSX.utils.book_append_sheet(wb, currentRoomName.replace(/[\\\/\?\*\[\]:]/g,'').slice(0,31), ws);
+      XLSX.utils.book_append_sheet(wb, ws, currentRoomName.replace(/[\\\/\?\*\[\]:]/g,'').slice(0,31));
       XLSX.writeFile(wb,`Room_${currentRoomName.replace(/[^a-z0-9]/gi,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
     }
 
@@ -249,7 +249,7 @@
           ws['!cols'] = [{wch:12},...teaching.map(()=>({wch:26}))];
           const tc = teaching.length+1;
           ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:tc-1}},{s:{r:1,c:0},e:{r:1,c:tc-1}},{s:{r:2,c:0},e:{r:2,c:tc-1}}];
-          XLSX.utils.book_append_sheet(wb, room.name.replace(/[\\\/\?\*\[\]:]/g,'').slice(0,31), ws);
+          XLSX.utils.book_append_sheet(wb, ws, room.name.replace(/[\\\/\?\*\[\]:]/g,'').slice(0,31));
         }
         const wsSumm = XLSX.utils.aoa_to_sheet([[deptName],['Room Utilization Summary'],[],...summaryRows]);
         wsSumm['!cols'] = [20,12,10,14,10,14].map(w=>({wch:w}));

@@ -239,13 +239,13 @@
       ws['!cols'] = [{wch:12},...teachingSlots.map(()=>({wch:26}))];
       const tc = teachingSlots.length+1;
       ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:tc-1}},{s:{r:1,c:0},e:{r:1,c:tc-1}},{s:{r:2,c:0},e:{r:2,c:tc-1}}];
-      XLSX.utils.book_append_sheet(wb,'Timetable',ws);
+      XLSX.utils.book_append_sheet(wb, ws, 'Timetable');
       const listData = [['Day','Slot','Start','End','Batch','Subject','Code','Faculty','Room','Type'],
         ...entries.filter(e=>e.subject_id).sort((a,b)=>DAYS.indexOf(a.day_of_week)-DAYS.indexOf(b.day_of_week)||a.slot_number-b.slot_number)
           .map(e=>[e.day_of_week,`P${e.slot_number}`,e.start_time,e.end_time,e.subsection||'',e.subject_name||'',e.subject_code||'',e.faculty_name||'',e.room_name||'',e.subject_type||'theory'])];
       const ws2 = XLSX.utils.aoa_to_sheet(listData);
       ws2['!cols'] = [10,6,8,8,8,28,12,22,12,8].map(w=>({wch:w}));
-      XLSX.utils.book_append_sheet(wb,'Detailed List',ws2);
+      XLSX.utils.book_append_sheet(wb, ws2, 'Detailed List');
       XLSX.writeFile(wb,`Timetable_${currentTitle.replace(/[^a-z0-9]/gi,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
     }
 
