@@ -143,13 +143,14 @@
           const entry = entries.find(e => e.day_of_week === day && e.time_slot_id === slot.id);
           if (entry && entry.subject_id) {
             const color = getSubjectColor(entry.subject_id);
-            html += `<td><div class="timetable-cell ${color}">
-              <div class="cell-subject">${entry.subject_name || '?'}</div>
+            const isBtu = entry.subject_type === 'btu';
+            html += `<td><div class="timetable-cell ${color}${isBtu ? ' btu-cell' : ''}">
+              <div class="cell-subject">${entry.subject_name || '?'}${isBtu ? ' <span style="font-size:0.6rem;background:rgba(230,81,0,0.15);color:#e65100;border-radius:2px;padding:0 3px;vertical-align:middle;">BTU</span>' : ''}</div>
               <div class="cell-faculty" style="font-weight:600;">${entry.year_name || ''} - Sec ${entry.section_name || ''}</div>
               <div class="cell-room">${entry.room_name || ''}</div>
             </div></td>`;
           } else {
-            html += `<td><div class="timetable-cell empty-cell">—</div></td>`;
+            html += `<td><div class="timetable-cell nlf-cell">NLF</div></td>`;
           }
         });
         html += '</tr>';
@@ -192,9 +193,12 @@
         const row = [day];
         teachingSlots.forEach(slot => {
           const entry = entries.find(e => e.day_of_week === day && e.time_slot_id === slot.id);
-          row.push(entry && entry.subject_id
-            ? `${entry.subject_name}\n${entry.year_name} Sec ${entry.section_name}\n${entry.room_name || ''}`
-            : '—');
+          if (entry && entry.subject_id) {
+            const typeTag = entry.subject_type === 'btu' ? ' [BTU]' : entry.subject_type === 'lab' ? ' [LAB]' : '';
+            row.push(`${entry.subject_name}${typeTag}\n${entry.year_name||''} Sec ${entry.section_name||''}\n${entry.room_name||''}`);
+          } else {
+            row.push('NLF');
+          }
         });
         return row;
       });

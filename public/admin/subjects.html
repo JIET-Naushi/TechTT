@@ -90,6 +90,7 @@
             <select id="subjectType" class="form-control">
               <option value="theory">Theory</option>
               <option value="lab">Lab</option>
+              <option value="btu">BTU</option>
             </select>
           </div>
         </div>
@@ -149,7 +150,7 @@
           <td><strong>${s.name}</strong></td>
           <td>${s.code || '—'}</td>
           <td>${s.year_name || getYearName(s.year_id)}</td>
-          <td><span class="badge badge-${s.type}">${s.type}</span></td>
+          <td><span class="badge badge-${s.type}">${s.type.toUpperCase()}</span></td>
           <td>${s.credits}</td>
           <td>${s.hours_per_week}</td>
           <td>

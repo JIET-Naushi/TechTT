@@ -171,7 +171,7 @@
           const slotEntries = entries.filter(e => e.day_of_week === day && e.time_slot_id === slot.id);
 
           if (!slotEntries.length) {
-            html += `<td><div class="timetable-cell empty-cell">—</div></td>`;
+            html += `<td><div class="timetable-cell nlf-cell">NLF</div></td>`;
             return;
           }
 
@@ -196,17 +196,18 @@
               ${batchRows}
             </div></td>`;
           } else {
-            // Single entry (theory or single-subsection)
+            // Single entry (theory, btu, or single-subsection)
             const entry = slotEntries[0];
             if (entry.subject_id) {
               const color = getSubjectColor(entry.subject_id);
-              html += `<td><div class="timetable-cell ${color}">
-                <div class="cell-subject">${entry.subject_name || '?'}</div>
+              const isBtu = entry.subject_type === 'btu';
+              html += `<td><div class="timetable-cell ${color}${isBtu ? ' btu-cell' : ''}">
+                <div class="cell-subject">${entry.subject_name || '?'}${isBtu ? ' <span style="font-size:0.6rem;background:rgba(230,81,0,0.15);color:#e65100;border-radius:2px;padding:0 3px;vertical-align:middle;">BTU</span>' : ''}</div>
                 <div class="cell-faculty">${entry.faculty_name || ''}</div>
                 <div class="cell-room">${entry.room_name || ''}</div>
               </div></td>`;
             } else {
-              html += `<td><div class="timetable-cell empty-cell">—</div></td>`;
+              html += `<td><div class="timetable-cell nlf-cell">NLF</div></td>`;
             }
           }
         });
@@ -236,11 +237,18 @@
       const dataRows   = DAYS.map(day => {
         const row = [day];
         teachingSlots.forEach(slot => {
-          const entry = entries.find(e => e.day_of_week === day && e.time_slot_id === slot.id);
-          if (entry && entry.subject_id) {
-            row.push(`${entry.subject_name}\n${entry.faculty_name || ''}\n${entry.room_name || ''}`);
+          const slotEntries = entries.filter(e => e.day_of_week === day && e.time_slot_id === slot.id);
+          if (!slotEntries.length) {
+            row.push('NLF');
+          } else if (slotEntries.length > 1 && slotEntries[0].subsection) {
+            // Lab with batches
+            row.push(slotEntries.map(e =>
+              `${e.subject_name} [${e.subsection}] ${e.faculty_name||''} ${e.room_name||''}`
+            ).join('\n'));
           } else {
-            row.push('—');
+            const e = slotEntries[0];
+            const typeTag = e.subject_type === 'btu' ? ' [BTU]' : e.subject_type === 'lab' ? ' [LAB]' : '';
+            row.push(`${e.subject_name}${typeTag}\n${e.faculty_name || ''}\n${e.room_name || ''}`);
           }
         });
         return row;

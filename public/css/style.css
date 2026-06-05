@@ -120,8 +120,9 @@ table tr:last-child td { border-bottom: none; }
   display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;
 }
 .badge-theory { background: #e3f2fd; color: #1565c0; }
-.badge-lab { background: #e8f5e9; color: #2e7d32; }
-.badge-hod { background: #fce4ec; color: #c62828; }
+.badge-lab    { background: #e8f5e9; color: #2e7d32; }
+.badge-btu    { background: #fff3e0; color: #e65100; }
+.badge-hod    { background: #fce4ec; color: #c62828; }
 .badge-faculty { background: #e8eaf6; color: #1a237e; }
 
 /* ===== TIMETABLE GRID ===== */
@@ -166,6 +167,8 @@ table tr:last-child td { border-bottom: none; }
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 .timetable-cell.empty-cell { background: #fafafa; color: #ccc; font-size: 0.72rem; text-align: center; cursor: default; min-height: 64px; }
+.timetable-cell.nlf-cell   { background: #f5f5f5; color: #bdbdbd; font-size: 0.7rem; text-align: center; cursor: default; min-height: 64px; font-style: italic; letter-spacing: 0.5px; }
+.timetable-cell.btu-cell   { border-left: 3px solid #e65100; }
 .timetable-cell.conflict-cell { border: 2px solid #c62828 !important; background: #ffebee !important; }
 
 /* Lab cell with subsections */

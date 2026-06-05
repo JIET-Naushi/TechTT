@@ -537,7 +537,7 @@ router.post('/generate', requireAuth, async (req, res) => {
         batchNames = Array.from({ length: numSubsections }, (_, i) => String.fromCharCode(65 + i));
       }
 
-      // ── Separate theory and lab subjects ─────────────────────────────────
+      // ── Separate theory/BTU and lab subjects ─────────────────────────────
       const theorySubjects = subjects.filter(s => s.type !== 'lab');
       const labSubjects    = subjects.filter(s => s.type === 'lab');
 
