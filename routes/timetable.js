@@ -122,7 +122,7 @@ router.get('/timetable/class', async (req, res) => {
     if (!section_id) return res.status(400).json({ error: 'section_id required' });
     const rows = await query(`
       SELECT te.*,
-        s.name as subject_name, s.code as subject_code, s.type as subject_type,
+        s.name as subject_name, s.code as subject_code, s.type as subject_type, s.category as subject_category,
         f.name as faculty_name,
         r.name as room_name, r.type as room_type,
         ts.slot_number, ts.start_time, ts.end_time, ts.is_break,
@@ -145,7 +145,7 @@ router.get('/timetable/faculty', async (req, res) => {
     if (!faculty_id) return res.status(400).json({ error: 'faculty_id required' });
     const rows = await query(`
       SELECT te.*,
-        s.name as subject_name, s.code as subject_code, s.type as subject_type,
+        s.name as subject_name, s.code as subject_code, s.type as subject_type, s.category as subject_category,
         f.name as faculty_name,
         r.name as room_name, r.type as room_type,
         ts.slot_number, ts.start_time, ts.end_time, ts.is_break,
@@ -171,7 +171,7 @@ router.get('/timetable/location', async (req, res) => {
     if (!room_id) return res.status(400).json({ error: 'room_id required' });
     const rows = await query(`
       SELECT te.*,
-        s.name as subject_name, s.code as subject_code, s.type as subject_type,
+        s.name as subject_name, s.code as subject_code, s.type as subject_type, s.category as subject_category,
         f.name as faculty_name,
         r.name as room_name, r.type as room_type,
         ts.slot_number, ts.start_time, ts.end_time, ts.is_break,

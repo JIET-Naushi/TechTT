@@ -90,12 +90,17 @@
             <select id="subjectType" class="form-control">
               <option value="theory">Theory</option>
               <option value="lab">Lab</option>
-              <option value="btu">BTU</option>
             </select>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
+            <label>Category</label>
+            <select id="subjectCategory" class="form-control">
+              <option value="regular">Regular</option>
+              <option value="btu">BTU (Behavioral Training Unit)</option>
+            </select>
+          </div>
             <label>Credits</label>
             <input type="number" id="subjectCredits" class="form-control" value="3" min="1" max="6">
           </div>
@@ -113,18 +118,21 @@
   </div>
 
   <script>
-    fetch('/api/auth/status').then(r => r.json()).then(d => { if (!d.loggedIn) location.href = '/login.html'; });
+    fetch('/api/auth/status').then(r => r.json()).then(d => {
+      if (!d.loggedIn) location.href = '/login.html';
+      deptId = d.user.isSuperAdmin ? 1 : (d.user.department_id || 1);
+      init();
+    });
 
-    let years = [];
-    let subjects = [];
+    let years = [], subjects = [], deptId = 1;
 
     async function init() {
-      const res = await fetch('/api/years');
+      const res = await fetch(`/api/years?department_id=${deptId}`);
       years = await res.json();
-      const yearFilter = document.getElementById('yearFilter');
+      const yearFilter  = document.getElementById('yearFilter');
       const subjectYear = document.getElementById('subjectYear');
       years.forEach(y => {
-        yearFilter.innerHTML += `<option value="${y.id}">${y.display_name}</option>`;
+        yearFilter.innerHTML  += `<option value="${y.id}">${y.display_name}</option>`;
         subjectYear.innerHTML += `<option value="${y.id}">${y.display_name}</option>`;
       });
       loadSubjects();
@@ -132,7 +140,9 @@
 
     async function loadSubjects() {
       const yearId = document.getElementById('yearFilter').value;
-      const url = yearId ? `/api/subjects?year_id=${yearId}` : '/api/subjects';
+      const url = yearId
+        ? `/api/subjects?year_id=${yearId}`
+        : `/api/subjects?department_id=${deptId}`;
       const res = await fetch(url);
       subjects = await res.json();
       renderTable();
@@ -150,7 +160,10 @@
           <td><strong>${s.name}</strong></td>
           <td>${s.code || '—'}</td>
           <td>${s.year_name || getYearName(s.year_id)}</td>
-          <td><span class="badge badge-${s.type}">${s.type.toUpperCase()}</span></td>
+          <td>
+            <span class="badge badge-${s.type}">${s.type.toUpperCase()}</span>
+            ${s.category === 'btu' ? '<span class="badge badge-btu" style="margin-left:4px;">BTU</span>' : ''}
+          </td>
           <td>${s.credits}</td>
           <td>${s.hours_per_week}</td>
           <td>
@@ -178,6 +191,7 @@
         document.getElementById('subjectName').value = subject.name;
         document.getElementById('subjectCode').value = subject.code || '';
         document.getElementById('subjectType').value = subject.type;
+        document.getElementById('subjectCategory').value = subject.category || 'regular';
         document.getElementById('subjectCredits').value = subject.credits;
         document.getElementById('subjectHours').value = subject.hours_per_week;
       }
@@ -207,6 +221,7 @@
         name: document.getElementById('subjectName').value,
         code: document.getElementById('subjectCode').value,
         type: document.getElementById('subjectType').value,
+        category: document.getElementById('subjectCategory').value,
         credits: parseInt(document.getElementById('subjectCredits').value),
         hours_per_week: parseInt(document.getElementById('subjectHours').value)
       };

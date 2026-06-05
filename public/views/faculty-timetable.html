@@ -143,9 +143,15 @@
           const entry = entries.find(e => e.day_of_week === day && e.time_slot_id === slot.id);
           if (entry && entry.subject_id) {
             const color = getSubjectColor(entry.subject_id);
-            const isBtu = entry.subject_type === 'btu';
+            const isBtu = entry.subject_category === 'btu';
+            const isLab = entry.subject_type === 'lab';
+            const badge = isBtu
+              ? `<span style="font-size:0.6rem;background:rgba(230,81,0,0.2);color:#e65100;border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">BTU</span>`
+              : isLab
+              ? `<span style="font-size:0.6rem;background:rgba(0,0,0,0.13);border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">LAB</span>`
+              : '';
             html += `<td><div class="timetable-cell ${color}${isBtu ? ' btu-cell' : ''}">
-              <div class="cell-subject">${entry.subject_name || '?'}${isBtu ? ' <span style="font-size:0.6rem;background:rgba(230,81,0,0.15);color:#e65100;border-radius:2px;padding:0 3px;vertical-align:middle;">BTU</span>' : ''}</div>
+              <div class="cell-subject">${entry.subject_name || '?'}${badge}</div>
               <div class="cell-faculty" style="font-weight:600;">${entry.year_name || ''} - Sec ${entry.section_name || ''}</div>
               <div class="cell-room">${entry.room_name || ''}</div>
             </div></td>`;
@@ -194,7 +200,9 @@
         teachingSlots.forEach(slot => {
           const entry = entries.find(e => e.day_of_week === day && e.time_slot_id === slot.id);
           if (entry && entry.subject_id) {
-            const typeTag = entry.subject_type === 'btu' ? ' [BTU]' : entry.subject_type === 'lab' ? ' [LAB]' : '';
+            const typeTag = entry.subject_category === 'btu'
+              ? ` [BTU-${entry.subject_type==='lab'?'LAB':'THEORY'}]`
+              : entry.subject_type === 'lab' ? ' [LAB]' : '';
             row.push(`${entry.subject_name}${typeTag}\n${entry.year_name||''} Sec ${entry.section_name||''}\n${entry.room_name||''}`);
           } else {
             row.push('NLF');

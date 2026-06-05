@@ -179,8 +179,9 @@
           const isLabWithSubs = slotEntries.length > 1 && slotEntries.every(e => e.subsection);
 
           if (isLabWithSubs) {
-            // Render stacked subsection cells
+            // Lab (possibly BTU) with subsections
             const color = getSubjectColor(slotEntries[0].subject_id);
+            const isBtu = slotEntries[0].subject_category === 'btu';
             const batchRows = slotEntries.map(e => `
               <div class="lab-batch">
                 <span class="lab-batch-label">${e.subsection}</span>
@@ -189,20 +190,27 @@
                   <div class="room">${e.room_name || ''}</div>
                 </div>
               </div>`).join('');
-            html += `<td><div class="lab-cell ${color}">
+            html += `<td><div class="lab-cell ${color}${isBtu ? ' btu-cell' : ''}">
               <div class="lab-subject-name">${slotEntries[0].subject_name || '?'}
                 <span style="font-size:0.6rem;background:rgba(0,0,0,0.13);border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">LAB</span>
+                ${isBtu ? '<span style="font-size:0.6rem;background:rgba(230,81,0,0.2);color:#e65100;border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">BTU</span>' : ''}
               </div>
               ${batchRows}
             </div></td>`;
           } else {
-            // Single entry (theory, btu, or single-subsection)
+            // Single entry (theory, btu-theory, or single-subsection lab)
             const entry = slotEntries[0];
             if (entry.subject_id) {
               const color = getSubjectColor(entry.subject_id);
-              const isBtu = entry.subject_type === 'btu';
+              const isBtu = entry.subject_category === 'btu';
+              const isLab = entry.subject_type === 'lab';
+              const badge = isBtu
+                ? `<span style="font-size:0.6rem;background:rgba(230,81,0,0.2);color:#e65100;border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">BTU</span>`
+                : isLab
+                ? `<span style="font-size:0.6rem;background:rgba(0,0,0,0.13);border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">LAB</span>`
+                : '';
               html += `<td><div class="timetable-cell ${color}${isBtu ? ' btu-cell' : ''}">
-                <div class="cell-subject">${entry.subject_name || '?'}${isBtu ? ' <span style="font-size:0.6rem;background:rgba(230,81,0,0.15);color:#e65100;border-radius:2px;padding:0 3px;vertical-align:middle;">BTU</span>' : ''}</div>
+                <div class="cell-subject">${entry.subject_name || '?'}${badge}</div>
                 <div class="cell-faculty">${entry.faculty_name || ''}</div>
                 <div class="cell-room">${entry.room_name || ''}</div>
               </div></td>`;
@@ -241,13 +249,15 @@
           if (!slotEntries.length) {
             row.push('NLF');
           } else if (slotEntries.length > 1 && slotEntries[0].subsection) {
-            // Lab with batches
+            // Lab with batches (possibly BTU)
             row.push(slotEntries.map(e =>
-              `${e.subject_name} [${e.subsection}] ${e.faculty_name||''} ${e.room_name||''}`
+              `${e.subject_name}${e.subject_category==='btu'?' [BTU]':''} [${e.subsection}] ${e.faculty_name||''} ${e.room_name||''}`
             ).join('\n'));
           } else {
             const e = slotEntries[0];
-            const typeTag = e.subject_type === 'btu' ? ' [BTU]' : e.subject_type === 'lab' ? ' [LAB]' : '';
+            const typeTag = e.subject_category === 'btu'
+              ? ` [BTU-${e.subject_type==='lab'?'LAB':'THEORY'}]`
+              : e.subject_type === 'lab' ? ' [LAB]' : '';
             row.push(`${e.subject_name}${typeTag}\n${e.faculty_name || ''}\n${e.room_name || ''}`);
           }
         });

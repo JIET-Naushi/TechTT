@@ -219,14 +219,14 @@ router.put('/settings', requireAuth, async (req, res) => {
 
 router.post('/subjects', requireAuth, async (req, res) => {
   try {
-    const { year_id, name, code, type, credits, hours_per_week } = req.body;
+    const { year_id, name, code, type, category, credits, hours_per_week } = req.body;
     if (!year_id || !name) return res.status(400).json({ error: 'year_id and name required' });
     const deptId = getDeptId(req);
     if (!(await verifyDeptOwnership('years', year_id, deptId)))
       return res.status(403).json({ error: 'Year does not belong to your department' });
     const result = await run(
-      'INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
-      [year_id, name, code||'', type||'theory', credits||3, hours_per_week||3]
+      'INSERT INTO subjects (year_id,name,code,type,category,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+      [year_id, name, code||'', type||'theory', category||'regular', credits||3, hours_per_week||3]
     );
     res.json({ id: result.rows[0].id, message: 'Subject created' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -237,9 +237,9 @@ router.put('/subjects/:id', requireAuth, async (req, res) => {
     const deptId = getDeptId(req);
     if (!(await verifyDeptOwnership('subjects', req.params.id, deptId)))
       return res.status(403).json({ error: 'Subject does not belong to your department' });
-    const { name, code, type, credits, hours_per_week } = req.body;
-    await run('UPDATE subjects SET name=$1,code=$2,type=$3,credits=$4,hours_per_week=$5 WHERE id=$6',
-      [name, code, type, credits, hours_per_week, req.params.id]);
+    const { name, code, type, category, credits, hours_per_week } = req.body;
+    await run('UPDATE subjects SET name=$1,code=$2,type=$3,category=$4,credits=$5,hours_per_week=$6 WHERE id=$7',
+      [name, code, type, category||'regular', credits, hours_per_week, req.params.id]);
     res.json({ message: 'Subject updated' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

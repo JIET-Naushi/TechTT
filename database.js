@@ -306,6 +306,20 @@ async function initializeDatabase() {
     await run(`ALTER TABLE sections ADD COLUMN subsection_names TEXT DEFAULT NULL`);
     console.log('✅ Migrated sections: added subsection_names column');
   }
+
+  // Add category column to subjects if missing (regular | btu)
+  const subjCategoryExists = await queryOne(`
+    SELECT EXISTS (
+      SELECT FROM information_schema.columns 
+      WHERE table_name = 'subjects' AND column_name = 'category'
+    ) as exists
+  `);
+  if (!subjCategoryExists.exists) {
+    await run(`ALTER TABLE subjects ADD COLUMN category TEXT DEFAULT 'regular'`);
+    // Mark existing subjects that had type='btu' (from previous attempt) as category='btu', type='theory'
+    await run(`UPDATE subjects SET category='btu', type='theory' WHERE type='btu'`);
+    console.log('✅ Migrated subjects: added category column (regular/btu)');
+  }
   await run(`
     INSERT INTO departments (name, code) 
     VALUES ('Department of Computer Science', 'CS')
