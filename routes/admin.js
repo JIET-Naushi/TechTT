@@ -935,197 +935,158 @@ router.post('/generate', requireAuth, async (req, res) => {
       const theorySubjects = subjects.filter(s => s.type !== 'lab');
       const labSubjects    = subjects.filter(s => s.type === 'lab');
 
-      // ── Build slot grid: day → [slot, slot, ...] ─────────────────────────
-      // For labs: assign ALL hours of a subject on the SAME day, back-to-back if possible
-      const usedSlots   = new Set(); // "day_slotId"
-      const dayLoad     = Object.fromEntries(days.map(d => [d, 0])); // theory count per day
-      const dayLabLoad  = Object.fromEntries(days.map(d => [d, 0])); // lab count per day
+      // ── Cap theory subjects at 6 (pick highest-credit ones first) ─────────
+      const cappedTheory = [...theorySubjects]
+        .sort((a, b) => (b.credits || 0) - (a.credits || 0))
+        .slice(0, 6);
 
-      // ── Schedule LAB subjects first (consecutive on one day, no lunch break between) ──
-      // Track which faculty are assigned to which subjects (within this section only)
+      // ── Slot tracking ──────────────────────────────────────────────────────
+      const usedSlots  = new Set(); // "day_slotId" — slot used by THIS section
+      const dayLoad    = Object.fromEntries(days.map(d => [d, 0]));
+      const dayLabLoad = Object.fromEntries(days.map(d => [d, 0]));
+
+      // ── Schedule LAB subjects: each BATCH gets its own separate slot ────────
+      // Rule: since one faculty teaches one batch, batches must be staggered —
+      // each batch of a subject occupies different slots (can be same or diff day).
+      // Each batch still occupies hours_per_week consecutive slots.
       const labFacultyUsage = {}; // subjectId → Set of facultyIds already assigned
-      
+
       for (const subj of labSubjects) {
         labFacultyUsage[subj.id] = new Set();
-        const hoursNeeded = subj.hours_per_week; // usually 2
-        let placed = false;
+        const hoursNeeded = subj.hours_per_week || 2;
+        const preAssigned = assignedFaculty[subj.id] || {};
 
-        for (const day of shuffle([...days])) {
-          // Get free teaching slots for this day
-          const freeSlots = allSlots.filter(slot => !usedSlots.has(`${day}_${slot.id}`));
-          if (freeSlots.length < hoursNeeded) continue;
+        // Build qualified faculty pool for this subject
+        const qualifiedFac = allFaculty.filter(f => {
+          try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
+        });
+        const facPool = qualifiedFac.length >= numSubsections
+          ? qualifiedFac
+          : allFaculty;
 
-          // ── Build consecutive groups that don't straddle the lunch break ──
-          // "Consecutive" = slot_number increases by exactly 1 (no gap).
-          // e.g. slots: [1,2,3,4] | LUNCH gap | [6,7,8]
-          // slot 4 → slot 6 is a gap of 2, so they are NOT consecutive.
-          const consecutiveGroups = [];
-          let cur = [freeSlots[0]];
-          for (let i = 1; i < freeSlots.length; i++) {
-            if (freeSlots[i].slot_number === freeSlots[i-1].slot_number + 1) {
-              cur.push(freeSlots[i]);
-            } else {
-              if (cur.length >= hoursNeeded) consecutiveGroups.push(cur);
-              cur = [freeSlots[i]];
-            }
+        // Schedule each batch independently into its own consecutive slot window
+        for (let bi = 0; bi < numSubsections; bi++) {
+          const batchName = batchNames[bi];
+          let batchPlaced = false;
+
+          // Determine faculty for this batch
+          let batchFaculty = null;
+          const preId = preAssigned[batchName];
+          if (preId) {
+            const pre = allFaculty.find(f => f.id === preId);
+            if (pre && !labFacultyUsage[subj.id].has(pre.id)) batchFaculty = pre;
           }
-          if (cur.length >= hoursNeeded) consecutiveGroups.push(cur);
-          if (!consecutiveGroups.length) continue;
-
-          // ── Try each consecutive group for a valid placement window ──────
-          // Validation: for each candidate window, we need N faculty each free
-          // across ALL slots, and N labs each free across ALL slots.
-          let slotGroup = null;
-          outer:
-          for (const group of consecutiveGroups) {
-            for (let start = 0; start <= group.length - hoursNeeded; start++) {
-              const candidate = group.slice(start, start + hoursNeeded);
-
-              // Qualified faculty free for the ENTIRE candidate window
-              const eligibleFac = allFaculty.filter(f => {
-                if (labFacultyUsage[subj.id].has(f.id)) return false;
-                let teaches = false;
-                try { teaches = JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch {}
-                return teaches || true; // fallback: any free faculty
-              });
-              const qualifiedFac = allFaculty.filter(f => {
-                if (labFacultyUsage[subj.id].has(f.id)) return false;
-                try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
-              });
-              const facPool = qualifiedFac.length >= numSubsections ? qualifiedFac :
-                              allFaculty.filter(f => !labFacultyUsage[subj.id].has(f.id));
-
-              const facFreeAll = facPool.filter(f =>
-                candidate.every(sl => isFacultyFree(day, sl.id, f.id))
-              );
-              if (facFreeAll.length < numSubsections) continue;
-
-              // Labs free for the ENTIRE candidate window
-              const labsFreeAll = labs.filter(r =>
-                candidate.every(sl => isRoomFree(day, sl.id, r.id))
-              );
-              if (labsFreeAll.length < numSubsections) continue;
-
-              slotGroup = candidate;
-              break outer;
-            }
+          if (!batchFaculty) {
+            const pool = shuffle(facPool.filter(f => !labFacultyUsage[subj.id].has(f.id)));
+            // Pick any faculty not already assigned to another batch of this subject
+            batchFaculty = pool[0] || null;
           }
-          if (!slotGroup) continue;
+          if (!batchFaculty) {
+            console.warn(`No faculty for ${subj.name} batch ${batchName}`);
+            continue;
+          }
 
-          // ── Pick batch assignments ONCE for the whole consecutive group ──
-          // Same batch must use the same lab room AND same faculty for all hours.
-          // We pick using the FIRST slot availability, then verify all slots can honour it.
-          const firstSlot = slotGroup[0];
-          const availLabsFirst = shuffle(labs.filter(r => isRoomFree(day, firstSlot.id, r.id)));
-          const preAssigned = assignedFaculty[subj.id] || {};
+          // Reserve this faculty for this batch now
+          labFacultyUsage[subj.id].add(batchFaculty.id);
 
-          const batchAssignments = []; // [{ batchName, faculty, room }]
+          // Find a consecutive window where: faculty is free + at least 1 lab room free
+          for (const day of shuffle([...days])) {
+            if (batchPlaced) break;
+            const freeSlots = allSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`));
+            if (freeSlots.length < hoursNeeded) continue;
 
-          for (let bi = 0; bi < numSubsections; bi++) {
-            const batchName = batchNames[bi];
-
-            // Try pre-assigned faculty first
-            let chosenF = null;
-            const preId = preAssigned[batchName];
-            if (preId) {
-              const pre = allFaculty.find(f => f.id === preId);
-              if (pre && !batchAssignments.some(a => a.faculty.id === pre.id) &&
-                  !labFacultyUsage[subj.id].has(pre.id) &&
-                  slotGroup.every(sl => isFacultyFree(day, sl.id, pre.id))) {
-                chosenF = pre;
+            // Build consecutive groups
+            const groups = [];
+            let cur = [freeSlots[0]];
+            for (let i = 1; i < freeSlots.length; i++) {
+              if (freeSlots[i].slot_number === freeSlots[i-1].slot_number + 1) {
+                cur.push(freeSlots[i]);
+              } else {
+                if (cur.length >= hoursNeeded) groups.push([...cur]);
+                cur = [freeSlots[i]];
               }
             }
-            // Fall back to qualified faculty free across ALL slots in the group
-            if (!chosenF) {
-              const eligible = allFaculty.filter(f => {
-                try { 
-                  return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id) &&
-                         !labFacultyUsage[subj.id].has(f.id);
-                } catch { 
-                  return !labFacultyUsage[subj.id].has(f.id);
+            if (cur.length >= hoursNeeded) groups.push(cur);
+            if (!groups.length) continue;
+
+            for (const group of groups) {
+              if (batchPlaced) break;
+              for (let start = 0; start <= group.length - hoursNeeded; start++) {
+                const candidate = group.slice(start, start + hoursNeeded);
+
+                // Faculty must be free for all slots in window
+                if (!candidate.every(sl => isFacultyFree(day, sl.id, batchFaculty.id))) continue;
+
+                // Need at least one lab free for all slots in window (same lab across all)
+                const labFreeAll = labs.find(r =>
+                  candidate.every(sl => isRoomFree(day, sl.id, r.id))
+                );
+                if (!labFreeAll) continue;
+
+                // Place this batch in all consecutive slots with same faculty + same lab
+                for (const sl of candidate) {
+                  await run(
+                    'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+                    [section.id, sl.id, day, subj.id, batchFaculty.id, labFreeAll.id, batchName]
+                  );
+                  markFaculty(day, sl.id, batchFaculty.id);
+                  markRoom(day, sl.id, labFreeAll.id);
+                  usedSlots.add(`${day}_${sl.id}`);
+                  dayLabLoad[day]++;
                 }
-              });
-              const pool = shuffle(eligible.length >= 1 ? eligible : allFaculty.filter(f => !labFacultyUsage[subj.id].has(f.id)));
-              chosenF = pool.find(f =>
-                !batchAssignments.some(a => a.faculty.id === f.id) &&
-                slotGroup.every(sl => isFacultyFree(day, sl.id, f.id))
-              );
+                batchPlaced = true;
+                break;
+              }
             }
-
-            // Pick a lab room free across ALL slots in the group (same room = no switching)
-            const chosenR = availLabsFirst.find(r =>
-              !batchAssignments.some(a => a.room.id === r.id) &&
-              slotGroup.every(sl => isRoomFree(day, sl.id, r.id))
-            );
-
-            if (!chosenF || !chosenR) {
-              console.warn(`Not enough resources for ${subj.name} batch ${batchName} on ${day}`);
-              break;
-            }
-            batchAssignments.push({ batchName, faculty: chosenF, room: chosenR });
           }
 
-          // Only proceed if all batches were successfully assigned
-          if (batchAssignments.length < numSubsections) continue;
-
-          // ── Place all hours using the SAME room+faculty for each batch ──────
-          for (const sl of slotGroup) {
-            for (const { batchName, faculty: chosenF, room: chosenR } of batchAssignments) {
-              await run(
-                'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-                [section.id, sl.id, day, subj.id, chosenF.id, chosenR.id, batchName]
-              );
-              markRoom(day, sl.id, chosenR.id);
-              markFaculty(day, sl.id, chosenF.id);
-            }
-            usedSlots.add(`${day}_${sl.id}`);
-            dayLabLoad[day]++;
+          if (!batchPlaced) {
+            console.warn(`Could not place ${subj.name} batch ${batchName} — no free consecutive window`);
           }
-
-          // Track faculty as used for this subject (after successful placement)
-          batchAssignments.forEach(a => labFacultyUsage[subj.id].add(a.faculty.id));
-          placed = true;
-          break; // done with this lab subject
         }
       }
 
-      // ── Schedule THEORY subjects (spread across week) ─────────────────────
-      let theoryPeriods = [];
-      for (const subj of theorySubjects)
-        for (let i = 0; i < subj.hours_per_week; i++) theoryPeriods.push(subj);
-      theoryPeriods = shuffle(theoryPeriods);
+      // ── Schedule THEORY subjects (max 6, spread evenly across week) ────────
+      const MAX_THEORY = 6;
+      let theoryTokens = [];
+      for (const subj of cappedTheory) {
+        for (let i = 0; i < subj.hours_per_week; i++) {
+          theoryTokens.push(subj);
+        }
+      }
+      theoryTokens = shuffle(theoryTokens);
 
-      // Build ordered slot list, preferring days with lighter theory load
+      // Build ordered slot list, sort by day load for even distribution
       const orderedSlots = [];
       for (const day of days)
         for (const slot of shuffle([...allSlots]))
           orderedSlots.push({ day, slot });
-      // Sort by day load so we spread evenly
       orderedSlots.sort((a, b) => dayLoad[a.day] - dayLoad[b.day]);
 
       const daySubjects = Object.fromEntries(days.map(d => [d, new Set()]));
       const preferredRoomId = sectionRoomMap[section.id];
 
       let pi = 0, oi = 0;
-      while (pi < theoryPeriods.length && oi < orderedSlots.length * 3) {
+      while (pi < theoryTokens.length && oi < orderedSlots.length * 3) {
         const { day, slot } = orderedSlots[oi % orderedSlots.length]; oi++;
         const key = `${day}_${slot.id}`;
-        if (usedSlots.has(key)) continue;
+        if (usedSlots.has(key)) continue; // already used by a lab batch
 
-        const subj = theoryPeriods[pi];
-        if (daySubjects[day].has(subj.id)) continue;
+        const subj = theoryTokens[pi];
+        if (daySubjects[day].has(subj.id)) continue; // same subject twice on same day
 
         const eligible = allFaculty.filter(f => {
-          try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; }
+          try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
         });
         const fPool = shuffle(eligible.length ? eligible : allFaculty);
         const chosenF = fPool.find(f => isFacultyFree(day, slot.id, f.id));
         if (!chosenF) continue;
 
         const preferred = classrooms.find(r => r.id === preferredRoomId);
-        let chosenR = (preferred && isRoomFree(day, slot.id, preferred.id))
+        const chosenR = (preferred && isRoomFree(day, slot.id, preferred.id))
           ? preferred
-          : shuffle(classrooms.length ? classrooms : allRooms).find(r => isRoomFree(day, slot.id, r.id));
+          : shuffle([...classrooms, ...allRooms.filter(r => r.type !== 'lab')])
+              .find(r => isRoomFree(day, slot.id, r.id));
         if (!chosenR) continue;
 
         await run(
