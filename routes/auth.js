@@ -29,7 +29,18 @@ function getMailer() {
   });
 }
 
-// ── Super Admin password login ────────────────────────────────────────────────
+// ── Debug env check (super admin only — remove after confirming) ──────────────
+router.get('/debug-mail-config', (req, res) => {
+  res.json({
+    MAIL_USER_set: !!process.env.MAIL_USER,
+    MAIL_USER_value: process.env.MAIL_USER ? process.env.MAIL_USER.replace(/(.{3}).*(@.*)/, '$1***$2') : null,
+    MAIL_PASS_set: !!process.env.MAIL_PASS,
+    MAIL_PASS_length: process.env.MAIL_PASS ? process.env.MAIL_PASS.length : 0,
+    APP_URL: process.env.APP_URL || null,
+    VERCEL_URL: process.env.VERCEL_URL || null,
+    NODE_ENV: process.env.NODE_ENV || null,
+  });
+});
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
