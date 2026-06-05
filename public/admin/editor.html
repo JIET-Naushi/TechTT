@@ -417,12 +417,23 @@
       document.getElementById('mFaculty').value = e?.faculty_id || '';
       document.getElementById('mRoom').value    = e?.room_id    || '';
 
-      // For lab batch: subject is read-only display only — keep it ENABLED
-      // so the value is sent with the form, but hide the group visually
+      // For lab batch: subject field hidden — but rooms must still be filtered to labs only
       const subjectGroup = document.getElementById('mSubject').closest('.form-group');
-      document.getElementById('mSubject').disabled = false; // always enabled so value submits
+      document.getElementById('mSubject').disabled = false; // keep enabled so value submits
       if (subsection) {
-        subjectGroup.style.display = 'none'; // hide subject dropdown for lab batches
+        subjectGroup.style.display = 'none'; // hide subject for lab batches
+        // Filter rooms to show only labs
+        const rSel = document.getElementById('mRoom');
+        Array.from(rSel.options).forEach(o => {
+          if (!o.value) { o.style.display = ''; return; }
+          const room = rooms.find(r => r.id == o.value);
+          if (!room) return;
+          o.style.display = room.type === 'lab' ? '' : 'none';
+        });
+        // Reset room if currently selected room is hidden
+        const cur = rSel.value;
+        const curOpt = Array.from(rSel.options).find(o => o.value == cur);
+        if (curOpt && curOpt.style.display === 'none') rSel.value = '';
       } else {
         subjectGroup.style.display = '';
         onSubjectChange(); // apply room filter for theory
@@ -438,6 +449,9 @@
       document.getElementById('editModal').classList.remove('active');
       document.getElementById('mSubject').closest('.form-group').style.display = '';
       document.getElementById('mSubject').disabled = false;
+      // Reset room filter to show all rooms
+      const rSel = document.getElementById('mRoom');
+      Array.from(rSel.options).forEach(o => { o.style.display = ''; });
     }
 
     /* ── Save ───────────────────────────────────────────────────────────── */

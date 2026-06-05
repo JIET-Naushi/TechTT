@@ -956,10 +956,23 @@ router.post('/generate', requireAuth, async (req, res) => {
         eligibleTheory = [...regularTheory];
       }
 
-      // ── Cap theory subjects at 6 (pick highest-credit ones first) ─────────
-      const cappedTheory = [...eligibleTheory]
-        .sort((a, b) => (b.credits || 0) - (a.credits || 0))
-        .slice(0, 6);
+      // ── Cap theory subjects at 6 (BTU subjects guaranteed for BTU sections) ──
+      // For BTU sections: always include all BTU subjects (they are mandatory),
+      // then fill remaining slots (up to 6 total) with highest-credit regular subjects.
+      // For non-BTU sections: top 6 regular subjects by credits.
+      let cappedTheory;
+      if (isBtuSection && btuTheory.length > 0) {
+        // BTU subjects come first (guaranteed), then top regular subjects to fill to 6
+        const remainingSlots = Math.max(0, 6 - btuTheory.length);
+        const topRegular = [...regularTheory]
+          .sort((a, b) => (b.credits || 0) - (a.credits || 0))
+          .slice(0, remainingSlots);
+        cappedTheory = [...btuTheory, ...topRegular];
+      } else {
+        cappedTheory = [...eligibleTheory]
+          .sort((a, b) => (b.credits || 0) - (a.credits || 0))
+          .slice(0, 6);
+      }
 
       // ── Slot tracking ──────────────────────────────────────────────────────
       const usedSlots  = new Set(); // "day_slotId" — slot used by THIS section
