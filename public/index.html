@@ -57,50 +57,75 @@
 
   <script>
     let currentDepartmentId = localStorage.getItem('selectedDepartmentId') || '1';
-    
+
+    // Check login status first
+    fetch('/api/auth/status').then(r => r.json()).then(data => {
+      if (data.loggedIn) {
+        if (data.user.isSuperAdmin) {
+          // Super admin has no department — redirect straight to dashboard
+          location.href = '/admin/dashboard.html';
+          return;
+        }
+        // Incharge: update Admin link to Dashboard
+        document.getElementById('adminLink').href = '/admin/dashboard.html';
+        document.getElementById('adminLink').textContent = 'Dashboard';
+
+        // Lock department selector to incharge's department only
+        const deptId = data.user.department_id;
+        if (deptId) {
+          currentDepartmentId = deptId;
+          localStorage.setItem('selectedDepartmentId', deptId);
+          loadDepartments(deptId); // pass locked dept
+          return;
+        }
+      }
+      // Public / not logged in — show full department selector
+      loadDepartments(null);
+    }).catch(() => loadDepartments(null));
+
     // Load departments
-    async function loadDepartments() {
+    async function loadDepartments(lockedDeptId) {
       try {
         const res = await fetch('/api/departments');
         const departments = await res.json();
         const select = document.getElementById('departmentSelector');
-        select.innerHTML = departments.map(d => 
-          `<option value="${d.id}" ${d.id == currentDepartmentId ? 'selected' : ''}>${d.name}</option>`
-        ).join('');
-        
-        // Update title with selected department
-        const selected = departments.find(d => d.id == currentDepartmentId);
-        if (selected) {
-          document.getElementById('heroTitle').textContent = selected.name;
+
+        if (lockedDeptId) {
+          // Incharge: show only their department, disable selector
+          const dept = departments.find(d => d.id == lockedDeptId);
+          select.innerHTML = dept
+            ? `<option value="${dept.id}" selected>${dept.name}</option>`
+            : `<option value="${lockedDeptId}">Department #${lockedDeptId}</option>`;
+          select.disabled = true;
+          select.title = 'Your department is pre-selected';
+          currentDepartmentId = lockedDeptId;
+          if (dept) document.getElementById('heroTitle').textContent = dept.name;
+        } else {
+          // Public: show all departments
+          select.innerHTML = departments.map(d =>
+            `<option value="${d.id}" ${d.id == currentDepartmentId ? 'selected' : ''}>${d.name}</option>`
+          ).join('');
+          const selected = departments.find(d => d.id == currentDepartmentId);
+          if (selected) document.getElementById('heroTitle').textContent = selected.name;
         }
       } catch (err) {
         console.error('Failed to load departments:', err);
       }
     }
 
-    // Handle department selection change
+    // Handle department selection change (public users only)
     document.getElementById('departmentSelector').addEventListener('change', (e) => {
       currentDepartmentId = e.target.value;
       localStorage.setItem('selectedDepartmentId', currentDepartmentId);
-      const selectedOption = e.target.options[e.target.selectedIndex];
-      document.getElementById('heroTitle').textContent = selectedOption.text;
+      document.getElementById('heroTitle').textContent =
+        e.target.options[e.target.selectedIndex].text;
     });
 
-    // Load college settings
+    // Load college name
     fetch('/api/settings').then(r => r.json()).then(s => {
       const college = s.college_name || 'JIET Universe';
       document.querySelector('.logo span').textContent = college;
     }).catch(() => {});
-
-    // Check if admin is logged in
-    fetch('/api/auth/status').then(r => r.json()).then(data => {
-      if (data.loggedIn) {
-        document.getElementById('adminLink').href = '/admin/dashboard.html';
-        document.getElementById('adminLink').textContent = 'Dashboard';
-      }
-    });
-
-    loadDepartments();
   </script>
 </body>
 </html>
