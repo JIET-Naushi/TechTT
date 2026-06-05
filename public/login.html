@@ -21,7 +21,10 @@
 
     <!-- Google Sign-In Button -->
     <div style="margin-bottom:20px;">
-      <p style="text-align:center;font-size:0.82rem;color:#888;margin-bottom:12px;">Sign in with your Google account</p>
+      <p style="text-align:center;font-size:0.82rem;color:#888;margin-bottom:12px;">
+        Sign in with your registered Google account<br>
+        <small style="color:#aaa;">Only authorized timetable incharges can login</small>
+      </p>
       <div id="g_id_onload"
            data-client_id="4607775138-oe3dqf7g34lb1uevvnijfli5n6t9lm7a.apps.googleusercontent.com"
            data-callback="handleGoogleLogin"
@@ -91,6 +94,11 @@
         const data = await res.json();
         if (data.success) {
           location.href = '/admin/dashboard.html';
+        } else if (res.status === 403) {
+          showAlert(
+            `🚫 <strong>Access Denied</strong><br>${data.message}<br><small style="color:#666;">Contact the super admin to get access.</small>`,
+            'error'
+          );
         } else {
           showAlert(data.message || 'Google login failed', 'error');
         }

@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Incharges — JIET Universe Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="logo">🎓 <span>JIET Universe</span> — Super Admin</div>
+    <nav>
+      <a href="/index.html">Home</a>
+      <span id="userBadge" style="color:rgba(255,255,255,0.8);font-size:0.82rem;margin-left:12px;"></span>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </nav>
+  </header>
+
+  <div class="admin-layout">
+    <nav class="sidebar">
+      <div class="sidebar-title">Super Admin</div>
+      <a href="/admin/dashboard.html"><span class="icon">📊</span> Dashboard</a>
+      <a href="/admin/incharges.html" class="active"><span class="icon">👥</span> Timetable Incharges</a>
+      <a href="/admin/incharges.html#departments"><span class="icon">🏛️</span> Departments</a>
+      <div class="sidebar-title">Manage</div>
+      <a href="/admin/sections.html"><span class="icon">🏛️</span> Years & Sections</a>
+      <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
+      <a href="/admin/faculty.html"><span class="icon">👨‍🏫</span> Faculty</a>
+      <a href="/admin/rooms.html"><span class="icon">🏫</span> Rooms</a>
+      <div class="sidebar-title">Timetable</div>
+      <a href="/admin/generate.html"><span class="icon">⚡</span> Generate</a>
+      <a href="/admin/editor.html"><span class="icon">✏️</span> Editor</a>
+    </nav>
+
+    <main class="admin-content">
+      <!-- Department Management -->
+      <div id="deptSection">
+        <div class="page-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Departments</span>
+          <button class="btn btn-primary btn-sm" onclick="showAddDeptModal()">+ Add Department</button>
+        </div>
+        <div class="card">
+          <div id="deptList"><p class="text-muted">Loading...</p></div>
+        </div>
+      </div>
+
+      <!-- Incharge Management -->
+      <div id="inchargeSection" style="margin-top:32px;">
+        <div class="page-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Timetable Incharges</span>
+          <button class="btn btn-primary btn-sm" onclick="showAddModal()">+ Add Incharge</button>
+        </div>
+
+        <div class="card" style="margin-bottom:16px;">
+          <p style="color:#555;font-size:0.9rem;">
+            💡 Incharges login with their <strong>Google account</strong> and can only manage their assigned department's timetable.
+            Only registered Google email addresses are allowed to login.
+          </p>
+        </div>
+
+        <!-- Filter by department -->
+        <div style="margin-bottom:16px;display:flex;gap:12px;align-items:center;">
+          <label style="font-weight:500;">Filter by Department:</label>
+          <select id="deptFilter" class="form-control" style="max-width:280px;" onchange="loadIncharges()">
+            <option value="">All Departments</option>
+          </select>
+        </div>
+
+        <div class="card">
+          <table class="data-table" id="inchargeTable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email (Google Account)</th>
+                <th>Department</th>
+                <th>Status</th>
+                <th>Added</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="inchargeList"><tr><td colspan="6" class="text-muted">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Add Incharge Modal -->
+  <div id="addModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Add Timetable Incharge</h3>
+        <button onclick="closeModal('addModal')" class="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="addAlert"></div>
+        <div class="form-group">
+          <label>Google Email Address *</label>
+          <input type="email" id="addEmail" class="form-control" placeholder="incharge@gmail.com">
+          <small class="text-muted">Must match their Google account email exactly</small>
+        </div>
+        <div class="form-group">
+          <label>Name *</label>
+          <input type="text" id="addName" class="form-control" placeholder="Dr. Full Name">
+        </div>
+        <div class="form-group">
+          <label>Assign to Department *</label>
+          <select id="addDept" class="form-control">
+            <option value="">Select department...</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="saveIncharge()">Add Incharge</button>
+        <button class="btn btn-secondary" onclick="closeModal('addModal')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Department Modal -->
+  <div id="addDeptModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Add Department</h3>
+        <button onclick="closeModal('addDeptModal')" class="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="addDeptAlert"></div>
+        <div class="form-group">
+          <label>Department Name *</label>
+          <input type="text" id="newDeptName" class="form-control" placeholder="Department of Electronics">
+        </div>
+        <div class="form-group">
+          <label>Short Code *</label>
+          <input type="text" id="newDeptCode" class="form-control" placeholder="ECE" maxlength="10">
+          <small class="text-muted">Uppercase, short identifier (e.g., TECH, CS, MECH)</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="saveDept()">Create Department</button>
+        <button class="btn btn-secondary" onclick="closeModal('addDeptModal')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let departments = [];
+
+    // Auth check — super admin only
+    fetch('/api/auth/status').then(r => r.json()).then(d => {
+      if (!d.loggedIn) { location.href = '/login.html'; return; }
+      if (!d.user.isSuperAdmin) {
+        alert('Super Admin access required');
+        location.href = '/admin/dashboard.html';
+        return;
+      }
+      const badge = document.getElementById('userBadge');
+      badge.innerHTML = `<span>👤 ${d.user.username}</span>`;
+    });
+
+    async function loadDepartments() {
+      const res = await fetch('/api/admin/departments');
+      departments = await res.json();
+
+      // Render dept table
+      const deptHtml = `
+        <table class="data-table">
+          <thead><tr><th>Name</th><th>Code</th><th>Incharges</th><th>Faculty</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${departments.map(d => `
+              <tr>
+                <td><strong>${d.name}</strong></td>
+                <td><span class="badge">${d.code}</span></td>
+                <td>${d.incharge_count}</td>
+                <td>${d.faculty_count}</td>
+                <td>
+                  <button class="btn btn-sm btn-outline" onclick="editDept(${d.id}, '${d.name.replace(/'/g,"\\'")}', '${d.code}')">Edit</button>
+                  ${d.id > 1 ? `<button class="btn btn-sm btn-danger" onclick="deleteDept(${d.id}, '${d.name.replace(/'/g,"\\'")}')">Delete</button>` : ''}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`;
+      document.getElementById('deptList').innerHTML = deptHtml;
+
+      // Populate dropdowns
+      const opts = departments.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+      document.getElementById('deptFilter').innerHTML = '<option value="">All Departments</option>' + opts;
+      document.getElementById('addDept').innerHTML = '<option value="">Select department...</option>' + opts;
+    }
+
+    async function loadIncharges() {
+      const deptId = document.getElementById('deptFilter').value;
+      const url = '/api/admin/incharges' + (deptId ? `?department_id=${deptId}` : '');
+      const res = await fetch(url);
+      const incharges = await res.json();
+
+      const tbody = document.getElementById('inchargeList');
+      if (!incharges.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center;">No incharges yet. Click "+ Add Incharge" to get started.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = incharges.map(i => `
+        <tr>
+          <td>${i.name}</td>
+          <td><code>${i.email}</code></td>
+          <td><span class="badge badge-info">${i.dept_name}</span></td>
+          <td>
+            <span class="badge ${i.is_active ? 'badge-success' : 'badge-danger'}">
+              ${i.is_active ? 'Active' : 'Inactive'}
+            </span>
+          </td>
+          <td style="font-size:0.8rem;color:#888;">${new Date(i.created_at).toLocaleDateString()}</td>
+          <td>
+            <button class="btn btn-sm btn-outline" onclick="toggleActive(${i.id}, ${i.is_active})">
+              ${i.is_active ? 'Deactivate' : 'Activate'}
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="deleteIncharge(${i.id}, '${i.name.replace(/'/g,"\\'")}')">Remove</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function showAddModal() {
+      document.getElementById('addAlert').innerHTML = '';
+      document.getElementById('addEmail').value = '';
+      document.getElementById('addName').value = '';
+      document.getElementById('addDept').value = '';
+      document.getElementById('addModal').style.display = 'flex';
+    }
+
+    function showAddDeptModal() {
+      document.getElementById('addDeptAlert').innerHTML = '';
+      document.getElementById('newDeptName').value = '';
+      document.getElementById('newDeptCode').value = '';
+      document.getElementById('addDeptModal').style.display = 'flex';
+    }
+
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+    async function saveIncharge() {
+      const email = document.getElementById('addEmail').value.trim();
+      const name  = document.getElementById('addName').value.trim();
+      const dept  = document.getElementById('addDept').value;
+      if (!email || !name || !dept) {
+        document.getElementById('addAlert').innerHTML = '<div class="alert alert-error">All fields are required</div>';
+        return;
+      }
+      const res = await fetch('/api/admin/incharges', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, name, department_id: parseInt(dept) })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        closeModal('addModal');
+        loadIncharges();
+        loadDepartments();
+      } else {
+        document.getElementById('addAlert').innerHTML = `<div class="alert alert-error">${data.error}</div>`;
+      }
+    }
+
+    async function saveDept() {
+      const name = document.getElementById('newDeptName').value.trim();
+      const code = document.getElementById('newDeptCode').value.trim().toUpperCase();
+      if (!name || !code) {
+        document.getElementById('addDeptAlert').innerHTML = '<div class="alert alert-error">Both fields required</div>';
+        return;
+      }
+      const res = await fetch('/api/admin/departments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, code })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        closeModal('addDeptModal');
+        loadDepartments();
+      } else {
+        document.getElementById('addDeptAlert').innerHTML = `<div class="alert alert-error">${data.error}</div>`;
+      }
+    }
+
+    async function toggleActive(id, currentState) {
+      const res = await fetch(`/api/admin/incharges/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !currentState })
+      });
+      if (res.ok) loadIncharges();
+    }
+
+    async function deleteIncharge(id, name) {
+      if (!confirm(`Remove ${name} as timetable incharge? They will no longer be able to login.`)) return;
+      const res = await fetch(`/api/admin/incharges/${id}`, { method: 'DELETE' });
+      if (res.ok) { loadIncharges(); loadDepartments(); }
+    }
+
+    async function deleteDept(id, name) {
+      if (!confirm(`Delete department "${name}"? This will delete ALL its faculty, rooms, and timetables. This cannot be undone.`)) return;
+      const res = await fetch(`/api/admin/departments/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) { loadDepartments(); loadIncharges(); }
+      else alert(data.error);
+    }
+
+    function editDept(id, name, code) {
+      const newName = prompt('Department Name:', name);
+      if (!newName) return;
+      const newCode = prompt('Department Code:', code);
+      if (!newCode) return;
+      fetch(`/api/admin/departments/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName, code: newCode.toUpperCase() })
+      }).then(r => r.json()).then(() => loadDepartments());
+    }
+
+    async function logout() {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      location.href = '/login.html';
+    }
+
+    loadDepartments().then(() => loadIncharges());
+  </script>
+</body>
+</html>

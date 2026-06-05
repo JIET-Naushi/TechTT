@@ -20,6 +20,10 @@
     <nav class="sidebar">
       <div class="sidebar-title">Main</div>
       <a href="/admin/dashboard.html" class="active"><span class="icon">📊</span> Dashboard</a>
+      <div id="superAdminMenu" style="display:none;">
+        <div class="sidebar-title">Super Admin</div>
+        <a href="/admin/incharges.html"><span class="icon">👥</span> Timetable Incharges</a>
+      </div>
       <div class="sidebar-title">Manage</div>
       <a href="/admin/sections.html"><span class="icon">🏛️</span> Years & Sections</a>
       <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
@@ -110,6 +114,17 @@
           : '') + `<span>${d.user.name || d.user.username}</span>`;
       } else {
         badge.innerHTML = `<span>👤 ${d.user.username}</span>`;
+      }
+      // Show super admin menu only for super admins
+      if (d.user.isSuperAdmin) {
+        document.getElementById('superAdminMenu').style.display = 'block';
+      }
+      // Show current department for incharges
+      if (!d.user.isSuperAdmin && d.user.dept_name) {
+        document.getElementById('deptDisplay').textContent = d.user.dept_name;
+        document.getElementById('collegeDisplay').textContent = 'JIET Universe';
+        // Also update page title
+        document.querySelector('.page-title').textContent = `Dashboard — ${d.user.dept_name}`;
       }
     });
 

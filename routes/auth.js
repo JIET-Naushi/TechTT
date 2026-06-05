@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
-const { queryOne, run } = require('../database');
+const { query, queryOne, run } = require('../database');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'techtt-jiet-secret-2024';
 const COOKIE_NAME = 'techtt_token';
 
-// ── Password login (kept for fallback / local dev) ────────────────────────────
+// ── Super Admin password login ────────────────────────────────────────────────
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -20,7 +20,8 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
 
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role, loginType: 'password' },
+      { id: user.id, username: user.username, role: user.role,
+        loginType: 'password', department_id: null, isSuperAdmin: true },
       JWT_SECRET, { expiresIn: '24h' }
     );
     res.cookie(COOKIE_NAME, token, {
@@ -29,18 +30,17 @@ router.post('/login', async (req, res) => {
       sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000
     });
-    res.json({ success: true, user: { id: user.id, username: user.username, role: user.role } });
+    res.json({ success: true, user: { id: user.id, username: user.username, role: user.role, isSuperAdmin: true } });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
-// ── Google OAuth — receives the Google ID token from the frontend ─────────────
-// We verify the token by calling Google's tokeninfo endpoint (no extra package needed)
+// ── Google OAuth — only allowed if email is a registered incharge ─────────────
 router.post('/google', async (req, res) => {
   try {
-    const { credential } = req.body; // Google JWT id_token
+    const { credential } = req.body;
     if (!credential) return res.status(400).json({ success: false, message: 'No credential provided' });
 
     // Verify with Google's tokeninfo API
@@ -53,19 +53,46 @@ router.post('/google', async (req, res) => {
 
     const { email, name, picture, sub } = info;
 
-    // Upsert user in oauth_users table — each Google account gets its own session
+    // Check if this Google account is a registered timetable incharge
+    const incharge = await queryOne(
+      `SELECT di.*, d.name as dept_name, d.code as dept_code
+       FROM dept_incharges di
+       JOIN departments d ON di.department_id = d.id
+       WHERE di.email = $1 AND di.is_active = true`,
+      [email]
+    );
+
+    if (!incharge) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Your Google account is not registered as a timetable incharge. Please contact the super admin.'
+      });
+    }
+
+    // Upsert into oauth_users
     await run(
       `INSERT INTO oauth_users (email, name, picture, role)
-       VALUES ($1, $2, $3, 'admin')
+       VALUES ($1, $2, $3, 'incharge')
        ON CONFLICT (email) DO UPDATE SET name=EXCLUDED.name, picture=EXCLUDED.picture`,
       [email, name || email, picture || '']
     );
     const oauthUser = await queryOne('SELECT * FROM oauth_users WHERE email=$1', [email]);
 
-    // Issue JWT containing google email + sub so each account is unique
+    // Issue JWT with department_id embedded
     const token = jwt.sign(
-      { id: oauthUser.id, username: email, name: oauthUser.name, picture: oauthUser.picture,
-        role: oauthUser.role, loginType: 'google', googleSub: sub },
+      {
+        id: oauthUser.id,
+        username: email,
+        name: oauthUser.name,
+        picture: oauthUser.picture,
+        role: 'incharge',
+        loginType: 'google',
+        googleSub: sub,
+        department_id: incharge.department_id,
+        dept_name: incharge.dept_name,
+        dept_code: incharge.dept_code,
+        isSuperAdmin: false
+      },
       JWT_SECRET, { expiresIn: '24h' }
     );
     res.cookie(COOKIE_NAME, token, {
@@ -76,8 +103,14 @@ router.post('/google', async (req, res) => {
     });
     res.json({
       success: true,
-      user: { id: oauthUser.id, username: email, name: oauthUser.name,
-              picture: oauthUser.picture, role: oauthUser.role }
+      user: {
+        id: oauthUser.id, username: email,
+        name: oauthUser.name, picture: oauthUser.picture,
+        role: 'incharge', loginType: 'google',
+        department_id: incharge.department_id,
+        dept_name: incharge.dept_name,
+        isSuperAdmin: false
+      }
     });
   } catch (err) {
     console.error('Google login error:', err);
@@ -99,8 +132,12 @@ router.get('/status', (req, res) => {
     const user = jwt.verify(token, JWT_SECRET);
     res.json({
       loggedIn: true,
-      user: { id: user.id, username: user.username, name: user.name,
-              picture: user.picture, role: user.role, loginType: user.loginType }
+      user: {
+        id: user.id, username: user.username, name: user.name,
+        picture: user.picture, role: user.role,
+        loginType: user.loginType, department_id: user.department_id,
+        dept_name: user.dept_name, isSuperAdmin: user.isSuperAdmin
+      }
     });
   } catch {
     res.clearCookie(COOKIE_NAME);

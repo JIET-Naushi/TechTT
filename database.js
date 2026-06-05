@@ -246,8 +246,22 @@ async function initializeDatabase() {
       email TEXT UNIQUE NOT NULL,
       name TEXT,
       picture TEXT,
-      role TEXT NOT NULL DEFAULT 'admin',
+      role TEXT NOT NULL DEFAULT 'incharge',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Department Incharges — who can login to which department admin
+  await run(`
+    CREATE TABLE IF NOT EXISTS dept_incharges (
+      id SERIAL PRIMARY KEY,
+      department_id INTEGER NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
+      email TEXT NOT NULL,
+      name TEXT,
+      is_active BOOLEAN DEFAULT true,
+      added_by TEXT DEFAULT 'super_admin',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(department_id, email)
     )
   `);
 
