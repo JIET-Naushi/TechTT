@@ -12,13 +12,20 @@ const COOKIE_NAME = 'techtt_token';
 const RECOVERY_EMAIL = 'nausheen.khilji@jietjodhpur.ac.in';
 
 // Build nodemailer transporter from env vars (MAIL_USER + MAIL_PASS)
+// Uses explicit Gmail SMTP settings — more reliable than service:'gmail' in serverless
 function getMailer() {
   const user = process.env.MAIL_USER;
   const pass = process.env.MAIL_PASS;
   if (!user || !pass) throw new Error('MAIL_USER and MAIL_PASS environment variables are not set');
   return nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user, pass }
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,           // SSL on port 465
+    auth: { user, pass },
+    tls: { rejectUnauthorized: false },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000
   });
 }
 
@@ -165,12 +172,23 @@ router.post('/forgot-password', async (req, res) => {
       [user.id, token, expires]
     );
 
-    // Build reset URL — works for both local and Vercel
-    const baseUrl = process.env.APP_URL ||
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+    // Build reset URL
+    // APP_URL takes priority (set in Vercel env vars as full https://... URL)
+    // Fall back to VERCEL_URL (auto-set by Vercel, no https://)
+    // Fall back to localhost for local dev
+    let baseUrl = process.env.APP_URL;
+    if (!baseUrl) {
+      if (process.env.VERCEL_URL) {
+        baseUrl = `https://${process.env.VERCEL_URL}`;
+      } else {
+        baseUrl = 'http://localhost:3000';
+      }
+    }
+    // Remove trailing slash
+    baseUrl = baseUrl.replace(/\/$/, '');
     const resetUrl = `${baseUrl}/reset-password.html?token=${token}`;
 
-    // Send email
+    // Send email — surface errors to client for debugging
     try {
       const mailer = getMailer();
       await mailer.sendMail({
@@ -189,19 +207,27 @@ router.post('/forgot-password', async (req, res) => {
               </a>
             </div>
             <p style="font-size:0.85rem;color:#666;">If you didn't request this, ignore this email — your password won't change.</p>
-            <p style="font-size:0.82rem;color:#999;margin-bottom:0;">Or copy this link: <br>${resetUrl}</p>
+            <hr style="border:none;border-top:1px solid #eee;margin:16px 0;">
+            <p style="font-size:0.82rem;color:#999;margin:0;">Or copy this link manually:<br>
+              <a href="${resetUrl}" style="color:#1a237e;word-break:break-all;">${resetUrl}</a>
+            </p>
           </div>
         `
       });
     } catch (mailErr) {
-      console.error('Email send error:', mailErr.message);
-      // Don't expose mail errors to client
+      console.error('Email send error:', mailErr);
+      // Return the actual error so admin can diagnose
+      return res.status(500).json({
+        success: false,
+        message: `Email delivery failed: ${mailErr.message}. Please check MAIL_USER and MAIL_PASS environment variables in Vercel.`,
+        resetUrl // Include reset URL directly so admin can still reset
+      });
     }
 
     res.json({ success: true, message: `Reset link sent to ${RECOVERY_EMAIL}` });
   } catch (err) {
     console.error('Forgot password error:', err);
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: `Server error: ${err.message}` });
   }
 });
 
