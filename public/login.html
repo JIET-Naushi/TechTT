@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login — JIET Universe Timetable</title>
   <link rel="stylesheet" href="/css/style.css">
+  <meta name="google-signin-client_id" content="4607775138-oe3dqf7g34lb1uevvnijfli5n6t9lm7a.apps.googleusercontent.com">
   <!-- Google Identity Services -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -22,6 +23,7 @@
     <div style="margin-bottom:20px;">
       <p style="text-align:center;font-size:0.82rem;color:#888;margin-bottom:12px;">Sign in with your Google account</p>
       <div id="g_id_onload"
+           data-client_id="4607775138-oe3dqf7g34lb1uevvnijfli5n6t9lm7a.apps.googleusercontent.com"
            data-callback="handleGoogleLogin"
            data-auto_prompt="false">
       </div>
@@ -63,16 +65,12 @@
   </div>
 
   <script>
-    // Load department name and inject Google Client ID
+    // Load department name
     fetch('/api/settings').then(r => r.json()).then(s => {
       document.getElementById('deptSubtitle').textContent =
         (s.department_name || 'Department of Technology') + ' — Admin Login';
-      
-      // Dynamically inject Google Client ID into the button
-      if (s.google_client_id) {
-        document.getElementById('g_id_onload').setAttribute('data-client_id', s.google_client_id);
-      }
-    }).catch(() => {
+    }).catch(err => {
+      console.error('Failed to load settings:', err);
       document.getElementById('deptSubtitle').textContent = 'Department of Technology — Admin Login';
     });
 
