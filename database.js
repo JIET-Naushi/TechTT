@@ -294,6 +294,18 @@ async function initializeDatabase() {
     await run(`ALTER TABLE sections ADD COLUMN lab_subsections INTEGER DEFAULT 2`);
     console.log('✅ Migrated sections: added lab_subsections column (default 2)');
   }
+
+  // Add subsection_names column to sections if missing (JSON array of batch names)
+  const subNamesExists = await queryOne(`
+    SELECT EXISTS (
+      SELECT FROM information_schema.columns 
+      WHERE table_name = 'sections' AND column_name = 'subsection_names'
+    ) as exists
+  `);
+  if (!subNamesExists.exists) {
+    await run(`ALTER TABLE sections ADD COLUMN subsection_names TEXT DEFAULT NULL`);
+    console.log('✅ Migrated sections: added subsection_names column');
+  }
   await run(`
     INSERT INTO departments (name, code) 
     VALUES ('Department of Computer Science', 'CS')

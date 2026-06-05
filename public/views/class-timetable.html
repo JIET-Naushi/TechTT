@@ -181,17 +181,19 @@
           if (isLabWithSubs) {
             // Render stacked subsection cells
             const color = getSubjectColor(slotEntries[0].subject_id);
-            const subsHtml = slotEntries.map(e => `
-              <div style="border-top:1px dashed rgba(0,0,0,0.15);padding-top:3px;margin-top:3px;">
-                <span style="background:rgba(0,0,0,0.12);border-radius:4px;padding:1px 5px;font-size:0.7rem;font-weight:700;">Batch ${e.subsection}</span>
-                <div style="font-size:0.74rem;">${e.faculty_name || ''}</div>
-                <div style="font-size:0.72rem;color:rgba(0,0,0,0.6);">${e.room_name || ''}</div>
+            const batchRows = slotEntries.map(e => `
+              <div class="lab-batch">
+                <span class="lab-batch-label">${e.subsection}</span>
+                <div class="lab-batch-info">
+                  <div class="fac">${e.faculty_name || '—'}</div>
+                  <div class="room">${e.room_name || ''}</div>
+                </div>
               </div>`).join('');
-            html += `<td><div class="timetable-cell ${color}" style="padding:4px 6px;">
-              <div class="cell-subject">${slotEntries[0].subject_name || '?'}
-                <span style="font-size:0.68rem;background:rgba(0,0,0,0.15);border-radius:3px;padding:1px 4px;margin-left:3px;">LAB</span>
+            html += `<td><div class="lab-cell ${color}">
+              <div class="lab-subject-name">${slotEntries[0].subject_name || '?'}
+                <span style="font-size:0.6rem;background:rgba(0,0,0,0.13);border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">LAB</span>
               </div>
-              ${subsHtml}
+              ${batchRows}
             </div></td>`;
           } else {
             // Single entry (theory or single-subsection)

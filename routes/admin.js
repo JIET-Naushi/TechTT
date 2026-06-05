@@ -352,15 +352,14 @@ router.put('/sections/:id', requireAuth, async (req, res) => {
     const deptId = getDeptId(req);
     if (!(await verifyDeptOwnership('sections', req.params.id, deptId)))
       return res.status(403).json({ error: 'Section does not belong to your department' });
-    const { name, lab_subsections } = req.body;
-    // Update name only, lab_subsections only, or both
-    if (name !== undefined && lab_subsections !== undefined) {
-      await run('UPDATE sections SET name=$1, lab_subsections=$2 WHERE id=$3', [name, lab_subsections, req.params.id]);
-    } else if (lab_subsections !== undefined) {
-      await run('UPDATE sections SET lab_subsections=$1 WHERE id=$2', [lab_subsections, req.params.id]);
-    } else {
-      await run('UPDATE sections SET name=$1 WHERE id=$2', [name, req.params.id]);
-    }
+    const { name, lab_subsections, subsection_names } = req.body;
+    const sets = [], vals = [];
+    if (name             !== undefined) { sets.push(`name=$${sets.length+1}`);             vals.push(name); }
+    if (lab_subsections  !== undefined) { sets.push(`lab_subsections=$${sets.length+1}`);  vals.push(lab_subsections); }
+    if (subsection_names !== undefined) { sets.push(`subsection_names=$${sets.length+1}`); vals.push(JSON.stringify(subsection_names)); }
+    if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
+    vals.push(req.params.id);
+    await run(`UPDATE sections SET ${sets.join(',')} WHERE id=$${vals.length}`, vals);
     res.json({ message: 'Section updated' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -530,112 +529,152 @@ router.post('/generate', requireAuth, async (req, res) => {
       const subjects = await query('SELECT * FROM subjects WHERE year_id=$1', [section.year_id]);
       if (!subjects.length) continue;
 
-      // Number of lab subsections (default 2 = 24 students each)
       const numSubsections = section.lab_subsections || 2;
-      const subsectionLabels = Array.from({ length: numSubsections }, (_, i) =>
-        String.fromCharCode(65 + i)); // ['A', 'B'] or ['A','B','C'] etc.
-
-      let periods = [];
-      for (const subj of subjects)
-        for (let i = 0; i < subj.hours_per_week; i++) periods.push(subj);
-      periods = shuffle(periods);
-
-      let slots = [];
-      for (const day of days)
-        for (const slot of allSlots)
-          slots.push({ day, slot });
-      const perDay = allSlots.length;
-      const orderedSlots = [];
-      for (let d = 0; d < days.length; d++) {
-        const daySlots = slots.slice(d*perDay, (d+1)*perDay);
-        orderedSlots.push(...shuffle(daySlots));
+      // Use custom batch names if set, else default A, B, C...
+      let batchNames;
+      try { batchNames = JSON.parse(section.subsection_names || 'null'); } catch { batchNames = null; }
+      if (!Array.isArray(batchNames) || batchNames.length !== numSubsections) {
+        batchNames = Array.from({ length: numSubsections }, (_, i) => String.fromCharCode(65 + i));
       }
 
-      const usedSlots   = new Set();
+      // ── Separate theory and lab subjects ─────────────────────────────────
+      const theorySubjects = subjects.filter(s => s.type !== 'lab');
+      const labSubjects    = subjects.filter(s => s.type === 'lab');
+
+      // ── Build slot grid: day → [slot, slot, ...] ─────────────────────────
+      // For labs: assign ALL hours of a subject on the SAME day, back-to-back if possible
+      const usedSlots   = new Set(); // "day_slotId"
+      const dayLoad     = Object.fromEntries(days.map(d => [d, 0])); // theory count per day
+      const dayLabLoad  = Object.fromEntries(days.map(d => [d, 0])); // lab count per day
+
+      // ── Schedule LAB subjects first (consecutive on one day) ─────────────
+      for (const subj of labSubjects) {
+        const hoursNeeded = subj.hours_per_week; // usually 2
+        // Try to find a day with enough consecutive free slots for ALL subsections
+        let placed = false;
+
+        for (const day of shuffle([...days])) {
+          // Find consecutive free slots on this day
+          const freeSlots = allSlots.filter(slot => !usedSlots.has(`${day}_${slot.id}`));
+          if (freeSlots.length < hoursNeeded) continue;
+
+          // Check we have enough labs and faculty for all subsections at these slots
+          const slotGroup = freeSlots.slice(0, hoursNeeded);
+          let canPlace = true;
+
+          // For each slot in the group, verify resources are available
+          const tempFacultyUsed = {}; // slotId → Set of faculty ids
+          const tempRoomUsed    = {}; // slotId → Set of room ids
+
+          for (const slot of slotGroup) {
+            const availLabs = labs.filter(r =>
+              isRoomFree(day, slot.id, r.id) && !tempRoomUsed[slot.id]?.has(r.id)
+            );
+            if (availLabs.length < numSubsections) { canPlace = false; break; }
+
+            const eligible = allFaculty.filter(f => {
+              try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; }
+            });
+            const fPool = eligible.length ? eligible : allFaculty;
+            const freeFac = fPool.filter(f =>
+              isFacultyFree(day, slot.id, f.id) && !tempFacultyUsed[slot.id]?.has(f.id)
+            );
+            // Need at least 1 faculty (can share across subsections if needed)
+            if (!freeFac.length) { canPlace = false; break; }
+
+            tempRoomUsed[slot.id] = new Set(availLabs.slice(0, numSubsections).map(r => r.id));
+            tempFacultyUsed[slot.id] = new Set(freeFac.slice(0, numSubsections).map(f => f.id));
+          }
+
+          if (!canPlace) continue;
+
+          // Place all hours consecutively on this day
+          for (const slot of slotGroup) {
+            const availLabs = shuffle(labs.filter(r => isRoomFree(day, slot.id, r.id)));
+            const eligible  = allFaculty.filter(f => {
+              try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; }
+            });
+            const fPool = shuffle(eligible.length ? eligible : allFaculty);
+            const freeFac = fPool.filter(f => isFacultyFree(day, slot.id, f.id));
+
+            // Assign one lab + one faculty per subsection
+            const chosenFaculties = [];
+            for (let i = 0; i < numSubsections; i++) {
+              const f = freeFac.find(f => !chosenFaculties.includes(f)) || freeFac[0];
+              chosenFaculties.push(f);
+            }
+
+            for (let si2 = 0; si2 < numSubsections; si2++) {
+              const batchLabel = batchNames[si2];
+              const chosenR    = availLabs[si2];
+              const chosenF    = chosenFaculties[si2];
+              if (!chosenR || !chosenF) continue;
+
+              await run(
+                'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+                [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id, batchLabel]
+              );
+              markRoom(day, slot.id, chosenR.id);
+            }
+            // Mark faculty busy only for those actually assigned
+            for (const f of chosenFaculties) markFaculty(day, slot.id, f.id);
+            usedSlots.add(`${day}_${slot.id}`);
+            dayLabLoad[day]++;
+          }
+          placed = true;
+          break; // done with this lab subject
+        }
+      }
+
+      // ── Schedule THEORY subjects (spread across week) ─────────────────────
+      let theoryPeriods = [];
+      for (const subj of theorySubjects)
+        for (let i = 0; i < subj.hours_per_week; i++) theoryPeriods.push(subj);
+      theoryPeriods = shuffle(theoryPeriods);
+
+      // Build ordered slot list, preferring days with lighter theory load
+      const orderedSlots = [];
+      for (const day of days)
+        for (const slot of shuffle([...allSlots]))
+          orderedSlots.push({ day, slot });
+      // Sort by day load so we spread evenly
+      orderedSlots.sort((a, b) => dayLoad[a.day] - dayLoad[b.day]);
+
       const daySubjects = Object.fromEntries(days.map(d => [d, new Set()]));
       const preferredRoomId = sectionRoomMap[section.id];
 
-      let pi = 0, si = 0;
-      while (pi < periods.length && si < orderedSlots.length * 3) {
-        const { day, slot } = orderedSlots[si % orderedSlots.length]; si++;
+      let pi = 0, oi = 0;
+      while (pi < theoryPeriods.length && oi < orderedSlots.length * 3) {
+        const { day, slot } = orderedSlots[oi % orderedSlots.length]; oi++;
         const key = `${day}_${slot.id}`;
         if (usedSlots.has(key)) continue;
 
-        const subj = periods[pi];
+        const subj = theoryPeriods[pi];
         if (daySubjects[day].has(subj.id)) continue;
 
-        if (subj.type === 'lab') {
-          // ── Lab: assign one subsection per available lab in parallel ────────
-          // All subsections happen at the SAME slot, each in a different lab
-          const availLabs = shuffle(labs.filter(r => isRoomFree(day, slot.id, r.id)));
-          if (availLabs.length < numSubsections) continue; // need enough labs
+        const eligible = allFaculty.filter(f => {
+          try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; }
+        });
+        const fPool = shuffle(eligible.length ? eligible : allFaculty);
+        const chosenF = fPool.find(f => isFacultyFree(day, slot.id, f.id));
+        if (!chosenF) continue;
 
-          // Find one faculty per subsection (all free at this slot)
-          const eligible = allFaculty.filter(f => {
-            try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; }
-          });
-          const fPool = shuffle(eligible.length ? eligible : allFaculty);
-          const chosenFaculties = [];
-          for (const f of fPool) {
-            if (isFacultyFree(day, slot.id, f.id)) {
-              chosenFaculties.push(f);
-              if (chosenFaculties.length === numSubsections) break;
-            }
-          }
-          // If not enough faculty, allow sharing (same faculty for multiple subsections)
-          while (chosenFaculties.length < numSubsections && chosenFaculties.length > 0) {
-            chosenFaculties.push(chosenFaculties[chosenFaculties.length - 1]);
-          }
-          if (!chosenFaculties.length) continue;
+        const preferred = classrooms.find(r => r.id === preferredRoomId);
+        let chosenR = (preferred && isRoomFree(day, slot.id, preferred.id))
+          ? preferred
+          : shuffle(classrooms.length ? classrooms : allRooms).find(r => isRoomFree(day, slot.id, r.id));
+        if (!chosenR) continue;
 
-          // Insert one timetable entry per subsection
-          for (let si2 = 0; si2 < numSubsections; si2++) {
-            const label = subsectionLabels[si2]; // 'A', 'B', ...
-            const chosenR = availLabs[si2];
-            const chosenF = chosenFaculties[si2];
-            await run(
-              'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-              [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id, label]
-            );
-            markRoom(day, slot.id, chosenR.id);
-            // Only mark faculty busy if they are unique per subsection
-            if (si2 === 0 || chosenFaculties[si2].id !== chosenFaculties[si2-1].id) {
-              markFaculty(day, slot.id, chosenF.id);
-            }
-          }
-
-          usedSlots.add(key);
-          daySubjects[day].add(subj.id);
-          pi++;
-
-        } else {
-          // ── Theory: single entry as before ───────────────────────────────────
-          const eligible = allFaculty.filter(f => {
-            try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; }
-          });
-          const fPool = shuffle(eligible.length ? eligible : allFaculty);
-          const chosenF = fPool.find(f => isFacultyFree(day, slot.id, f.id));
-          if (!chosenF) continue;
-
-          const preferred = classrooms.find(r => r.id === preferredRoomId);
-          let chosenR = null;
-          if (preferred && isRoomFree(day, slot.id, preferred.id)) {
-            chosenR = preferred;
-          } else {
-            chosenR = shuffle(classrooms.length ? classrooms : allRooms).find(r => isRoomFree(day, slot.id, r.id));
-          }
-          if (!chosenR) continue;
-
-          await run(
-            'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
-            [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id]
-          );
-          markFaculty(day, slot.id, chosenF.id);
-          markRoom(day, slot.id, chosenR.id);
-          usedSlots.add(key);
-          daySubjects[day].add(subj.id);
-          pi++;
-        }
+        await run(
+          'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
+          [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id]
+        );
+        markFaculty(day, slot.id, chosenF.id);
+        markRoom(day, slot.id, chosenR.id);
+        usedSlots.add(key);
+        daySubjects[day].add(subj.id);
+        dayLoad[day]++;
+        pi++;
       }
     }
 
