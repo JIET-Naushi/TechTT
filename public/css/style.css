@@ -102,12 +102,13 @@ button { cursor: pointer; }
 .form-group label { display: block; font-size: 0.85rem; font-weight: 600; color: #444; margin-bottom: 6px; }
 .form-control {
   width: 100%; padding: 9px 12px; border: 1.5px solid #ddd; border-radius: 6px;
-  font-size: 0.9rem; transition: border-color 0.2s; background: white;
+  font-size: 0.9rem; transition: border-color 0.2s; background: white; color: #333;
 }
 .form-control:focus { outline: none; border-color: #1a237e; box-shadow: 0 0 0 3px rgba(26,35,126,0.1); }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
-select.form-control { cursor: pointer; }
+select.form-control { cursor: pointer; color: #333; background-color: white; }
+select.form-control option { color: #333; background: white; }
 
 /* ===== TABLES ===== */
 .table-wrapper { overflow-x: auto; }
