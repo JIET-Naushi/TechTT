@@ -6,136 +6,192 @@
   <title>Timetable Editor — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
   <style>
-    /* ── Editor table ─────────────────────────────────────────────────── */
-    .editor-table { width: 100%; border-collapse: collapse; min-width: 820px; }
-    .editor-table th {
+    /* ── Editor-specific overrides ─────────────────────────────────── */
+    .editor-wrap { overflow-x: auto; }
+
+    .editor-table {
+      width: 100%; border-collapse: collapse; min-width: 860px;
+      font-size: 0.82rem;
+    }
+    .editor-table thead th {
       background: #1a237e; color: #fff;
-      padding: 10px 8px; font-size: 0.78rem; text-align: center; white-space: nowrap;
+      padding: 10px 6px; text-align: center;
+      white-space: nowrap; font-size: 0.78rem; font-weight: 600;
     }
-    .editor-table th.day-hdr {
-      background: #283593; min-width: 80px; position: sticky; left: 0; z-index: 2;
+    .editor-table thead th.corner {
+      background: #0d1b6e; min-width: 90px;
+      position: sticky; left: 0; z-index: 3;
     }
-    .editor-table td {
-      border: 1px solid #ddd; padding: 0; vertical-align: top; min-width: 130px;
+    .editor-table tbody td {
+      border: 1px solid #e0e0e0; padding: 0;
+      vertical-align: top; min-width: 130px;
     }
-    .editor-table td.day-cell {
+    .editor-table tbody td.day-col {
       background: #e8eaf6; font-weight: 700; color: #1a237e;
-      text-align: center; font-size: 0.82rem; padding: 6px 4px;
+      text-align: center; font-size: 0.82rem; padding: 0 6px;
       white-space: nowrap; position: sticky; left: 0; z-index: 1;
+      border-right: 2px solid #c5cae9;
     }
 
-    /* ── Theory cell ──────────────────────────────────────────────────── */
-    .theory-cell {
+    /* ── Empty cell ─────────────────────────────────────────────────── */
+    .cell-empty {
+      min-height: 76px; display: flex; align-items: center;
+      justify-content: center; color: #bbb; font-size: 0.73rem;
+      cursor: pointer; transition: background 0.15s, color 0.15s;
+      padding: 8px;
+    }
+    .cell-empty:hover {
+      background: #f0f4ff; color: #3949ab;
+    }
+    .cell-empty span {
+      border: 1.5px dashed #d0d0d0; border-radius: 6px;
+      padding: 6px 12px; transition: border-color 0.15s;
+    }
+    .cell-empty:hover span { border-color: #9fa8da; }
+
+    /* ── Theory cell ────────────────────────────────────────────────── */
+    .cell-theory {
+      min-height: 76px; padding: 8px 10px;
+      cursor: pointer; position: relative;
       display: flex; flex-direction: column; justify-content: center;
-      padding: 8px; min-height: 72px; cursor: pointer;
-      transition: all 0.15s ease;
-      border-radius: 4px; position: relative;
+      transition: filter 0.15s;
+      border-radius: 4px; margin: 2px;
     }
-    .theory-cell:hover { 
-      filter: brightness(0.95);
-      box-shadow: inset 0 0 0 2px rgba(0,0,0,0.1);
+    .cell-theory:hover { filter: brightness(0.93); }
+    .cell-theory .t-subj {
+      font-weight: 700; font-size: 0.8rem; line-height: 1.3;
+      margin-bottom: 3px; overflow: hidden;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     }
-    .theory-cell .subj { 
-      font-weight: 700; font-size: 0.79rem; color: #0d47a1; 
-      line-height: 1.3; margin-bottom: 2px;
+    .cell-theory .t-fac {
+      font-size: 0.71rem; opacity: 0.8; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
     }
-    .theory-cell .fac  { 
-      font-size: 0.71rem; color: #444; margin-top: 2px; 
-      font-weight: 500;
+    .cell-theory .t-room {
+      font-size: 0.67rem; opacity: 0.6; margin-top: 1px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .theory-cell .rm   { 
-      font-size: 0.68rem; color: #777; margin-top: 1px;
+    .cell-theory .edit-hint {
+      position: absolute; top: 4px; right: 5px;
+      font-size: 0.65rem; opacity: 0; background: rgba(0,0,0,0.15);
+      border-radius: 3px; padding: 1px 4px; transition: opacity 0.15s;
+      pointer-events: none;
     }
-    .empty-cell {
-      color: #bbb; text-align: center; font-size: 0.75rem;
-      padding: 24px 4px; cursor: pointer; min-height: 72px;
-      border-radius: 4px; transition: all 0.15s ease;
-    }
-    .empty-cell:hover { 
-      background: #f0f4ff; color: #1a237e; 
-      box-shadow: inset 0 0 0 2px #d1d5f0;
-    }
+    .cell-theory:hover .edit-hint { opacity: 1; }
+    .cell-theory.btu-cell { border-left: 3px solid #e65100; }
 
-    /* ── Lab cell (slot has batches) ──────────────────────────────────── */
-    .lab-slot-cell { 
-      padding: 0; display: flex; flex-direction: column; 
-      min-height: 72px; max-height: 280px; overflow: hidden;
+    /* ── Lab cell ───────────────────────────────────────────────────── */
+    .cell-lab {
+      margin: 2px; border-radius: 4px; overflow: hidden;
+      display: flex; flex-direction: column; min-height: 76px;
     }
-    .lab-subj-header {
-      font-weight: 700; font-size: 0.73rem; color: #fff;
-      background: #1565c0; padding: 5px 8px; letter-spacing: 0.3px;
-      flex-shrink: 0; border-bottom: 2px solid #0d47a1;
-      display: flex; align-items: center; justify-content: space-between;
+    .lab-header {
+      padding: 5px 9px 4px; font-weight: 700; font-size: 0.72rem;
+      letter-spacing: 0.3px; display: flex; align-items: center;
+      justify-content: space-between; flex-shrink: 0;
+      border-bottom: 2px solid rgba(0,0,0,0.15);
     }
-    .lab-subj-header span.badge {
-      background: rgba(255,255,255,0.25); padding: 1px 4px; 
-      border-radius: 2px; font-size: 0.62rem; font-weight: 600;
+    .lab-header .lab-tag {
+      font-size: 0.6rem; font-weight: 700; padding: 1px 5px;
+      border-radius: 3px; background: rgba(0,0,0,0.18); margin-left: 4px;
+      letter-spacing: 0.5px;
     }
-    .lab-batches-container {
-      display: flex; flex-direction: column; flex: 1; 
-      overflow-y: auto; overflow-x: hidden; 
-      min-height: 0; padding: 2px 0;
-    }
+    .lab-batches { display: flex; flex-direction: column; }
     .batch-row {
-      display: flex; align-items: center; gap: 0;
-      border-bottom: 1px solid #e0e0e0; cursor: pointer;
-      transition: all 0.15s ease; flex-shrink: 0;
-      min-height: 40px; font-size: 0.7rem;
-      padding: 0; position: relative;
+      display: flex; align-items: stretch; cursor: pointer;
+      border-top: 1px solid rgba(0,0,0,0.08);
+      transition: background 0.12s;
+      min-height: 38px;
     }
-    .batch-row:hover { 
-      background-color: #e3f2fd;
-      border-left: 3px solid #1565c0;
-      padding-left: 0;
+    .batch-row:hover { background: rgba(0,0,0,0.06); }
+    .batch-row:first-child { border-top: none; }
+    .batch-letter {
+      width: 32px; min-width: 32px; display: flex; align-items: center;
+      justify-content: center; font-weight: 800; font-size: 0.72rem;
+      background: rgba(0,0,0,0.14); flex-shrink: 0;
+      border-right: 1px solid rgba(0,0,0,0.1);
     }
-    .batch-row:active { background-color: #bbdefb; }
-    .batch-tag {
-      background: #1976d2; color: #fff;
-      font-weight: 700; font-size: 0.69rem;
-      padding: 6px 8px; display: flex; align-items: center;
-      min-width: 36px; justify-content: center; flex-shrink: 0;
-      height: 100%;
+    .batch-info {
+      padding: 5px 8px; flex: 1; display: flex;
+      flex-direction: column; justify-content: center; overflow: hidden;
+      gap: 2px;
     }
-    .batch-body { 
-      padding: 4px 8px; flex: 1; 
-      display: flex; flex-direction: column; justify-content: center;
-      min-height: 40px; overflow: hidden; gap: 2px;
+    .batch-info .bi-fac {
+      font-size: 0.72rem; font-weight: 600;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .batch-body .b-fac { 
-      font-size: 0.71rem; color: #222; font-weight: 600; 
-      line-height: 1.1; text-overflow: ellipsis; overflow: hidden; 
-      white-space: nowrap; letter-spacing: 0.2px;
+    .batch-info .bi-room {
+      font-size: 0.65rem; opacity: 0.65;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .batch-body .b-rm  { 
-      font-size: 0.66rem; color: #666; line-height: 1; 
-      text-overflow: ellipsis; overflow: hidden; white-space: nowrap; 
+    .batch-info .bi-empty {
+      font-size: 0.67rem; opacity: 0.5; font-style: italic;
     }
-    .batch-body .b-empty { 
-      font-size: 0.66rem; color: #999; font-style: italic; 
-      line-height: 1.1;
+    .batch-edit-icon {
+      display: flex; align-items: center; padding-right: 6px;
+      font-size: 0.7rem; opacity: 0; transition: opacity 0.12s;
+      color: rgba(0,0,0,0.5);
+    }
+    .batch-row:hover .batch-edit-icon { opacity: 1; }
+
+    /* ── Modal redesign ─────────────────────────────────────────────── */
+    .edit-modal {
+      background: white; border-radius: 12px;
+      width: 92%; max-width: 480px;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.25);
+      overflow: hidden; display: flex; flex-direction: column;
+      max-height: 90vh;
+    }
+    .em-header {
+      padding: 18px 22px 16px;
+      background: linear-gradient(135deg, #1a237e, #283593);
+      color: white; flex-shrink: 0;
+    }
+    .em-header-top {
+      display: flex; justify-content: space-between; align-items: flex-start;
+    }
+    .em-title { font-size: 1rem; font-weight: 700; line-height: 1.3; }
+    .em-subtitle { font-size: 0.78rem; opacity: 0.75; margin-top: 3px; }
+    .em-close {
+      background: rgba(255,255,255,0.18); border: none;
+      color: white; width: 28px; height: 28px; border-radius: 50%;
+      font-size: 1.1rem; cursor: pointer; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s;
+    }
+    .em-close:hover { background: rgba(255,255,255,0.3); }
+    .em-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: rgba(255,255,255,0.22); border-radius: 4px;
+      padding: 2px 8px; font-size: 0.72rem; font-weight: 700;
+      margin-top: 6px;
+    }
+    .em-badge.lab { background: rgba(76,175,80,0.4); }
+    .em-body {
+      padding: 20px 22px; overflow-y: auto; flex: 1;
+    }
+    .em-footer {
+      padding: 14px 22px; border-top: 1px solid #eee;
+      display: flex; gap: 8px; justify-content: flex-end;
+      flex-shrink: 0; background: #fafafa;
+    }
+    .em-info-row {
+      background: #f5f7ff; border: 1px solid #e8eaf6;
+      border-radius: 6px; padding: 8px 12px; margin-bottom: 16px;
+      font-size: 0.8rem; color: #3949ab;
+      display: flex; align-items: center; gap: 6px;
     }
 
-    /* ── Modal ────────────────────────────────────────────────────────── */
-    .modal { 
-      max-width: 500px; 
-      border-radius: 8px;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    /* ── Info bar ───────────────────────────────────────────────────── */
+    .info-bar {
+      display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+      background: #e3f2fd; border-radius: 8px; margin-bottom: 20px;
+      font-size: 0.82rem; color: #1565c0; border: 1px solid #bbdefb;
     }
-    .modal-header {
-      background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
-    }
-    .modal-title {
-      font-size: 1.1rem; font-weight: 700;
-    }
-    .modal-badge {
-      display: inline-block; background: #1976d2; color: #fff;
-      font-size: 0.72rem; font-weight: 700; border-radius: 4px;
-      padding: 3px 8px; margin-left: 8px; vertical-align: middle;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.15);
-    }
-    .modal-badge.lab { 
-      background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%);
-    }
+    .info-bar .info-icon { font-size: 1.1rem; flex-shrink: 0; }
+
+    /* ── Slot time label ─────────────────────────────────────────────── */
+    .slot-time { font-size: 0.68rem; opacity: 0.75; font-weight: 400; margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -167,7 +223,7 @@
     </nav>
 
     <main class="admin-content">
-      <div class="page-title">Timetable Editor</div>
+      <div class="page-title">✏️ Timetable Editor</div>
       <div id="alertBox"></div>
 
       <!-- Filter bar -->
@@ -181,7 +237,7 @@
           </div>
           <div class="form-group">
             <label>Section</label>
-            <select id="sectionSelect" class="form-control" onchange="loadTimetable()">
+            <select id="sectionSelect" class="form-control">
               <option value="">Select Section</option>
             </select>
           </div>
@@ -190,68 +246,92 @@
         </div>
       </div>
 
-      <!-- Timetable grid (single, no tabs) -->
+      <!-- Info notice -->
+      <div class="info-bar no-print" id="liveNotice" style="display:none;">
+        <span class="info-icon">🔄</span>
+        <span>Changes you make here are saved to the database immediately and will reflect in <strong>Class View</strong>, <strong>Faculty View</strong>, and <strong>Location View</strong> the next time those pages load.</span>
+      </div>
+
+      <!-- Timetable grid -->
       <div id="timetableArea" style="display:none;">
         <div class="card">
-          <div class="card-title" id="tableTitle">Timetable</div>
-          <div style="overflow-x:auto;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;" class="no-print">
+            <div class="card-title" id="tableTitle" style="margin:0; border:none; padding:0;"></div>
+          </div>
+          <div class="editor-wrap">
             <table class="editor-table" id="editorTable"></table>
           </div>
+          <!-- Legend -->
+          <div id="legend" style="margin-top:16px; display:flex; flex-wrap:wrap; gap:8px;" class="no-print"></div>
         </div>
       </div>
 
       <div id="emptyState" class="empty-state">
         <div class="empty-icon">📅</div>
-        <p>Select a year and section to edit the timetable</p>
+        <p>Select a year and section, then click <strong>Load</strong> to edit the timetable</p>
       </div>
     </main>
   </div>
 
-  <!-- ── Edit modal ───────────────────────────────────────────────────── -->
+  <!-- ── Edit Modal ─────────────────────────────────────────────────── -->
   <div class="modal-overlay" id="editModal">
-    <div class="modal">
-      <div class="modal-header">
-        <div class="modal-title" id="modalTitle">Edit Slot</div>
-        <button class="modal-close" onclick="closeModal()">×</button>
-      </div>
-      <div id="modalMeta" style="background:#f5f5f5;padding:10px;border-radius:6px;margin-bottom:16px;font-size:0.82rem;color:#555;"></div>
+    <div class="edit-modal">
 
-      <!-- Hidden state -->
-      <input type="hidden" id="mSectionId">
-      <input type="hidden" id="mSlotId">
-      <input type="hidden" id="mDay">
-      <input type="hidden" id="mEntryId">   <!-- existing DB id, blank = new -->
-      <input type="hidden" id="mSubsection"><!-- batch name for lab, blank = theory -->
-
-      <div class="form-group">
-        <label>Subject</label>
-        <select id="mSubject" class="form-control" onchange="onSubjectChange()">
-          <option value="">— Free Period —</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Faculty</label>
-        <select id="mFaculty" class="form-control">
-          <option value="">— No Faculty —</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Room</label>
-        <select id="mRoom" class="form-control">
-          <option value="">— No Room —</option>
-        </select>
+      <!-- Header -->
+      <div class="em-header">
+        <div class="em-header-top">
+          <div>
+            <div class="em-title" id="emTitle">Edit Slot</div>
+            <div class="em-subtitle" id="emSubtitle"></div>
+          </div>
+          <button class="em-close" onclick="closeModal()">×</button>
+        </div>
+        <div id="emBadge"></div>
       </div>
 
-      <div class="modal-footer">
-        <button type="button" class="btn btn-danger btn-sm" id="clearBtn" onclick="clearEntry()">Clear</button>
+      <!-- Body -->
+      <div class="em-body">
+        <div class="em-info-row" id="emInfoRow"></div>
+
+        <!-- Hidden state -->
+        <input type="hidden" id="mSectionId">
+        <input type="hidden" id="mSlotId">
+        <input type="hidden" id="mDay">
+        <input type="hidden" id="mEntryId">
+        <input type="hidden" id="mSubsection">
+
+        <div class="form-group" id="subjectGroup">
+          <label>Subject</label>
+          <select id="mSubject" class="form-control" onchange="onSubjectChange()">
+            <option value="">— Free Period —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Faculty</label>
+          <select id="mFaculty" class="form-control">
+            <option value="">— No Faculty —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Room</label>
+          <select id="mRoom" class="form-control">
+            <option value="">— No Room —</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="em-footer">
+        <button type="button" class="btn btn-danger btn-sm" id="clearBtn" onclick="clearEntry()" style="display:none; margin-right:auto;">🗑 Clear</button>
         <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="saveEntry()">Save</button>
+        <button type="button" class="btn btn-primary" onclick="saveEntry()">💾 Save</button>
       </div>
+
     </div>
   </div>
 
   <script>
-    /* ── Bootstrap ─────────────────────────────────────────────────────── */
+    /* ── Auth check ─────────────────────────────────────────────────── */
     fetch('/api/auth/status').then(r => r.json()).then(d => {
       if (!d.loggedIn) { location.href = '/login.html'; return; }
       init();
@@ -274,31 +354,33 @@
         fetch('/api/years'), fetch('/api/timeslots'),
         fetch('/api/subjects'), fetch('/api/faculty'), fetch('/api/rooms')
       ]);
-      const years = await yR.json();
-      slots    = await slR.json();
-      subjects = await subR.json();
-      faculty  = await fR.json();
-      rooms    = await rR.json();
+      const years   = await yR.json();
+      slots         = await slR.json();
+      subjects      = await subR.json();
+      faculty       = await fR.json();
+      rooms         = await rR.json();
 
       const ySel = document.getElementById('yearSelect');
       years.forEach(y => ySel.insertAdjacentHTML('beforeend',
         `<option value="${y.id}">${y.display_name}</option>`));
 
-      // Populate modal dropdowns
+      // Populate subject dropdown
       const subSel = document.getElementById('mSubject');
       subjects.forEach(s => subSel.insertAdjacentHTML('beforeend',
-        `<option value="${s.id}" data-type="${s.type}">[${s.year_name||'Y'+s.year_id}] ${s.name}</option>`));
+        `<option value="${s.id}" data-type="${s.type}" data-category="${s.category||''}">[${s.year_name||'Y'+s.year_id}] ${s.name}${s.category==='btu'?' (B.T.U.)':''}</option>`));
 
+      // Populate faculty dropdown
       const fSel = document.getElementById('mFaculty');
       faculty.forEach(f => fSel.insertAdjacentHTML('beforeend',
-        `<option value="${f.id}">${f.name}</option>`));
+        `<option value="${f.id}">${f.name}${f.designation?' — '+f.designation:''}</option>`));
 
+      // Populate room dropdown
       const rSel = document.getElementById('mRoom');
       rooms.forEach(r => rSel.insertAdjacentHTML('beforeend',
-        `<option value="${r.id}">${r.name} (${r.type})</option>`));
+        `<option value="${r.id}" data-type="${r.type}">${r.name} (${r.type})</option>`));
     }
 
-    /* ── Section loading ────────────────────────────────────────────────── */
+    /* ── Sections ───────────────────────────────────────────────────── */
     async function loadSections() {
       const yId = document.getElementById('yearSelect').value;
       if (!yId) return;
@@ -308,10 +390,10 @@
         secs.map(s => `<option value="${s.id}">Section ${s.name}</option>`).join('');
     }
 
-    /* ── Timetable loading ──────────────────────────────────────────────── */
+    /* ── Load timetable ─────────────────────────────────────────────── */
     async function loadTimetable() {
       const sId = document.getElementById('sectionSelect').value;
-      if (!sId) return;
+      if (!sId) { showAlert('Please select a section first', 'warning'); return; }
       currentSectionId = sId;
 
       entries = await (await fetch(`/api/timetable/class?section_id=${sId}`)).json();
@@ -322,87 +404,119 @@
 
       renderTable();
       document.getElementById('timetableArea').style.display = 'block';
-      document.getElementById('emptyState').style.display   = 'none';
+      document.getElementById('emptyState').style.display    = 'none';
+      document.getElementById('liveNotice').style.display    = 'flex';
     }
 
-    /* ── Render ─────────────────────────────────────────────────────────── */
+    /* ── Render table ───────────────────────────────────────────────── */
     function renderTable() {
       const teaching = slots.filter(s => !s.is_break);
-      let html = '<thead><tr><th class="day-hdr">Day</th>';
+      let html = '<thead><tr><th class="corner">Day</th>';
       teaching.forEach(s => {
-        html += `<th>Slot ${s.slot_number}<br><small>${s.start_time}–${s.end_time}</small></th>`;
+        html += `<th>P${s.slot_number}<div class="slot-time">${s.start_time}–${s.end_time}</div></th>`;
       });
       html += '</tr></thead><tbody>';
 
       DAYS.forEach(day => {
-        html += `<tr><td class="day-cell">${day}</td>`;
+        html += `<tr><td class="day-col">${day.slice(0,3)}<br><small style="font-weight:400;font-size:0.68rem;opacity:.7;">${day.slice(3)}</small></td>`;
         teaching.forEach(slot => {
-          html += renderCell(day, slot);
+          html += buildCell(day, slot);
         });
         html += '</tr>';
       });
       html += '</tbody>';
       document.getElementById('editorTable').innerHTML = html;
+
+      // Legend
+      buildLegend();
     }
 
-    function renderCell(day, slot) {
+    function buildCell(day, slot) {
       const slotEntries = entries.filter(e => e.day_of_week === day && e.time_slot_id === slot.id);
 
-      /* ── Empty ── */
+      // Empty
       if (!slotEntries.length) {
-        return `<td><div class="empty-cell"
-          onclick="openModal('${day}',${slot.id},null,null)">+ Add</div></td>`;
+        return `<td><div class="cell-empty"
+          onclick="openModal('${day}',${slot.id},null,null)">
+          <span>＋ Add</span></div></td>`;
       }
 
-      /* ── Lab slot: one or more batch entries ── */
-      const hasSubsection = slotEntries.some(e => e.subsection);
-      if (hasSubsection) {
-        const subjName = slotEntries[0].subject_name || '?';
-        const color    = getColor(slotEntries[0].subject_id);
-        let inner = `<div class="lab-subj-header">${subjName} <span style="opacity:.7;font-weight:400;font-size:.65rem;">LAB</span></div>`;
-        inner += `<div class="lab-batches-container">`;
+      // Lab slot
+      if (slotEntries.some(e => e.subsection)) {
+        const color  = getColor(slotEntries[0].subject_id);
+        const isBtu  = slotEntries[0].subject_category === 'btu';
+        let html = `<td><div class="cell-lab ${color}">`;
+        html += `<div class="lab-header">
+          <span>${slotEntries[0].subject_name || '?'}</span>
+          <span style="display:flex;gap:3px;">
+            <span class="lab-tag">LAB</span>
+            ${isBtu ? '<span class="lab-tag" style="background:rgba(230,81,0,0.35);">B.T.U.</span>' : ''}
+          </span>
+        </div>`;
+        html += `<div class="lab-batches">`;
         slotEntries.forEach(e => {
-          inner += `
-            <div class="batch-row"
-              onclick="openModal('${day}',${slot.id},${e.id},'${e.subsection}')">
-              <div class="batch-tag">${e.subsection}</div>
-              <div class="batch-body">
-                ${e.faculty_name
-                  ? `<div class="b-fac">${e.faculty_name}</div><div class="b-rm">${e.room_name||''}</div>`
-                  : `<div class="b-empty">click to assign</div>`}
-              </div>
-            </div>`;
+          html += `<div class="batch-row"
+            onclick="openModal('${day}',${slot.id},${e.id},'${e.subsection}')">
+            <div class="batch-letter">${e.subsection}</div>
+            <div class="batch-info">
+              ${e.faculty_name
+                ? `<div class="bi-fac">${e.faculty_name}</div>
+                   <div class="bi-room">${e.room_name || '—'}</div>`
+                : `<div class="bi-empty">click to assign</div>`}
+            </div>
+            <div class="batch-edit-icon">✎</div>
+          </div>`;
         });
-        inner += `</div>`;
-        return `<td class="lab-slot-cell ${color}" style="background:inherit;">${inner}</td>`;
+        html += `</div></div></td>`;
+        return html;
       }
 
-      /* ── Single theory entry ── */
-      const e = slotEntries[0];
+      // Theory / single entry
+      const e     = slotEntries[0];
       const color = getColor(e.subject_id);
+      const isBtu = e.subject_category === 'btu';
       return `<td>
-        <div class="theory-cell ${color}"
+        <div class="cell-theory ${color}${isBtu ? ' btu-cell' : ''}"
           onclick="openModal('${day}',${slot.id},${e.id},null)">
-          <div class="subj">${e.subject_name||'?'}</div>
-          <div class="fac">${e.faculty_name||''}</div>
-          <div class="rm">${e.room_name||''}</div>
-        </div>
-      </td>`;
+          <span class="edit-hint">✎ edit</span>
+          <div class="t-subj">${e.subject_name || '?'}${isBtu ? ' <span style="font-size:0.6rem;opacity:.75;">(B.T.U.)</span>' : ''}</div>
+          <div class="t-fac">👤 ${e.faculty_name || '—'}</div>
+          <div class="t-room">🏫 ${e.room_name || '—'}</div>
+        </div></td>`;
     }
 
-    /* ── Modal open ─────────────────────────────────────────────────────── */
+    function buildLegend() {
+      const usedIds = [...new Set(entries.filter(e => e.subject_id).map(e => e.subject_id))];
+      const legend  = document.getElementById('legend');
+      if (!usedIds.length) { legend.innerHTML = ''; return; }
+      legend.innerHTML = '<span style="font-size:0.78rem;font-weight:600;color:#555;align-self:center;">Legend:</span>' +
+        usedIds.map(id => {
+          const e     = entries.find(x => x.subject_id === id);
+          const color = getColor(id);
+          const tag   = e.subject_category === 'btu' ? ' <span style="font-size:0.6rem;background:rgba(230,81,0,0.15);color:#e65100;border-radius:3px;padding:1px 4px;">B.T.U.</span>' : '';
+          return `<span class="${color}" style="padding:3px 10px;border-radius:12px;font-size:0.77rem;white-space:nowrap;">
+            ${e.subject_name || '?'}${tag}
+          </span>`;
+        }).join('');
+    }
+
+    /* ── Modal open ─────────────────────────────────────────────────── */
     function openModal(day, slotId, entryId, subsection) {
       if (!currentSectionId) return;
       const slot = slots.find(s => s.id === slotId);
+      const isLab = !!subsection;
 
-      // Title
-      const batchLabel = subsection ? `<span class="modal-badge lab">Batch ${subsection}</span>` : '';
-      document.getElementById('modalTitle').innerHTML =
-        `${day} · ${slot.start_time}–${slot.end_time}${batchLabel}`;
+      // Header
+      document.getElementById('emTitle').textContent = `${day}  ·  Slot ${slot.slot_number}`;
+      document.getElementById('emSubtitle').textContent = `${slot.start_time} – ${slot.end_time}`;
+      document.getElementById('emBadge').innerHTML = isLab
+        ? `<span class="em-badge lab">🔬 Lab Batch ${subsection}</span>`
+        : `<span class="em-badge">📖 Theory Slot</span>`;
 
-      // Meta info
-      document.getElementById('modalMeta').textContent =
-        subsection ? `Lab batch ${subsection} — change faculty or room` : 'Theory / B.T.U. slot';
+      // Info row
+      document.getElementById('emInfoRow').innerHTML = isLab
+        ? `🔬 Editing <strong>Batch ${subsection}</strong> — you can change the faculty and room for this batch`
+        : `📖 Theory slot — change the subject, faculty, or room`;
 
       // Hidden fields
       document.getElementById('mSectionId').value  = currentSectionId;
@@ -411,35 +525,25 @@
       document.getElementById('mEntryId').value    = entryId || '';
       document.getElementById('mSubsection').value = subsection || '';
 
-      // Pre-fill from existing entry
+      // Pre-fill
       const e = entryId ? entries.find(x => x.id === entryId) : null;
       document.getElementById('mSubject').value = e?.subject_id || '';
       document.getElementById('mFaculty').value = e?.faculty_id || '';
       document.getElementById('mRoom').value    = e?.room_id    || '';
 
-      // For lab batch: subject field hidden — but rooms must still be filtered to labs only
-      const subjectGroup = document.getElementById('mSubject').closest('.form-group');
-      document.getElementById('mSubject').disabled = false; // keep enabled so value submits
-      if (subsection) {
-        subjectGroup.style.display = 'none'; // hide subject for lab batches
-        // Filter rooms to show only labs
-        const rSel = document.getElementById('mRoom');
-        Array.from(rSel.options).forEach(o => {
-          if (!o.value) { o.style.display = ''; return; }
-          const room = rooms.find(r => r.id == o.value);
-          if (!room) return;
-          o.style.display = room.type === 'lab' ? '' : 'none';
-        });
-        // Reset room if currently selected room is hidden
-        const cur = rSel.value;
-        const curOpt = Array.from(rSel.options).find(o => o.value == cur);
-        if (curOpt && curOpt.style.display === 'none') rSel.value = '';
+      // Subject field: hidden for lab batches
+      const subjectGroup = document.getElementById('subjectGroup');
+      if (isLab) {
+        subjectGroup.style.display = 'none';
+        document.getElementById('mSubject').disabled = false;
+        filterRooms('lab');
       } else {
         subjectGroup.style.display = '';
-        onSubjectChange(); // apply room filter for theory
+        document.getElementById('mSubject').disabled = false;
+        onSubjectChange();
       }
 
-      // Clear button only visible for existing entries
+      // Clear button
       document.getElementById('clearBtn').style.display = entryId ? 'inline-flex' : 'none';
 
       document.getElementById('editModal').classList.add('active');
@@ -447,16 +551,18 @@
 
     function closeModal() {
       document.getElementById('editModal').classList.remove('active');
-      document.getElementById('mSubject').closest('.form-group').style.display = '';
+      document.getElementById('subjectGroup').style.display = '';
       document.getElementById('mSubject').disabled = false;
-      // Reset room filter to show all rooms
-      const rSel = document.getElementById('mRoom');
-      Array.from(rSel.options).forEach(o => { o.style.display = ''; });
+      filterRooms(''); // reset room filter
     }
 
-    /* ── Save ───────────────────────────────────────────────────────────── */
+    /* ── Save ───────────────────────────────────────────────────────── */
     async function saveEntry() {
-      const entryId   = document.getElementById('mEntryId').value;
+      const saveBtn = document.querySelector('.em-footer .btn-primary');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+
+      const entryId    = document.getElementById('mEntryId').value;
       const subsection = document.getElementById('mSubsection').value;
       const body = {
         section_id:   parseInt(document.getElementById('mSectionId').value),
@@ -468,65 +574,83 @@
         entry_id:     entryId ? parseInt(entryId) : undefined,
         subsection:   subsection || null
       };
-      const res = await fetch('/api/admin/timetable/entry', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      const data = await res.json();
-      if (res.ok) {
-        showAlert(data.message, 'success');
-        closeModal();
-        await loadTimetable();
-      } else {
-        showAlert(data.error || 'Save failed', 'error');
+
+      try {
+        const res  = await fetch('/api/admin/timetable/entry', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showAlert('✅ Saved — changes are live in all views', 'success');
+          closeModal();
+          await loadTimetable();
+        } else {
+          showAlert(data.error || 'Save failed', 'error');
+        }
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '💾 Save';
       }
     }
 
-    /* ── Clear ──────────────────────────────────────────────────────────── */
+    /* ── Clear ──────────────────────────────────────────────────────── */
     async function clearEntry() {
       const entryId = document.getElementById('mEntryId').value;
       if (!entryId) return;
+      if (!confirm('Clear this slot?')) return;
       const res = await fetch(`/api/admin/timetable/entry/${entryId}`, { method: 'DELETE' });
       if (res.ok) {
-        showAlert('Entry cleared', 'success');
+        showAlert('Slot cleared', 'success');
         closeModal();
         await loadTimetable();
       } else {
-        showAlert('Failed to clear entry', 'error');
+        showAlert('Failed to clear slot', 'error');
       }
     }
 
-    /* ── Helpers ────────────────────────────────────────────────────────── */
-    function onSubjectChange() {
-      // Auto-filter room dropdown to match subject type (lab ↔ classroom)
-      const opt  = document.getElementById('mSubject').selectedOptions[0];
-      const type = opt ? opt.dataset.type : '';
+    /* ── Room filter helper ─────────────────────────────────────────── */
+    function filterRooms(typeFilter) {
       const rSel = document.getElementById('mRoom');
       Array.from(rSel.options).forEach(o => {
         if (!o.value) { o.style.display = ''; return; }
-        const room = rooms.find(r => r.id == o.value);
-        if (!room) return;
-        if (type === 'lab')    o.style.display = room.type === 'lab'       ? '' : 'none';
-        else if (type)         o.style.display = room.type === 'classroom'  ? '' : 'none';
-        else                   o.style.display = '';
+        const rt = o.dataset.type || '';
+        if (!typeFilter)           o.style.display = '';
+        else if (typeFilter === 'lab')       o.style.display = rt === 'lab'       ? '' : 'none';
+        else if (typeFilter === 'classroom') o.style.display = rt === 'classroom'  ? '' : 'none';
+        else                                 o.style.display = '';
       });
-      // Reset room if currently selected room is hidden
-      const cur = rSel.value;
+      // If selected room is now hidden, reset
+      const cur    = rSel.value;
       const curOpt = Array.from(rSel.options).find(o => o.value == cur);
       if (curOpt && curOpt.style.display === 'none') rSel.value = '';
     }
 
+    function onSubjectChange() {
+      const opt  = document.getElementById('mSubject').selectedOptions[0];
+      const type = opt?.dataset?.type || '';
+      if (type === 'lab')   filterRooms('lab');
+      else if (type)        filterRooms('classroom');
+      else                  filterRooms('');
+    }
+
+    /* ── Alert ──────────────────────────────────────────────────────── */
     function showAlert(msg, type) {
       const box = document.getElementById('alertBox');
       box.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
-      setTimeout(() => box.innerHTML = '', 3000);
+      setTimeout(() => box.innerHTML = '', 4000);
     }
 
     async function logout() {
       await fetch('/api/auth/logout', { method: 'POST' });
       location.href = '/login.html';
     }
+
+    // Close modal on overlay click
+    document.getElementById('editModal').addEventListener('click', function(e) {
+      if (e.target === this) closeModal();
+    });
   </script>
 </body>
 </html>
