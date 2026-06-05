@@ -1141,7 +1141,20 @@ router.post('/generate', requireAuth, async (req, res) => {
       'SELECT COUNT(*) as cnt FROM timetable_entries WHERE section_id = ANY($1)',
       [sections.map(s => s.id)]
     );
-    res.json({ success: true, message: `Timetable generated for ${sections.length} section(s). Total entries: ${totalRow.cnt}` });
+    
+    // Generate quality metrics
+    const stats = {
+      totalEntries: totalRow.cnt,
+      sectionsGenerated: sections.length,
+      avgEntriesPerSection: Math.round(totalRow.cnt / sections.length),
+      generatedAt: new Date().toISOString()
+    };
+    
+    res.json({ 
+      success: true, 
+      message: `Timetable generated for ${sections.length} section(s). Total entries: ${totalRow.cnt}`,
+      stats: stats
+    });
   } catch (err) {
     console.error('Generate error:', err);
     res.status(500).json({ error: err.message });
@@ -1174,6 +1187,53 @@ router.post('/clear', requireAuth, async (req, res) => {
     }
     res.json({ success: true, message: 'Timetable cleared' });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// =============================================================================
+// ==================== VALIDATION =============================================
+// =============================================================================
+
+// Get timetable validation report for a section
+router.get('/validate/:sectionId', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    const sectionId = parseInt(req.params.sectionId);
+    
+    if (!(await verifyDeptOwnership('sections', sectionId, deptId)))
+      return res.status(403).json({ error: 'Section not in your department' });
+    
+    const entries = await query(
+      `SELECT te.*, s.name as subject_name, s.type as subject_type, s.category, 
+              f.name as faculty_name, r.name as room_name
+       FROM timetable_entries te
+       LEFT JOIN subjects s ON te.subject_id = s.id
+       LEFT JOIN faculty f ON te.faculty_id = f.id
+       LEFT JOIN rooms r ON te.room_id = r.id
+       WHERE te.section_id = $1
+       ORDER BY te.day_of_week, te.time_slot_id`,
+      [sectionId]
+    );
+    
+    // Validation checks
+    const checks = {
+      totalSlots: entries.length,
+      labBatches: entries.filter(e => e.subsection).length,
+      theorySlots: entries.filter(e => !e.subsection).length,
+      btuSubjectsScheduled: entries.filter(e => e.category === 'btu').length,
+      emptySlots: entries.filter(e => !e.subject_id).length,
+      uniqueSubjects: [...new Set(entries.map(e => e.subject_id))].length,
+      allFilled: entries.every(e => e.subject_id && e.faculty_id && e.room_id)
+    };
+    
+    res.json({
+      success: true,
+      validation: checks,
+      entries: entries.length,
+      message: checks.allFilled ? 'All slots properly filled' : 'Some slots are incomplete'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
