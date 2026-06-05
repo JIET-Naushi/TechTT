@@ -86,6 +86,8 @@ async function initializeDatabase() {
     if (!deptIdExists.exists) {
       // Add department_id to existing table (backward compatible migration)
       await run(`ALTER TABLE years ADD COLUMN department_id INTEGER DEFAULT 1 REFERENCES departments(id) ON DELETE CASCADE`);
+      // Update existing rows to department 1
+      await run(`UPDATE years SET department_id = 1 WHERE department_id IS NULL`);
       console.log('✅ Migrated years table: added department_id');
     }
   } else {
@@ -137,6 +139,7 @@ async function initializeDatabase() {
     
     if (!deptIdExists.exists) {
       await run(`ALTER TABLE faculty ADD COLUMN department_id INTEGER DEFAULT 1 REFERENCES departments(id) ON DELETE CASCADE`);
+      await run(`UPDATE faculty SET department_id = 1 WHERE department_id IS NULL`);
       console.log('✅ Migrated faculty table: added department_id');
     }
   } else {
@@ -171,6 +174,7 @@ async function initializeDatabase() {
     
     if (!deptIdExists.exists) {
       await run(`ALTER TABLE rooms ADD COLUMN department_id INTEGER DEFAULT 1 REFERENCES departments(id) ON DELETE CASCADE`);
+      await run(`UPDATE rooms SET department_id = 1 WHERE department_id IS NULL`);
       console.log('✅ Migrated rooms table: added department_id');
     }
   } else {
@@ -203,6 +207,7 @@ async function initializeDatabase() {
     
     if (!deptIdExists.exists) {
       await run(`ALTER TABLE time_slots ADD COLUMN department_id INTEGER DEFAULT 1 REFERENCES departments(id) ON DELETE CASCADE`);
+      await run(`UPDATE time_slots SET department_id = 1 WHERE department_id IS NULL`);
       console.log('✅ Migrated time_slots table: added department_id');
     }
   } else {

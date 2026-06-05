@@ -3,21 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Faculty — Admin</title>
+  <title>Faculty — JIET Universe Admin</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
   <header class="header">
-    <div class="logo">🎓 <span>College</span> Timetable — Admin</div>
+    <div class="logo">🎓 <span>JIET Universe</span> — Admin</div>
     <nav>
       <a href="/index.html">Home</a>
+      <span id="userBadge" style="color:rgba(255,255,255,0.8);font-size:0.82rem;margin-left:12px;"></span>
       <button class="btn-logout" onclick="logout()">Logout</button>
     </nav>
   </header>
+
   <div class="admin-layout">
     <nav class="sidebar">
       <div class="sidebar-title">Main</div>
       <a href="/admin/dashboard.html"><span class="icon">📊</span> Dashboard</a>
+      <div id="superAdminMenu" style="display:none;">
+        <div class="sidebar-title">Super Admin</div>
+        <a href="/admin/incharges.html"><span class="icon">👥</span> Timetable Incharges</a>
+      </div>
       <div class="sidebar-title">Manage</div>
       <a href="/admin/sections.html"><span class="icon">🏛️</span> Years & Sections</a>
       <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
@@ -31,8 +37,9 @@
       <a href="/views/faculty-timetable.html"><span class="icon">👤</span> Faculty View</a>
       <a href="/views/location-timetable.html"><span class="icon">📍</span> Location View</a>
     </nav>
+
     <main class="admin-content">
-      <div class="page-title">Faculty Management</div>
+      <div class="page-title" id="pageTitle">Faculty Management</div>
       <div id="alertBox"></div>
       <div class="card">
         <div class="toolbar">
@@ -44,14 +51,16 @@
             <thead>
               <tr><th>#</th><th>Name</th><th>Designation</th><th>Role</th><th>Email</th><th>Subjects Can Teach</th><th>Actions</th></tr>
             </thead>
-            <tbody id="facultyTable"><tr><td colspan="7" class="text-center text-muted">Loading...</td></tr></tbody>
+            <tbody id="facultyTable">
+              <tr><td colspan="7" class="text-center text-muted">Loading...</td></tr>
+            </tbody>
           </table>
         </div>
       </div>
     </main>
   </div>
 
-  <!-- Modal -->
+  <!-- Add/Edit Modal -->
   <div class="modal-overlay" id="modalOverlay">
     <div class="modal" style="max-width:600px;">
       <div class="modal-header">
@@ -101,57 +110,68 @@
   </div>
 
   <script>
-    fetch('/api/auth/status').then(r => r.json()).then(d => { if (!d.loggedIn) location.href = '/login.html'; });
-
-    let faculty = [];
+    let faculty    = [];
     let allSubjects = [];
+    let deptId     = null;  // resolved after auth check
 
+    // ── Auth check & resolve department ──────────────────────────────────────
+    fetch('/api/auth/status').then(r => r.json()).then(d => {
+      if (!d.loggedIn) { location.href = '/login.html'; return; }
+
+      const badge = document.getElementById('userBadge');
+      if (d.user.loginType === 'google') {
+        badge.innerHTML = (d.user.picture
+          ? `<img src="${d.user.picture}" style="width:24px;height:24px;border-radius:50%;">`
+          : '') + `<span>${d.user.name || d.user.username}</span>`;
+      } else {
+        badge.innerHTML = `<span>👤 ${d.user.username}</span>`;
+      }
+
+      if (d.user.isSuperAdmin) {
+        document.getElementById('superAdminMenu').style.display = 'block';
+        deptId = 1; // Super admin defaults to dept 1, could be changed via URL param
+      } else {
+        deptId = d.user.department_id;
+        document.getElementById('pageTitle').textContent =
+          `Faculty — ${d.user.dept_name || 'Your Department'}`;
+      }
+
+      // Allow ?dept=X for super admin to view other departments
+      const urlDept = new URLSearchParams(location.search).get('dept');
+      if (urlDept && d.user.isSuperAdmin) deptId = parseInt(urlDept);
+
+      init();
+    });
+
+    // ── Load data ────────────────────────────────────────────────────────────
     async function init() {
-      const [fRes, sRes] = await Promise.all([fetch('/api/faculty'), fetch('/api/subjects')]);
-      faculty = await fRes.json();
-      allSubjects = await sRes.json();
-      renderSubjectCheckboxes();
-      renderTable();
+      try {
+        const [fRes, sRes] = await Promise.all([
+          fetch(`/api/faculty?department_id=${deptId}`),
+          fetch(`/api/subjects?department_id=${deptId}`)
+        ]);
+
+        if (!fRes.ok) throw new Error(`Faculty API error: ${fRes.status}`);
+        if (!sRes.ok) throw new Error(`Subjects API error: ${sRes.status}`);
+
+        faculty     = await fRes.json();
+        allSubjects = await sRes.json();
+
+        renderSubjectCheckboxes([]);
+        renderTable();
+      } catch (err) {
+        console.error('Init error:', err);
+        document.getElementById('facultyTable').innerHTML =
+          `<tr><td colspan="7" class="text-center text-muted">Error loading faculty: ${err.message}</td></tr>`;
+      }
     }
 
-    function renderSubjectCheckboxes(selected = []) {
-      const container = document.getElementById('subjectCheckboxes');
-      // Group by year
-      const byYear = {};
-      allSubjects.forEach(s => {
-        const yr = s.year_name || ('Year ' + s.year_id);
-        if (!byYear[yr]) byYear[yr] = [];
-        byYear[yr].push(s);
-      });
-      container.innerHTML = Object.entries(byYear).map(([yr, subjects]) => `
-        <div style="grid-column:1/-1;margin-top:6px;">
-          <div style="font-size:0.75rem;font-weight:700;color:#1a237e;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #e0e0e0;padding-bottom:3px;margin-bottom:4px;">${yr}</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
-            ${subjects.map(s => `
-              <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer;padding:3px 4px;border-radius:4px;${selected.includes(s.id) ? 'background:#e8eaf6;' : ''}">
-                <input type="checkbox" value="${s.id}" ${selected.includes(s.id) ? 'checked' : ''} style="cursor:pointer;" onchange="this.closest('label').style.background=this.checked?'#e8eaf6':''">
-                <span>
-                  ${s.name}
-                  ${s.type === 'lab'
-                    ? '<span style="background:#e8f5e9;color:#2e7d32;font-size:0.68rem;font-weight:700;padding:1px 5px;border-radius:8px;margin-left:3px;">LAB</span>'
-                    : ''}
-                </span>
-              </label>
-            `).join('')}
-          </div>
-        </div>
-      `).join('');
-    }
-
-    function getSelectedSubjects() {
-      return Array.from(document.querySelectorAll('#subjectCheckboxes input:checked')).map(cb => parseInt(cb.value));
-    }
-
+    // ── Render table ─────────────────────────────────────────────────────────
     function renderTable() {
-      document.getElementById('facultyCount').textContent = `${faculty.length} faculty members`;
+      document.getElementById('facultyCount').textContent = `${faculty.length} faculty member${faculty.length !== 1 ? 's' : ''}`;
       const tbody = document.getElementById('facultyTable');
-      if (faculty.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No faculty found</td></tr>';
+      if (!faculty.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No faculty found. Click "+ Add Faculty" to get started.</td></tr>';
         return;
       }
       tbody.innerHTML = faculty.map((f, i) => {
@@ -159,7 +179,7 @@
         try { canTeach = JSON.parse(f.subjects_can_teach || '[]'); } catch {}
         const subjectNames = canTeach.map(id => {
           const s = allSubjects.find(s => s.id === id);
-          return s ? (s.name + (s.type === 'lab' ? ' 🔬' : '')) : '';
+          return s ? (s.name + (s.type === 'lab' ? ' 🔬' : '')) : null;
         }).filter(Boolean);
         const roleLabel = f.role === 'hod_mentor' ? 'HOD (Mentor)' : f.role === 'hod_admin' ? 'HOD (Admin)' : 'Faculty';
         const roleBadge = f.role !== 'faculty' ? 'badge-hod' : 'badge-faculty';
@@ -170,16 +190,51 @@
             <td>${f.designation || '—'}</td>
             <td><span class="badge ${roleBadge}">${roleLabel}</span></td>
             <td>${f.email || '—'}</td>
-            <td style="max-width:200px;font-size:0.78rem;">${subjectNames.length > 0 ? subjectNames.slice(0, 3).join(', ') + (subjectNames.length > 3 ? ` +${subjectNames.length - 3} more` : '') : '<span class="text-muted">None assigned</span>'}</td>
+            <td style="max-width:200px;font-size:0.78rem;">
+              ${subjectNames.length > 0
+                ? subjectNames.slice(0,3).join(', ') + (subjectNames.length > 3 ? ` +${subjectNames.length-3} more` : '')
+                : '<span class="text-muted">None assigned</span>'}
+            </td>
             <td>
               <button class="btn btn-outline btn-sm" onclick="editFaculty(${f.id})">Edit</button>
-              <button class="btn btn-danger btn-sm" data-id="${f.id}" onclick="deleteFacultyById(this)">Delete</button>
+              <button class="btn btn-danger btn-sm" data-id="${f.id}" onclick="confirmDelete(this)">Delete</button>
             </td>
-          </tr>
-        `;
+          </tr>`;
       }).join('');
     }
 
+    // ── Subject checkboxes ────────────────────────────────────────────────────
+    function renderSubjectCheckboxes(selected = []) {
+      const container = document.getElementById('subjectCheckboxes');
+      if (!allSubjects.length) {
+        container.innerHTML = '<p class="text-muted" style="grid-column:1/-1;">No subjects found for this department.</p>';
+        return;
+      }
+      const byYear = {};
+      allSubjects.forEach(s => {
+        const yr = s.year_name || `Year ${s.year_id}`;
+        if (!byYear[yr]) byYear[yr] = [];
+        byYear[yr].push(s);
+      });
+      container.innerHTML = Object.entries(byYear).map(([yr, subjects]) => `
+        <div style="grid-column:1/-1;margin-top:6px;">
+          <div style="font-size:0.75rem;font-weight:700;color:#1a237e;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #e0e0e0;padding-bottom:3px;margin-bottom:4px;">${yr}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
+            ${subjects.map(s => `
+              <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer;padding:3px 4px;border-radius:4px;${selected.includes(s.id) ? 'background:#e8eaf6;' : ''}">
+                <input type="checkbox" value="${s.id}" ${selected.includes(s.id) ? 'checked' : ''} style="cursor:pointer;"
+                  onchange="this.closest('label').style.background=this.checked?'#e8eaf6':''">
+                <span>${s.name}${s.type==='lab' ? ' <span style="background:#e8f5e9;color:#2e7d32;font-size:0.68rem;font-weight:700;padding:1px 5px;border-radius:8px;">LAB</span>' : ''}</span>
+              </label>`).join('')}
+          </div>
+        </div>`).join('');
+    }
+
+    function getSelectedSubjects() {
+      return Array.from(document.querySelectorAll('#subjectCheckboxes input:checked')).map(cb => parseInt(cb.value));
+    }
+
+    // ── Modal open/close ──────────────────────────────────────────────────────
     function openModal(f = null) {
       document.getElementById('facultyId').value = '';
       document.getElementById('facultyForm').reset();
@@ -206,48 +261,79 @@
       if (f) openModal(f);
     }
 
-    function deleteFacultyById(btn) {
-      const id = btn.getAttribute('data-id');
+    // ── Delete ────────────────────────────────────────────────────────────────
+    function confirmDelete(btn) {
+      const id   = btn.getAttribute('data-id');
       const name = faculty.find(f => f.id == id)?.name || 'this faculty';
-      deleteFaculty(id, name);
+      if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+      deleteFaculty(id, btn);
     }
 
-    async function deleteFaculty(id, name) {
+    async function deleteFaculty(id, btn) {
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        const res  = await fetch(`/api/admin/faculty/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok) {
+          showAlert('Faculty deleted successfully', 'success');
+          faculty = faculty.filter(f => f.id != id);
+          renderTable();
+        } else {
+          showAlert(data.error || `Error ${res.status}`, 'error');
+          btn.disabled = false;
+          btn.textContent = 'Delete';
+        }
+      } catch (err) {
+        showAlert('Network error, please try again', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Delete';
+      }
+    }
 
+    // ── Save (add/edit) ───────────────────────────────────────────────────────
     document.getElementById('facultyForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const id = document.getElementById('facultyId').value;
+      const id  = document.getElementById('facultyId').value;
       const body = {
-        name: document.getElementById('facultyName').value,
-        designation: document.getElementById('facultyDesig').value,
-        role: document.getElementById('facultyRole').value,
-        email: document.getElementById('facultyEmail').value,
-        subjects_can_teach: getSelectedSubjects()
+        name:               document.getElementById('facultyName').value.trim(),
+        designation:        document.getElementById('facultyDesig').value,
+        role:               document.getElementById('facultyRole').value,
+        email:              document.getElementById('facultyEmail').value.trim(),
+        subjects_can_teach: getSelectedSubjects(),
+        department_id:      deptId
       };
-      const url = id ? `/api/admin/faculty/${id}` : '/api/admin/faculty';
+      const url    = id ? `/api/admin/faculty/${id}` : '/api/admin/faculty';
       const method = id ? 'PUT' : 'POST';
-      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const data = await res.json();
-      if (res.ok) {
-        showAlert(data.message, 'success');
-        closeModal();
-        const fRes = await fetch('/api/faculty');
-        faculty = await fRes.json();
-        renderTable();
-      } else {
-        showAlert(data.error || 'Error', 'error');
+      try {
+        const res  = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const data = await res.json();
+        if (res.ok) {
+          showAlert(data.message || 'Saved!', 'success');
+          closeModal();
+          // Refresh faculty list
+          const fRes = await fetch(`/api/faculty?department_id=${deptId}`);
+          faculty = await fRes.json();
+          renderTable();
+        } else {
+          showAlert(data.error || 'Error saving', 'error');
+        }
+      } catch (err) {
+        showAlert('Network error, please try again', 'error');
       }
     });
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
     function showAlert(msg, type) {
       const box = document.getElementById('alertBox');
       box.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
-      setTimeout(() => box.innerHTML = '', 3000);
+      setTimeout(() => box.innerHTML = '', 4000);
     }
 
-    async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
-
-    init();
+    async function logout() {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      location.href = '/login.html';
+    }
   </script>
 </body>
 </html>
