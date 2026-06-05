@@ -199,7 +199,7 @@
               html += `<td><div class="lab-cell ${color}${isBtu ? ' btu-cell' : ''}" title="${slotEntries[0].subject_name || '?'}">
                 <div class="lab-subject-name">${truncateText(slotEntries[0].subject_name || '?', 18)}
                   <span style="font-size:0.6rem;background:rgba(0,0,0,0.13);border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">LAB</span>
-                  ${isBtu ? '<span style="font-size:0.6rem;background:rgba(230,81,0,0.2);color:#e65100;border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">BTU</span>' : ''}
+                  ${isBtu ? '<span style="font-size:0.6rem;background:rgba(230,81,0,0.2);color:#e65100;border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">B.T.U.</span>' : ''}
                 </div>
                 ${batchRows}
               </div></td>`;
@@ -211,7 +211,7 @@
               const isBtu = entry.subject_category === 'btu';
               const isLab = entry.subject_type === 'lab';
               const badge = isBtu
-                ? `<span style="font-size:0.6rem;background:rgba(230,81,0,0.2);color:#e65100;border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">BTU</span>`
+                ? `<span style="font-size:0.6rem;background:rgba(230,81,0,0.2);color:#e65100;border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">B.T.U.</span>`
                 : isLab
                 ? `<span style="font-size:0.6rem;background:rgba(0,0,0,0.13);border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:middle;">LAB</span>`
                 : '';
@@ -255,14 +255,14 @@
           if (!slotEntries.length) {
             row.push('NLF');
           } else if (slotEntries.length > 1 && slotEntries[0].subsection) {
-            // Lab with batches (possibly BTU)
+            // Lab with batches (possibly B.T.U.)
             row.push(slotEntries.map(e =>
-              `${e.subject_name}${e.subject_category==='btu'?' [BTU]':''} [${e.subsection}] ${e.faculty_name||''} ${e.room_name||''}`
+              `${e.subject_name}${e.subject_category==='btu'?' [B.T.U.]':''} [${e.subsection}] ${e.faculty_name||''} ${e.room_name||''}`
             ).join('\n'));
           } else {
             const e = slotEntries[0];
             const typeTag = e.subject_category === 'btu'
-              ? ` [BTU-${e.subject_type==='lab'?'LAB':'THEORY'}]`
+              ? ` [B.T.U.-${e.subject_type==='lab'?'LAB':'THEORY'}]`
               : e.subject_type === 'lab' ? ' [LAB]' : '';
             row.push(`${e.subject_name}${typeTag}\n${e.faculty_name || ''}\n${e.room_name || ''}`);
           }

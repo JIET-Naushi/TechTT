@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Timetable Conflicts — Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .conflict-card {
+      background: #fff3f3;
+      border: 1px solid #ffcdd2;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .conflict-card.faculty-conflict { border-left: 4px solid #e53935; }
+    .conflict-card.room-conflict { border-left: 4px solid #fb8c00; }
+    .conflict-card.double-conflict { border-left: 4px solid #8e24aa; }
+    .conflict-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .conflict-time {
+      font-weight: 700;
+      font-size: 1rem;
+      color: #333;
+    }
+    .conflict-type {
+      background: #ff5252;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .conflict-details {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .detail-section h4 {
+      margin: 0 0 8px 0;
+      color: #666;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .detail-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .detail-list li {
+      padding: 6px 10px;
+      background: white;
+      border-radius: 4px;
+      margin-bottom: 6px;
+      border: 1px solid #e0e0e0;
+      font-size: 0.85rem;
+    }
+    .detail-list li:hover {
+      background: #f5f5f5;
+      cursor: pointer;
+    }
+    .actions {
+      margin-top: 16px;
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .btn-resolve {
+      background: #43a047;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .btn-resolve:hover {
+      background: #388e3c;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #666;
+    }
+    .empty-state .icon {
+      font-size: 3rem;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+    .filter-bar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .stats-card {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+    .stat-item {
+      background: rgba(255,255,255,0.1);
+      border-radius: 6px;
+      padding: 12px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .stat-label {
+      font-size: 0.85rem;
+      opacity: 0.9;
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="logo">🎓 <span>JIET</span> Timetable — Admin</div>
+    <nav>
+      <a href="/index.html">Home</a>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </nav>
+  </header>
+  <div class="admin-layout">
+    <nav class="sidebar">
+      <div class="sidebar-title">Main</div>
+      <a href="/admin/dashboard.html"><span class="icon">📊</span> Dashboard</a>
+      <div class="sidebar-title">Manage</div>
+      <a href="/admin/sections.html"><span class="icon">🏛️</span> Years & Sections</a>
+      <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
+      <a href="/admin/faculty.html"><span class="icon">👨‍🏫</span> Faculty</a>
+      <a href="/admin/rooms.html"><span class="icon">🏫</span> Rooms</a>
+      <div class="sidebar-title">Timetable</div>
+      <a href="/admin/generate.html"><span class="icon">⚡</span> Generate</a>
+      <a href="/admin/editor.html"><span class="icon">✏️</span> Editor</a>
+      <a href="/admin/conflicts.html" class="active"><span class="icon">⚠️</span> Conflicts</a>
+      <div class="sidebar-title">Views</div>
+      <a href="/views/class-timetable.html"><span class="icon">📅</span> Class View</a>
+      <a href="/views/faculty-timetable.html"><span class="icon">👤</span> Faculty View</a>
+      <a href="/views/location-timetable.html"><span class="icon">📍</span> Location View</a>
+    </nav>
+    <main class="admin-content">
+      <div class="page-title">Timetable Conflicts</div>
+      <div id="alertBox"></div>
+      
+      <div class="stats-card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <h3 style="margin: 0 0 8px 0; color: white;">Conflict Overview</h3>
+            <p style="margin: 0; opacity: 0.9; font-size: 0.9rem;">Detect and resolve scheduling conflicts automatically</p>
+          </div>
+          <button class="btn" onclick="scanConflicts()" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3);">🔍 Scan Now</button>
+        </div>
+        
+        <div class="stats-grid" id="conflictStats">
+          <div class="stat-item">
+            <div class="stat-value" id="totalConflicts">0</div>
+            <div class="stat-label">Total Conflicts</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="facultyConflicts">0</div>
+            <div class="stat-label">Faculty Conflicts</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="roomConflicts">0</div>
+            <div class="stat-label">Room Conflicts</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="affectedSections">0</div>
+            <div class="stat-label">Affected Sections</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="filter-bar">
+        <select class="form-control" id="filterType" style="width: 180px;">
+          <option value="all">All Conflict Types</option>
+          <option value="faculty">Faculty Conflicts Only</option>
+          <option value="room">Room Conflicts Only</option>
+          <option value="both">Both Faculty & Room</option>
+        </select>
+        <select class="form-control" id="filterDay" style="width: 150px;">
+          <option value="all">All Days</option>
+          <option value="Monday">Monday</option>
+          <option value="Tuesday">Tuesday</option>
+          <option value="Wednesday">Wednesday</option>
+          <option value="Thursday">Thursday</option>
+          <option value="Friday">Friday</option>
+          <option value="Saturday">Saturday</option>
+        </select>
+        <button class="btn btn-primary" onclick="applyFilters()">Apply Filters</button>
+        <button class="btn btn-secondary" onclick="resetFilters()">Reset</button>
+      </div>
+      
+      <div id="conflictsContainer">
+        <div class="empty-state">
+          <div class="icon">✅</div>
+          <h3>No conflicts found</h3>
+          <p>Your timetable appears to be conflict-free. Run a scan to check for any issues.</p>
+          <button class="btn btn-primary" onclick="scanConflicts()">Scan for Conflicts</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    fetch('/api/auth/status').then(r => r.json()).then(d => {
+      if (!d.loggedIn) { location.href = '/login.html'; return; }
+      deptId = d.user.isSuperAdmin ? 1 : (d.user.department_id || 1);
+      loadConflicts();
+    });
+
+    let deptId = 1;
+    let allConflicts = [];
+    let filteredConflicts = [];
+
+    async function loadConflicts() {
+      try {
+        const res = await fetch(`/api/admin/conflicts?department_id=${deptId}`);
+        if (!res.ok) throw new Error('Failed to load conflicts');
+        allConflicts = await res.json();
+        applyFilters();
+        updateStats();
+      } catch (error) {
+        showAlert('Failed to load conflicts: ' + error.message, 'error');
+      }
+    }
+
+    function applyFilters() {
+      const typeFilter = document.getElementById('filterType').value;
+      const dayFilter = document.getElementById('filterDay').value;
+      
+      filteredConflicts = allConflicts.filter(conflict => {
+        // Day filter
+        if (dayFilter !== 'all' && conflict.day !== dayFilter) return false;
+        
+        // Type filter
+        const hasFacultyConflict = conflict.faculty_duplicate_count > 0;
+        const hasRoomConflict = conflict.room_duplicate_count > 0;
+        
+        if (typeFilter === 'faculty' && !hasFacultyConflict) return false;
+        if (typeFilter === 'room' && !hasRoomConflict) return false;
+        if (typeFilter === 'both' && (!hasFacultyConflict || !hasRoomConflict)) return false;
+        
+        return true;
+      });
+      
+      renderConflicts();
+    }
+
+    function resetFilters() {
+      document.getElementById('filterType').value = 'all';
+      document.getElementById('filterDay').value = 'all';
+      applyFilters();
+    }
+
+    function updateStats() {
+      const total = allConflicts.length;
+      const facultyConflicts = allConflicts.filter(c => c.faculty_duplicate_count > 0).length;
+      const roomConflicts = allConflicts.filter(c => c.room_duplicate_count > 0).length;
+      
+      // Count unique affected sections
+      const sectionSet = new Set();
+      allConflicts.forEach(c => {
+        if (c.conflicting_entries) {
+          const sections = c.conflicting_entries.split(';').map(entry => {
+            const match = entry.match(/^(.*?) -/);
+            return match ? match[1].trim() : '';
+          });
+          sections.forEach(s => s && sectionSet.add(s));
+        }
+      });
+      
+      document.getElementById('totalConflicts').textContent = total;
+      document.getElementById('facultyConflicts').textContent = facultyConflicts;
+      document.getElementById('roomConflicts').textContent = roomConflicts;
+      document.getElementById('affectedSections').textContent = sectionSet.size;
+    }
+
+    function renderConflicts() {
+      const container = document.getElementById('conflictsContainer');
+      
+      if (filteredConflicts.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">✅</div>
+            <h3>No conflicts found</h3>
+            <p>No conflicts match the current filters. Try adjusting your filter criteria.</p>
+            <button class="btn btn-primary" onclick="resetFilters()">Reset Filters</button>
+          </div>
+        `;
+        return;
+      }
+      
+      let html = '';
+      
+      filteredConflicts.forEach(conflict => {
+        const hasFacultyConflict = conflict.faculty_duplicate_count > 0;
+        const hasRoomConflict = conflict.room_duplicate_count > 0;
+        
+        let cardClass = 'conflict-card';
+        if (hasFacultyConflict && hasRoomConflict) {
+          cardClass += ' double-conflict';
+        } else if (hasFacultyConflict) {
+          cardClass += ' faculty-conflict';
+        } else if (hasRoomConflict) {
+          cardClass += ' room-conflict';
+        }
+        
+        const typeText = hasFacultyConflict && hasRoomConflict ? 'Faculty & Room Conflict' :
+                        hasFacultyConflict ? 'Faculty Conflict' :
+                        hasRoomConflict ? 'Room Conflict' : 'Conflict';
+        
+        html += `
+          <div class="${cardClass}">
+            <div class="conflict-header">
+              <div class="conflict-time">
+                ${conflict.day} | Slot ${conflict.slot_id}
+              </div>
+              <span class="conflict-type">${typeText}</span>
+            </div>
+            
+            <div class="conflict-details">
+              ${hasFacultyConflict ? `
+              <div class="detail-section">
+                <h4>Faculty Conflict (${conflict.faculty_duplicate_count + 1} assignments)</h4>
+                <ul class="detail-list">
+                  ${conflict.faculty_names ? conflict.faculty_names.split(', ').map(name => `<li>${name}</li>`).join('') : '<li>No faculty info</li>'}
+                </ul>
+              </div>
+              ` : ''}
+              
+              ${hasRoomConflict ? `
+              <div class="detail-section">
+                <h4>Room Conflict (${conflict.room_duplicate_count + 1} assignments)</h4>
+                <ul class="detail-list">
+                  ${conflict.room_names ? conflict.room_names.split(', ').map(name => `<li>${name}</li>`).join('') : '<li>No room info</li>'}
+                </ul>
+              </div>
+              ` : ''}
+            </div>
+            
+            <div class="detail-section">
+              <h4>Affected Entries</h4>
+              <ul class="detail-list">
+                ${conflict.conflicting_entries ? conflict.conflicting_entries.split('; ').map(entry => `<li>${entry}</li>`).join('') : '<li>No entry info</li>'}
+              </ul>
+            </div>
+            
+            <div class="actions">
+              <button class="btn-resolve" onclick="autoResolveConflict('${conflict.day}', ${conflict.slot_id})">
+                Auto-Resolve
+              </button>
+              <button class="btn btn-secondary" onclick="manualResolve('${conflict.day}', ${conflict.slot_id})">
+                Manual Edit
+              </button>
+            </div>
+          </div>
+        `;
+      });
+      
+      container.innerHTML = html;
+    }
+
+    async function scanConflicts() {
+      showAlert('Scanning for conflicts...', 'info');
+      
+      try {
+        const res = await fetch(`/api/admin/scan-conflicts?department_id=${deptId}`, {
+          method: 'POST'
+        });
+        
+        if (!res.ok) throw new Error('Scan failed');
+        
+        const data = await res.json();
+        showAlert(data.message || 'Scan completed successfully', 'success');
+        loadConflicts();
+      } catch (error) {
+        showAlert('Scan failed: ' + error.message, 'error');
+      }
+    }
+
+    async function autoResolveConflict(day, slotId) {
+      if (!confirm(`Auto-resolve conflict for ${day} Slot ${slotId}? This will attempt to find alternative faculty/room assignments.`)) {
+        return;
+      }
+      
+      showAlert('Attempting to auto-resolve...', 'info');
+      
+      try {
+        const res = await fetch(`/api/admin/resolve-conflict`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ day, slot_id: slotId, department_id: deptId })
+        });
+        
+        if (!res.ok) throw new Error('Auto-resolve failed');
+        
+        const data = await res.json();
+        showAlert(data.message, data.success ? 'success' : 'warning');
+        
+        if (data.success) {
+          setTimeout(() => loadConflicts(), 1000);
+        }
+      } catch (error) {
+        showAlert('Auto-resolve failed: ' + error.message, 'error');
+      }
+    }
+
+    function manualResolve(day, slotId) {
+      // Redirect to timetable editor with filter for this day/slot
+      localStorage.setItem('editFilter', JSON.stringify({ day, slotId }));
+      window.location.href = '/admin/editor.html';
+    }
+
+    function showAlert(message, type = 'info') {
+      const alertBox = document.getElementById('alertBox');
+      const alertClass = type === 'error' ? 'alert-error' : 
+                        type === 'success' ? 'alert-success' : 'alert-info';
+      
+      alertBox.innerHTML = `
+        <div class="alert ${alertClass}">
+          ${message}
+        </div>
+      `;
+      
+      setTimeout(() => {
+        alertBox.innerHTML = '';
+      }, 5000);
+    }
+
+    function logout() {
+      fetch('/api/auth/logout').then(() => {
+        localStorage.clear();
+        location.href = '/login.html';
+      });
+    }
+  </script>
+</body>
+</html>

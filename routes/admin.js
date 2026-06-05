@@ -415,38 +415,226 @@ router.delete('/timetable/entry/:id', requireAuth, async (req, res) => {
 // ==================== CONFLICTS ==============================================
 // =============================================================================
 
+// Enhanced: Get all conflicts with detailed information
 router.get('/conflicts', requireAuth, async (req, res) => {
   try {
     const deptId = getDeptId(req);
     const conflicts = [];
 
+    // Find faculty conflicts (same faculty in multiple entries same day/slot)
     const facultyConflicts = await query(`
-      SELECT te1.id as id1, te2.id as id2, te1.day_of_week, ts.start_time,
-        f.name as faculty_name
+      SELECT 
+        te1.day_of_week as day,
+        te1.time_slot_id as slot_id,
+        ts.start_time,
+        ts.end_time,
+        te1.faculty_id,
+        f.name as faculty_name,
+        COUNT(*) as conflict_count,
+        JSON_AGG(JSON_BUILD_OBJECT(
+          'entry_id', te1.id,
+          'section_name', sec.name,
+          'subject_name', subj.name
+        )) as entries
       FROM timetable_entries te1
-      JOIN timetable_entries te2 ON te1.faculty_id=te2.faculty_id
-        AND te1.time_slot_id=te2.time_slot_id AND te1.day_of_week=te2.day_of_week AND te1.id<te2.id
-      JOIN faculty f ON te1.faculty_id=f.id AND f.department_id=$1
-      JOIN time_slots ts ON te1.time_slot_id=ts.id
-      WHERE te1.faculty_id IS NOT NULL
+      JOIN faculty f ON te1.faculty_id = f.id
+      JOIN time_slots ts ON te1.time_slot_id = ts.id
+      JOIN sections sec ON te1.section_id = sec.id
+      JOIN subjects subj ON te1.subject_id = subj.id
+      WHERE f.department_id = $1 AND te1.faculty_id IS NOT NULL
+      GROUP BY te1.day_of_week, te1.time_slot_id, te1.faculty_id, f.name, ts.start_time, ts.end_time
+      HAVING COUNT(*) > 1
+      ORDER BY te1.day_of_week, te1.time_slot_id
     `, [deptId]);
-    for (const c of facultyConflicts)
-      conflicts.push({ type: 'faculty', message: `Faculty ${c.faculty_name} double-booked on ${c.day_of_week} at ${c.start_time}` });
 
+    for (const c of facultyConflicts) {
+      conflicts.push({
+        day: c.day,
+        slot_id: c.slot_id,
+        time: `${c.start_time}-${c.end_time}`,
+        type: 'faculty',
+        resource_name: c.faculty_name,
+        conflict_count: c.conflict_count,
+        faculty_duplicate_count: c.conflict_count - 1,
+        room_duplicate_count: 0,
+        faculty_entries: c.entries
+      });
+    }
+
+    // Find room conflicts (same room in multiple entries same day/slot)
     const roomConflicts = await query(`
-      SELECT te1.id as id1, te2.id as id2, te1.day_of_week, ts.start_time,
-        r.name as room_name
+      SELECT 
+        te1.day_of_week as day,
+        te1.time_slot_id as slot_id,
+        ts.start_time,
+        ts.end_time,
+        te1.room_id,
+        r.name as room_name,
+        COUNT(*) as conflict_count,
+        JSON_AGG(JSON_BUILD_OBJECT(
+          'entry_id', te1.id,
+          'section_name', sec.name,
+          'subject_name', subj.name
+        )) as entries
       FROM timetable_entries te1
-      JOIN timetable_entries te2 ON te1.room_id=te2.room_id
-        AND te1.time_slot_id=te2.time_slot_id AND te1.day_of_week=te2.day_of_week AND te1.id<te2.id
-      JOIN rooms r ON te1.room_id=r.id AND r.department_id=$1
-      JOIN time_slots ts ON te1.time_slot_id=ts.id
-      WHERE te1.room_id IS NOT NULL
+      JOIN rooms r ON te1.room_id = r.id
+      JOIN time_slots ts ON te1.time_slot_id = ts.id
+      JOIN sections sec ON te1.section_id = sec.id
+      JOIN subjects subj ON te1.subject_id = subj.id
+      WHERE r.department_id = $1 AND te1.room_id IS NOT NULL
+      GROUP BY te1.day_of_week, te1.time_slot_id, te1.room_id, r.name, ts.start_time, ts.end_time
+      HAVING COUNT(*) > 1
+      ORDER BY te1.day_of_week, te1.time_slot_id
     `, [deptId]);
-    for (const c of roomConflicts)
-      conflicts.push({ type: 'room', message: `Room ${c.room_name} double-booked on ${c.day_of_week} at ${c.start_time}` });
+
+    for (const c of roomConflicts) {
+      conflicts.push({
+        day: c.day,
+        slot_id: c.slot_id,
+        time: `${c.start_time}-${c.end_time}`,
+        type: 'room',
+        resource_name: c.room_name,
+        conflict_count: c.conflict_count,
+        faculty_duplicate_count: 0,
+        room_duplicate_count: c.conflict_count - 1,
+        room_entries: c.entries
+      });
+    }
 
     res.json(conflicts);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Scan for conflicts and return summary statistics
+router.post('/scan-conflicts', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    
+    // Faculty conflicts
+    const facultyConflicts = await query(`
+      SELECT COUNT(DISTINCT te1.faculty_id || '_' || te1.day_of_week || '_' || te1.time_slot_id) as count
+      FROM timetable_entries te1
+      JOIN faculty f ON te1.faculty_id = f.id
+      WHERE f.department_id = $1 AND te1.faculty_id IS NOT NULL
+      GROUP BY te1.day_of_week, te1.time_slot_id, te1.faculty_id
+      HAVING COUNT(*) > 1
+    `, [deptId]);
+
+    // Room conflicts
+    const roomConflicts = await query(`
+      SELECT COUNT(DISTINCT te1.room_id || '_' || te1.day_of_week || '_' || te1.time_slot_id) as count
+      FROM timetable_entries te1
+      JOIN rooms r ON te1.room_id = r.id
+      WHERE r.department_id = $1 AND te1.room_id IS NOT NULL
+      GROUP BY te1.day_of_week, te1.time_slot_id, te1.room_id
+      HAVING COUNT(*) > 1
+    `, [deptId]);
+
+    // Affected sections
+    const affectedSections = await query(`
+      SELECT DISTINCT sec.id
+      FROM timetable_entries te1
+      JOIN sections sec ON te1.section_id = sec.id
+      JOIN years y ON sec.year_id = y.id
+      WHERE y.department_id = $1
+      AND (
+        (te1.faculty_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM timetable_entries te2
+          WHERE te2.faculty_id = te1.faculty_id
+          AND te2.day_of_week = te1.day_of_week
+          AND te2.time_slot_id = te1.time_slot_id
+          AND te2.id != te1.id
+        ))
+        OR
+        (te1.room_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM timetable_entries te2
+          WHERE te2.room_id = te1.room_id
+          AND te2.day_of_week = te1.day_of_week
+          AND te2.time_slot_id = te1.time_slot_id
+          AND te2.id != te1.id
+        ))
+      )
+    `, [deptId]);
+
+    res.json({
+      success: true,
+      stats: {
+        totalConflicts: (facultyConflicts.length || 0) + (roomConflicts.length || 0),
+        facultyConflicts: facultyConflicts.length || 0,
+        roomConflicts: roomConflicts.length || 0,
+        affectedSections: affectedSections.length || 0
+      }
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Suggest a fix for a specific conflict
+router.post('/suggest-fix', requireAuth, async (req, res) => {
+  try {
+    const { day, slot_id, department_id } = req.body;
+    const deptId = getDeptId(req);
+    
+    if (!day || !slot_id) {
+      return res.status(400).json({ error: 'day and slot_id required' });
+    }
+
+    // Get all entries for this day/slot
+    const entries = await query(`
+      SELECT te.*, sec.name as section_name, subj.name as subject_name, 
+             f.name as faculty_name, r.name as room_name
+      FROM timetable_entries te
+      JOIN sections sec ON te.section_id = sec.id
+      JOIN years y ON sec.year_id = y.id
+      JOIN subjects subj ON te.subject_id = subj.id
+      LEFT JOIN faculty f ON te.faculty_id = f.id
+      LEFT JOIN rooms r ON te.room_id = r.id
+      WHERE te.day_of_week = $1 AND te.time_slot_id = $2 AND y.department_id = $3
+      ORDER BY te.id
+    `, [day, slot_id, deptId]);
+
+    if (entries.length <= 1) {
+      return res.json({ suggestion: 'No conflict found for this slot' });
+    }
+
+    // Analyze the conflict
+    const facultyMap = {};
+    const roomMap = {};
+    for (const entry of entries) {
+      if (entry.faculty_id) {
+        if (!facultyMap[entry.faculty_id]) facultyMap[entry.faculty_id] = [];
+        facultyMap[entry.faculty_id].push(entry.section_name);
+      }
+      if (entry.room_id) {
+        if (!roomMap[entry.room_id]) roomMap[entry.room_id] = [];
+        roomMap[entry.room_id].push(entry.section_name);
+      }
+    }
+
+    // Find duplicate entries
+    const duplicateFaculty = Object.entries(facultyMap).filter(([_, sections]) => sections.length > 1);
+    const duplicateRooms = Object.entries(roomMap).filter(([_, sections]) => sections.length > 1);
+
+    // Generate suggestion
+    let suggestion = '';
+    if (duplicateFaculty.length > 0) {
+      suggestion += `Faculty conflict: Move one of the sections assigned to the same faculty to a different time slot. `;
+    }
+    if (duplicateRooms.length > 0) {
+      suggestion += `Room conflict: Relocate one of the sections to use a different room. `;
+    }
+    if (!suggestion) {
+      suggestion = 'Review the entries manually - no clear conflict pattern detected.';
+    }
+
+    res.json({
+      suggestion: suggestion.trim(),
+      conflictDetails: {
+        day, slot_id,
+        totalEntries: entries.length,
+        duplicateFaculty: duplicateFaculty.map(([fId, secs]) => ({ facultyId: fId, sections: secs })),
+        duplicateRooms: duplicateRooms.map(([rId, secs]) => ({ roomId: rId, sections: secs }))
+      }
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -498,6 +686,7 @@ router.get('/lab-assignments/:sectionId', requireAuth, async (req, res) => {
 });
 
 // UPSERT a single batch assignment
+// Validates that the same faculty is NOT assigned to multiple batches of the same subject
 router.post('/lab-assignments', requireAuth, async (req, res) => {
   try {
     const { section_id, subject_id, batch_name, faculty_id } = req.body;
@@ -508,6 +697,19 @@ router.post('/lab-assignments', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Section not in your department' });
 
     if (faculty_id) {
+      // Check if this faculty is already assigned to another batch of the same subject
+      const existing = await queryOne(`
+        SELECT batch_name FROM lab_assignments
+        WHERE section_id = $1 AND subject_id = $2 AND faculty_id = $3 AND batch_name != $4
+        LIMIT 1
+      `, [section_id, subject_id, faculty_id, batch_name]);
+
+      if (existing) {
+        return res.status(400).json({ 
+          error: `Faculty is already assigned to batch ${existing.batch_name} of this subject. Each faculty can teach only one batch per lab subject.`
+        });
+      }
+
       await run(`
         INSERT INTO lab_assignments (section_id, subject_id, batch_name, faculty_id)
         VALUES ($1, $2, $3, $4)
@@ -521,7 +723,7 @@ router.post('/lab-assignments', requireAuth, async (req, res) => {
         [section_id, subject_id, batch_name]
       );
     }
-    res.json({ message: 'Assignment saved' });
+    res.json({ message: 'Assignment saved successfully' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -533,6 +735,150 @@ router.delete('/lab-assignments/:sectionId', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Section not in your department' });
     await run('DELETE FROM lab_assignments WHERE section_id=$1', [req.params.sectionId]);
     res.json({ message: 'All lab assignments cleared for this section' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET lab entries organized by subject and batch (for editor view) ────────
+router.get('/lab-entries/:sectionId', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('sections', req.params.sectionId, deptId)))
+      return res.status(403).json({ error: 'Section not in your department' });
+
+    const entries = await query(`
+      SELECT 
+        te.id,
+        te.section_id,
+        te.day_of_week,
+        te.time_slot_id,
+        te.subject_id,
+        te.subsection as batch_name,
+        te.faculty_id,
+        te.room_id,
+        s.name as subject_name,
+        s.type as subject_type,
+        s.hours_per_week,
+        f.name as faculty_name,
+        r.name as room_name,
+        ts.start_time,
+        ts.end_time,
+        ts.slot_number
+      FROM timetable_entries te
+      JOIN subjects s ON te.subject_id = s.id
+      JOIN time_slots ts ON te.time_slot_id = ts.id
+      LEFT JOIN faculty f ON te.faculty_id = f.id
+      LEFT JOIN rooms r ON te.room_id = r.id
+      WHERE te.section_id = $1 AND s.type = 'lab'
+      ORDER BY s.name, te.day_of_week, ts.slot_number, te.subsection
+    `, [req.params.sectionId]);
+
+    // Group by subject → by slot → by batch
+    const grouped = {};
+    for (const entry of entries) {
+      if (!grouped[entry.subject_id]) {
+        grouped[entry.subject_id] = {
+          subject_id: entry.subject_id,
+          subject_name: entry.subject_name,
+          hours_per_week: entry.hours_per_week,
+          slots: {}
+        };
+      }
+
+      const slotKey = `${entry.day_of_week}_${entry.time_slot_id}`;
+      if (!grouped[entry.subject_id].slots[slotKey]) {
+        grouped[entry.subject_id].slots[slotKey] = {
+          day: entry.day_of_week,
+          slot_id: entry.time_slot_id,
+          slot_number: entry.slot_number,
+          start_time: entry.start_time,
+          end_time: entry.end_time,
+          batches: []
+        };
+      }
+
+      grouped[entry.subject_id].slots[slotKey].batches.push({
+        entry_id: entry.id,
+        batch_name: entry.batch_name,
+        faculty_id: entry.faculty_id,
+        faculty_name: entry.faculty_name,
+        room_id: entry.room_id,
+        room_name: entry.room_name
+      });
+    }
+
+    // Convert to array format for frontend
+    const result = Object.values(grouped).map(subj => ({
+      ...subj,
+      slots: Object.values(subj.slots)
+    }));
+
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Validate that no faculty is assigned to multiple batches of same lab subject ──
+router.post('/validate-lab-assignments', requireAuth, async (req, res) => {
+  try {
+    const { section_id } = req.body;
+    if (!section_id) return res.status(400).json({ error: 'section_id required' });
+    
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('sections', section_id, deptId)))
+      return res.status(403).json({ error: 'Section not in your department' });
+
+    // Find if any faculty is assigned to multiple batches of the same lab subject
+    const violations = await query(`
+      SELECT subject_id, faculty_id, COUNT(DISTINCT batch_name) as batch_count,
+             STRING_AGG(batch_name, ', ') as batches,
+             (SELECT name FROM subjects WHERE id = subject_id LIMIT 1) as subject_name,
+             (SELECT name FROM faculty WHERE id = faculty_id LIMIT 1) as faculty_name
+      FROM lab_assignments
+      WHERE section_id = $1 AND faculty_id IS NOT NULL
+      GROUP BY subject_id, faculty_id
+      HAVING COUNT(DISTINCT batch_name) > 1
+    `, [section_id]);
+
+    res.json({
+      valid: violations.length === 0,
+      violations: violations,
+      message: violations.length === 0 
+        ? 'All lab assignments are valid' 
+        : `${violations.length} faculty assignment violation(s) found`
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Get lab entries for a section grouped by subject and batch for display ──
+router.get('/lab-entries/:sectionId', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('sections', req.params.sectionId, deptId)))
+      return res.status(403).json({ error: 'Section not in your department' });
+
+    // Get all lab entries for this section, grouped by subject and batch
+    const rows = await query(`
+      SELECT 
+        s.id as subject_id,
+        s.name as subject_name,
+        s.hours_per_week,
+        la.batch_name,
+        STRING_AGG(CONCAT(te.day_of_week, ' ', ts.start_time, '-', ts.end_time), '; ') as time_slots,
+        STRING_AGG(DISTINCT f.name, ', ') as faculty_names,
+        STRING_AGG(DISTINCT r.name, ', ') as room_names,
+        COUNT(DISTINCT te.id) as entry_count
+      FROM subjects s
+      JOIN lab_assignments la ON s.id = la.subject_id AND la.section_id = $1
+      LEFT JOIN timetable_entries te ON s.id = te.subject_id 
+        AND te.section_id = $1
+      LEFT JOIN faculty f ON te.faculty_id = f.id
+      LEFT JOIN rooms r ON te.room_id = r.id
+      LEFT JOIN time_slots ts ON te.time_slot_id = ts.id
+      WHERE s.type = 'lab'
+      GROUP BY s.id, s.name, s.hours_per_week, la.batch_name
+      ORDER BY s.name, la.batch_name
+    `, [req.params.sectionId]);
+
+    res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -621,7 +967,11 @@ router.post('/generate', requireAuth, async (req, res) => {
       const dayLabLoad  = Object.fromEntries(days.map(d => [d, 0])); // lab count per day
 
       // ── Schedule LAB subjects first (consecutive on one day, no lunch break between) ──
+      // Track which faculty are assigned to which subjects (within this section only)
+      const labFacultyUsage = {}; // subjectId → Set of facultyIds already assigned
+      
       for (const subj of labSubjects) {
+        labFacultyUsage[subj.id] = new Set();
         const hoursNeeded = subj.hours_per_week; // usually 2
         let placed = false;
 
@@ -664,10 +1014,16 @@ router.post('/generate', requireAuth, async (req, res) => {
                 if (availR.length < numSubsections) { canPlace = false; break; }
 
                 // Check enough free qualified faculty for all batches
+                // BUT exclude faculty already assigned to this subject in other slots
                 const eligible = allFaculty.filter(f => {
-                  try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
+                  try { 
+                    return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id) &&
+                           !labFacultyUsage[subj.id].has(f.id); // NEW: avoid re-using faculty
+                  } catch { 
+                    return !labFacultyUsage[subj.id].has(f.id);
+                  }
                 });
-                const fPool = eligible.length >= numSubsections ? eligible : allFaculty;
+                const fPool = eligible.length >= numSubsections ? eligible : allFaculty.filter(f => !labFacultyUsage[subj.id].has(f.id));
                 const availF = fPool.filter(f =>
                   isFacultyFree(day, sl.id, f.id) && !tmpFac[sl.id]?.has(f.id)
                 );
@@ -702,16 +1058,24 @@ router.post('/generate', requireAuth, async (req, res) => {
               const preId = preAssigned[batchName];
               if (preId) {
                 const pre = allFaculty.find(f => f.id === preId);
-                if (pre && isFacultyFree(day, sl.id, pre.id) && !chosenFaculties.includes(pre)) {
+                // Use pre-assigned only if not already used for this subject and available now
+                if (pre && isFacultyFree(day, sl.id, pre.id) && 
+                    !chosenFaculties.includes(pre) && 
+                    !labFacultyUsage[subj.id].has(pre.id)) {
                   chosenF = pre;
                 }
               }
-              // Fall back to any free qualified faculty
+              // Fall back to any free qualified faculty not already assigned to this subject
               if (!chosenF) {
                 const eligible = allFaculty.filter(f => {
-                  try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
+                  try { 
+                    return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id) &&
+                           !labFacultyUsage[subj.id].has(f.id);
+                  } catch { 
+                    return !labFacultyUsage[subj.id].has(f.id);
+                  }
                 });
-                const pool = shuffle(eligible.length >= 1 ? eligible : allFaculty);
+                const pool = shuffle(eligible.length >= 1 ? eligible : allFaculty.filter(f => !labFacultyUsage[subj.id].has(f.id)));
                 chosenF = pool.find(f => isFacultyFree(day, sl.id, f.id) && !chosenFaculties.includes(f));
               }
 
@@ -731,6 +1095,7 @@ router.post('/generate', requireAuth, async (req, res) => {
               );
               markRoom(day, sl.id, chosenRooms[bi].id);
               markFaculty(day, sl.id, chosenFaculties[bi].id);
+              labFacultyUsage[subj.id].add(chosenFaculties[bi].id); // Track this faculty for subject
             }
             usedSlots.add(`${day}_${sl.id}`);
             dayLabLoad[day]++;
@@ -828,6 +1193,171 @@ router.post('/clear', requireAuth, async (req, res) => {
       for (const s of secs) await run('DELETE FROM timetable_entries WHERE section_id=$1', [s.id]);
     }
     res.json({ success: true, message: 'Timetable cleared' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// =============================================================================
+// ==================== ENHANCED CONFLICTS DETECTION ==========================
+// =============================================================================
+
+router.get('/conflicts', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    
+    // Find all faculty conflicts (same faculty double-booked)
+    const facultyConflicts = await query(`
+      SELECT 
+        te1.day_of_week,
+        te1.time_slot_id,
+        ts.start_time,
+        f.id as faculty_id,
+        f.name as faculty_name,
+        COUNT(*) as conflict_count,
+        STRING_AGG(CONCAT(sect.name, ' - ', subj.name, ' in ', r.name), '; ') as entries
+      FROM timetable_entries te1
+      JOIN timetable_entries te2 ON 
+        te1.faculty_id = te2.faculty_id AND
+        te1.time_slot_id = te2.time_slot_id AND
+        te1.day_of_week = te2.day_of_week AND
+        te1.id < te2.id
+      JOIN faculty f ON te1.faculty_id = f.id
+      JOIN sections sect ON te1.section_id = sect.id
+      JOIN subjects subj ON te1.subject_id = subj.id
+      JOIN rooms r ON te1.room_id = r.id
+      JOIN time_slots ts ON te1.time_slot_id = ts.id
+      WHERE f.department_id = $1 AND te1.faculty_id IS NOT NULL
+      GROUP BY te1.day_of_week, te1.time_slot_id, ts.start_time, f.id, f.name
+      ORDER BY te1.day_of_week, te1.time_slot_id
+    `, [deptId]);
+
+    // Find all room conflicts (same room double-booked)
+    const roomConflicts = await query(`
+      SELECT 
+        te1.day_of_week,
+        te1.time_slot_id,
+        ts.start_time,
+        r.id as room_id,
+        r.name as room_name,
+        COUNT(*) as conflict_count,
+        STRING_AGG(CONCAT(sect.name, ' - ', subj.name, ' with ', f.name), '; ') as entries
+      FROM timetable_entries te1
+      JOIN timetable_entries te2 ON 
+        te1.room_id = te2.room_id AND
+        te1.time_slot_id = te2.time_slot_id AND
+        te1.day_of_week = te2.day_of_week AND
+        te1.id < te2.id
+      JOIN rooms r ON te1.room_id = r.id
+      JOIN sections sect ON te1.section_id = sect.id
+      JOIN subjects subj ON te1.subject_id = subj.id
+      JOIN faculty f ON te1.faculty_id = f.id
+      JOIN time_slots ts ON te1.time_slot_id = ts.id
+      WHERE r.department_id = $1 AND te1.room_id IS NOT NULL
+      GROUP BY te1.day_of_week, te1.time_slot_id, ts.start_time, r.id, r.name
+      ORDER BY te1.day_of_week, te1.time_slot_id
+    `, [deptId]);
+
+    // Combine conflicts
+    const conflicts = [];
+    facultyConflicts.forEach(fc => {
+      conflicts.push({
+        type: 'faculty',
+        day: fc.day_of_week,
+        slot_id: fc.time_slot_id,
+        start_time: fc.start_time,
+        name: fc.faculty_name,
+        count: fc.conflict_count,
+        entries: fc.entries,
+        message: `Faculty ${fc.faculty_name} is double-booked on ${fc.day_of_week} at ${fc.start_time}`
+      });
+    });
+
+    roomConflicts.forEach(rc => {
+      conflicts.push({
+        type: 'room',
+        day: rc.day_of_week,
+        slot_id: rc.time_slot_id,
+        start_time: rc.start_time,
+        name: rc.room_name,
+        count: rc.conflict_count,
+        entries: rc.entries,
+        message: `Room ${rc.room_name} is double-booked on ${rc.day_of_week} at ${rc.start_time}`
+      });
+    });
+
+    res.json(conflicts);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/scan-conflicts', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    
+    // Count total conflicts
+    const conflictCount = await queryOne(`
+      SELECT COUNT(*) as total FROM (
+        SELECT te1.id FROM timetable_entries te1
+        JOIN timetable_entries te2 ON 
+          te1.faculty_id = te2.faculty_id AND
+          te1.time_slot_id = te2.time_slot_id AND
+          te1.day_of_week = te2.day_of_week AND
+          te1.id < te2.id
+        JOIN sections s ON te1.section_id = s.id
+        JOIN years y ON s.year_id = y.id
+        WHERE y.department_id = $1 AND te1.faculty_id IS NOT NULL
+        
+        UNION
+        
+        SELECT te1.id FROM timetable_entries te1
+        JOIN timetable_entries te2 ON 
+          te1.room_id = te2.room_id AND
+          te1.time_slot_id = te2.time_slot_id AND
+          te1.day_of_week = te2.day_of_week AND
+          te1.id < te2.id
+        JOIN sections s ON te1.section_id = s.id
+        JOIN years y ON s.year_id = y.id
+        WHERE y.department_id = $1 AND te1.room_id IS NOT NULL
+      ) combined
+    `, [deptId]);
+
+    res.json({
+      success: true,
+      stats: {
+        totalConflicts: parseInt(conflictCount.total)
+      },
+      message: `Scan complete: ${conflictCount.total} conflicts found`
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/suggest-fix', requireAuth, async (req, res) => {
+  try {
+    const { day, slot_id, department_id } = req.body;
+    const deptId = getDeptId(req);
+    
+    if (!day || !slot_id) {
+      return res.status(400).json({ error: 'day and slot_id required' });
+    }
+
+    // Find conflicting entries
+    const conflicts = await query(`
+      SELECT te1.id, te1.subject_id, te1.faculty_id, te1.room_id, 
+             s.name as section_name, subj.name as subject_name,
+             f.name as faculty_name, r.name as room_name
+      FROM timetable_entries te1
+      WHERE te1.day_of_week = $1 AND te1.time_slot_id = $2
+    `, [day, slot_id]);
+
+    if (!conflicts || conflicts.length < 2) {
+      return res.json({ suggestion: 'No conflict found in this slot' });
+    }
+
+    let suggestion = `This slot has ${conflicts.length} overlapping entries:\n\n`;
+    conflicts.forEach((c, i) => {
+      suggestion += `${i + 1}. ${c.section_name} - ${c.subject_name}\n   Faculty: ${c.faculty_name}\n   Room: ${c.room_name}\n\n`;
+    });
+    suggestion += 'Consider moving one of these entries to a different time slot or day.';
+
+    res.json({ suggestion });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

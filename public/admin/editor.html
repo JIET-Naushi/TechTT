@@ -13,6 +13,188 @@
     .cell-content .fac { color: #555; font-size: 0.72rem; }
     .cell-content .rm { color: #777; font-size: 0.7rem; }
     .cell-content.empty { color: #ccc; text-align: center; padding-top: 20px; }
+    
+    /* Lab Batch Viewer Styles */
+    .tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 2px solid #e0e0e0;
+      margin-bottom: 20px;
+    }
+    .tab-btn {
+      padding: 12px 24px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-weight: 500;
+      color: #666;
+      border-bottom: 3px solid transparent;
+      transition: all 0.2s;
+    }
+    .tab-btn.active {
+      color: #1976d2;
+      border-bottom-color: #1976d2;
+    }
+    .tab-btn:hover {
+      color: #1976d2;
+    }
+    
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    
+    .lab-batch-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+    }
+    
+    .lab-batch-card {
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    
+    .lab-batch-card.warning {
+      border-color: #ffa726;
+      background: #fff8e1;
+    }
+    
+    .lab-batch-card h4 {
+      margin: 0 0 8px 0;
+      color: #1a237e;
+      font-size: 1rem;
+    }
+    
+    .batch-info {
+      font-size: 0.85rem;
+      margin: 8px 0;
+      padding: 8px;
+      background: rgba(0,0,0,0.02);
+      border-radius: 4px;
+    }
+    
+    .batch-info strong {
+      display: block;
+      color: #666;
+      margin-bottom: 4px;
+    }
+    
+    .batch-info span {
+      color: #1a237e;
+      font-weight: 600;
+    }
+    
+    .batch-slots {
+      background: #f5f5f5;
+      border-radius: 4px;
+      padding: 8px;
+      font-size: 0.8rem;
+      max-height: 100px;
+      overflow-y: auto;
+      margin: 8px 0;
+    }
+    
+    .batch-slot-item {
+      padding: 4px 8px;
+      margin: 2px 0;
+      background: white;
+      border-left: 3px solid #1976d2;
+      border-radius: 2px;
+    }
+    
+    .empty-batches {
+      text-align: center;
+      padding: 40px 20px;
+      color: #999;
+    }
+    
+    .empty-batches .icon {
+      font-size: 2.5rem;
+      margin-bottom: 12px;
+      opacity: 0.6;
+    }
+    
+    /* Lab batch table styles */
+    .lab-batch-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+    }
+    
+    .lab-batch-table thead {
+      background: #f5f5f5;
+      border-bottom: 2px solid #ddd;
+    }
+    
+    .lab-batch-table th {
+      padding: 12px;
+      text-align: left;
+      font-weight: 600;
+      color: #333;
+      border-right: 1px solid #ddd;
+    }
+    
+    .lab-batch-table tbody tr {
+      border-bottom: 1px solid #e0e0e0;
+    }
+    
+    .lab-batch-table tbody tr:hover {
+      background: #f9f9f9;
+    }
+    
+    .lab-batch-table td {
+      padding: 12px;
+      border-right: 1px solid #ddd;
+    }
+    
+    .lab-batch-table .day-cell {
+      font-weight: 600;
+      color: #1a237e;
+      background: #f9f9f9;
+      min-width: 100px;
+      white-space: nowrap;
+    }
+    
+    .lab-batch-table .day-cell small {
+      display: block;
+      color: #666;
+      font-weight: 400;
+      font-size: 0.8rem;
+    }
+    
+    .batch-item {
+      background: #e3f2fd;
+      border: 1px solid #90caf9;
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 0.85rem;
+      text-align: center;
+    }
+    
+    .batch-item strong {
+      display: block;
+      color: #1a237e;
+      margin-bottom: 2px;
+    }
+    
+    .batch-item small {
+      display: block;
+      color: #555;
+      font-size: 0.8rem;
+    }
+    
+    .batch-item .faculty {
+      margin: 2px 0;
+    }
+    
+    .batch-item .room {
+      color: #1976d2;
+      font-weight: 500;
+      margin-top: 2px;
+    }
   </style>
 </head>
 <body>
@@ -35,6 +217,7 @@
       <div class="sidebar-title">Timetable</div>
       <a href="/admin/generate.html"><span class="icon">⚡</span> Generate</a>
       <a href="/admin/editor.html" class="active"><span class="icon">✏️</span> Editor</a>
+      <a href="/admin/conflicts.html"><span class="icon">⚠️</span> Conflicts</a>
       <div class="sidebar-title">Views</div>
       <a href="/views/class-timetable.html"><span class="icon">📅</span> Class View</a>
       <a href="/views/faculty-timetable.html"><span class="icon">👤</span> Faculty View</a>
@@ -66,8 +249,28 @@
       <div id="timetableArea" style="display:none;">
         <div class="card">
           <div class="card-title" id="tableTitle">Timetable</div>
-          <div class="timetable-grid">
-            <table class="timetable-table editor-table" id="editorTable"></table>
+          
+          <!-- Tab Navigation -->
+          <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('theory-view', this)">📚 Theory / B.T.U.</button>
+            <button class="tab-btn" onclick="switchTab('lab-view', this)">🔬 Lab Batches</button>
+          </div>
+          
+          <!-- Theory View Tab -->
+          <div id="theory-view" class="tab-content active">
+            <div class="timetable-grid">
+              <table class="timetable-table editor-table" id="editorTable"></table>
+            </div>
+          </div>
+          
+          <!-- Lab Batches View Tab -->
+          <div id="lab-view" class="tab-content">
+            <div id="labBatchesContainer">
+              <div class="empty-batches">
+                <div class="icon">🔬</div>
+                <p>No lab subjects found. Check if lab subjects are assigned to this section.</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -125,6 +328,14 @@
     let slots = [], entries = [], subjects = [], faculty = [], rooms = [];
     let currentSectionId = null;
 
+    function switchTab(tabName, btn) {
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById(tabName).classList.add('active');
+      if (btn) btn.classList.add('active');
+      if (tabName === 'lab-view') loadLabBatches();
+    }
+
     async function init() {
       const [yRes, slRes, subRes, fRes, rRes] = await Promise.all([
         fetch('/api/years'), fetch('/api/timeslots'), fetch('/api/subjects'),
@@ -177,6 +388,88 @@
       document.getElementById('emptyState').style.display = 'none';
     }
 
+    async function loadLabBatches() {
+      if (!currentSectionId) return;
+      try {
+        const res = await fetch(`/api/admin/lab-entries/${currentSectionId}`);
+        if (!res.ok) throw new Error('Failed to load lab batches');
+        const subjects = await res.json();
+        renderLabBatches(subjects);
+      } catch (error) {
+        showAlert('Failed to load lab batches: ' + error.message, 'error');
+      }
+    }
+
+    function renderLabBatches(subjects) {
+      const container = document.getElementById('labBatchesContainer');
+      
+      if (!subjects || subjects.length === 0) {
+        container.innerHTML = `
+          <div class="empty-batches">
+            <div class="icon">🔬</div>
+            <p>No lab subjects with scheduled entries found for this section.</p>
+            <p style="font-size: 0.85rem; color: #aaa;">Generate timetable or manually add lab entries.</p>
+          </div>
+        `;
+        return;
+      }
+
+      let html = '';
+      subjects.forEach(subject => {
+        html += `
+          <div style="margin-bottom: 32px; background: white; border-radius: 8px; padding: 20px; border: 1px solid #e0e0e0;">
+            <h3 style="margin: 0 0 16px 0; color: #1a237e; font-size: 1.1rem;">
+              🔬 ${subject.subject_name}
+              <span style="font-size: 0.8rem; color: #999; margin-left: 8px;">(${subject.hours_per_week} hrs/week)</span>
+            </h3>
+            
+            <div style="overflow-x: auto;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                  <tr style="background: #f5f5f5; border-bottom: 2px solid #ddd;">
+                    <th style="padding: 12px; text-align: left; font-weight: 600; color: #333; border-right: 1px solid #ddd;">Day & Time</th>
+                    ${Array.from({length: Math.max(...subject.slots.map(s => s.batches.length))}, (_, i) => 
+                      `<th style="padding: 12px; text-align: center; font-weight: 600; color: #333; border-right: 1px solid #ddd;">Batch ${String.fromCharCode(65 + i)}</th>`
+                    ).join('')}
+                  </tr>
+                </thead>
+                <tbody>
+                  ${subject.slots.map(slot => {
+                    const maxBatches = Math.max(...subject.slots.map(s => s.batches.length));
+                    return `
+                      <tr style="border-bottom: 1px solid #e0e0e0;">
+                        <td style="padding: 12px; font-weight: 600; color: #1a237e; background: #f9f9f9; border-right: 1px solid #ddd; white-space: nowrap;">
+                          <strong>${slot.day}</strong><br>
+                          <small style="color: #666;">${slot.start_time}–${slot.end_time}</small>
+                        </td>
+                        ${Array.from({length: maxBatches}, (_, batchIdx) => {
+                          const batch = slot.batches[batchIdx];
+                          if (!batch) {
+                            return `<td style="padding: 12px; text-align: center; color: #ccc; border-right: 1px solid #ddd;">—</td>`;
+                          }
+                          return `
+                            <td style="padding: 12px; text-align: center; border-right: 1px solid #ddd;">
+                              <div style="background: #e3f2fd; border: 1px solid #90caf9; border-radius: 6px; padding: 8px; font-size: 0.85rem;">
+                                <strong>${batch.batch_name}</strong><br>
+                                <small style="color: #555;">${batch.faculty_name || '—'}</small><br>
+                                <small style="color: #1976d2;">${batch.room_name || '—'}</small>
+                              </div>
+                            </td>
+                          `;
+                        }).join('')}
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      });
+      
+      container.innerHTML = html;
+    }
+
     const COLORS = ['color-0','color-1','color-2','color-3','color-4','color-5','color-6','color-7','color-8','color-9','color-10','color-11'];
     const subjectColorMap = {};
     function getSubjectColor(subjectId) {
@@ -201,10 +494,19 @@
       DAYS.forEach(day => {
         html += `<tr><td class="day-cell">${day}</td>`;
         teachingSlots.forEach(slot => {
-          const entry = entries.find(e => e.day_of_week === day && e.time_slot_id === slot.id);
-          if (entry && entry.subject_id) {
+          // Get ALL entries for this day+slot (there can be multiple for lab batches)
+          const slotEntries = entries.filter(e => e.day_of_week === day && e.time_slot_id === slot.id);
+
+          if (slotEntries.length === 0) {
+            // Empty slot
+            html += `<td onclick="openEditModal('${day}', ${slot.id}, null)">
+              <div class="cell-content empty">+ Add</div>
+            </td>`;
+          } else if (slotEntries.length === 1 && !slotEntries[0].subsection) {
+            // Single theory entry
+            const entry = slotEntries[0];
             const color = getSubjectColor(entry.subject_id);
-            html += `<td onclick="openEditModal('${day}', ${slot.id}, ${entry.id || 'null'})">
+            html += `<td onclick="openEditModal('${day}', ${slot.id}, ${entry.id})">
               <div class="cell-content ${color}">
                 <div class="subj">${entry.subject_name || '?'}</div>
                 <div class="fac">${entry.faculty_name || ''}</div>
@@ -212,9 +514,22 @@
               </div>
             </td>`;
           } else {
-            html += `<td onclick="openEditModal('${day}', ${slot.id}, null)">
-              <div class="cell-content empty">+ Add</div>
-            </td>`;
+            // Multiple lab-batch entries in this slot — stack them
+            const subjectName = slotEntries[0].subject_name || '?';
+            const color = getSubjectColor(slotEntries[0].subject_id);
+            html += `<td>`;
+            html += `<div class="cell-content ${color}" style="min-height:auto;padding:4px 6px;">
+              <div class="subj" style="font-size:0.75rem;">${subjectName}</div>
+            </div>`;
+            slotEntries.forEach(entry => {
+              html += `<div class="cell-content" style="min-height:auto;padding:4px 6px;border-top:1px dashed #ddd;cursor:pointer;background:#e8f5e9;"
+                onclick="openEditModal('${day}', ${slot.id}, ${entry.id})">
+                <span style="font-weight:600;color:#2e7d32;font-size:0.72rem;">Batch ${entry.subsection || '?'}</span>
+                <div class="fac">${entry.faculty_name || '—'}</div>
+                <div class="rm">${entry.room_name || '—'}</div>
+              </div>`;
+            });
+            html += `</td>`;
           }
         });
         html += '</tr>';
