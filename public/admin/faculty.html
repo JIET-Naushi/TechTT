@@ -43,9 +43,10 @@
       <div class="page-title" id="pageTitle">Faculty Management</div>
       <div id="alertBox"></div>
       <div class="card">
-        <div class="toolbar">
+        <div class="toolbar" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
           <span id="facultyCount" class="text-muted"></span>
           <button class="btn btn-primary" onclick="openModal()">+ Add Faculty</button>
+          <button class="btn btn-outline" onclick="openLabAssignmentModal()" id="labAssignBtn" style="display:none;">🔬 Lab Batch Assignment</button>
         </div>
         <div class="table-wrapper">
           <table>
@@ -110,6 +111,44 @@
     </div>
   </div>
 
+  <!-- Lab Batch Assignment Modal -->
+  <div class="modal-overlay" id="labAssignmentModal">
+    <div class="modal" style="max-width:700px;max-height:90vh;overflow-y:auto;">
+      <div class="modal-header">
+        <div class="modal-title">Lab Batch Assignment</div>
+        <button class="modal-close" onclick="closeLabAssignmentModal()">×</button>
+      </div>
+      <div style="padding:20px;">
+        <div id="labAssignAlert"></div>
+        
+        <div class="form-row">
+          <div class="form-group" style="flex:1;">
+            <label>Year</label>
+            <select id="labYearSelect" class="form-control" onchange="loadLabSections()">
+              <option value="">Select Year</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label>Section</label>
+            <select id="labSectionSelect" class="form-control" onchange="loadLabSubjects()">
+              <option value="">Select Section</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="labSubjectsArea" style="display:none;">
+          <label style="font-weight:700;font-size:0.95rem;color:#1a237e;margin-bottom:12px;display:block;">Assign Faculty to Lab Batches</label>
+          <div id="labSubjectsContainer"></div>
+        </div>
+
+        <div class="modal-footer" style="margin-top:20px;">
+          <button type="button" class="btn btn-secondary" onclick="closeLabAssignmentModal()">Cancel</button>
+          <button type="button" class="btn btn-primary" onclick="saveLabAssignments()">Save Assignments</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     let faculty    = [];
     let allSubjects = [];
@@ -135,6 +174,11 @@
         deptId = d.user.department_id;
         document.getElementById('pageTitle').textContent =
           `Faculty — ${d.user.dept_name || 'Your Department'}`;
+      }
+
+      // Show Lab Batch Assignment button for incharges
+      if (!d.user.isSuperAdmin) {
+        document.getElementById('labAssignBtn').style.display = 'inline-block';
       }
 
       // Allow ?dept=X for super admin to view other departments
@@ -334,6 +378,160 @@
     async function logout() {
       await fetch('/api/auth/logout', { method: 'POST' });
       location.href = '/login.html';
+    }
+
+    // ── Lab Batch Assignment ──────────────────────────────────────────────────
+    let allYears = [];
+    let currentLabSectionId = null;
+
+    async function openLabAssignmentModal() {
+      document.getElementById('labAssignAlert').innerHTML = '';
+      document.getElementById('labYearSelect').innerHTML = '<option value="">Select Year</option>';
+      document.getElementById('labSectionSelect').innerHTML = '<option value="">Select Section</option>';
+      document.getElementById('labSubjectsArea').style.display = 'none';
+      
+      try {
+        const res = await fetch(`/api/years?department_id=${deptId}`);
+        allYears = await res.json();
+        const sel = document.getElementById('labYearSelect');
+        allYears.forEach(y => {
+          const opt = document.createElement('option');
+          opt.value = y.id;
+          opt.textContent = y.display_name;
+          sel.appendChild(opt);
+        });
+      } catch (err) {
+        showAlert('Error loading years: ' + err.message, 'error');
+        return;
+      }
+      
+      document.getElementById('labAssignmentModal').classList.add('active');
+    }
+
+    function closeLabAssignmentModal() {
+      document.getElementById('labAssignmentModal').classList.remove('active');
+    }
+
+    async function loadLabSections() {
+      const yearId = document.getElementById('labYearSelect').value;
+      if (!yearId) {
+        document.getElementById('labSectionSelect').innerHTML = '<option value="">Select Section</option>';
+        return;
+      }
+      try {
+        const res = await fetch(`/api/sections?year_id=${yearId}`);
+        const sections = await res.json();
+        const sel = document.getElementById('labSectionSelect');
+        sel.innerHTML = '<option value="">Select Section</option>';
+        sections.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.id;
+          opt.textContent = `Section ${s.name}`;
+          sel.appendChild(opt);
+        });
+      } catch (err) {
+        showAlert('Error loading sections: ' + err.message, 'error');
+      }
+    }
+
+    async function loadLabSubjects() {
+      const sectionId = document.getElementById('labSectionSelect').value;
+      if (!sectionId) {
+        document.getElementById('labSubjectsArea').style.display = 'none';
+        return;
+      }
+      
+      currentLabSectionId = sectionId;
+      
+      try {
+        const [subRes, assignRes] = await Promise.all([
+          fetch(`/api/subjects?department_id=${deptId}`),
+          fetch(`/api/admin/lab-assignments/${sectionId}`)
+        ]);
+        
+        const allSubjects = await subRes.json();
+        const labSubjects = allSubjects.filter(s => s.type === 'lab');
+        const assignments = await assignRes.json();
+        
+        if (!labSubjects.length) {
+          document.getElementById('labSubjectsArea').style.display = 'none';
+          showAlert('No lab subjects found for this section', 'info');
+          return;
+        }
+
+        // Determine number of subsections
+        let numSubsections = 2;
+        try {
+          const secRes = await fetch(`/api/sections/${sectionId}`);
+          const sec = await secRes.json();
+          numSubsections = sec.lab_subsections || 2;
+        } catch {}
+
+        const batchNames = Array.from({length: numSubsections}, (_, i) => String.fromCharCode(65 + i));
+        
+        let html = '';
+        for (const subj of labSubjects) {
+          html += `
+            <div style="background:#f5f7ff;border-radius:8px;padding:16px;margin-bottom:12px;border:1px solid #e8eaf6;">
+              <div style="font-weight:700;color:#1a237e;margin-bottom:10px;font-size:0.95rem;">
+                ${subj.name} <span style="background:#e8f5e9;color:#2e7d32;font-size:0.7rem;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:6px;">LAB</span>
+              </div>
+              <div style="display:grid;gap:8px;">`;
+          
+          for (const batch of batchNames) {
+            const assigned = assignments.find(a => a.subject_id === subj.id && a.batch_name === batch);
+            html += `
+              <div style="display:flex;align-items:center;gap:10px;">
+                <label style="min-width:60px;font-weight:600;font-size:0.85rem;color:#1a237e;">Batch ${batch}</label>
+                <select class="form-control" data-subject="${subj.id}" data-batch="${batch}" style="flex:1;font-size:0.85rem;">
+                  <option value="">— No Faculty —</option>
+                  ${faculty.map(f => `<option value="${f.id}" ${assigned && assigned.faculty_id === f.id ? 'selected' : ''}>${f.name}</option>`).join('')}
+                </select>
+              </div>`;
+          }
+          
+          html += `</div></div>`;
+        }
+        
+        document.getElementById('labSubjectsContainer').innerHTML = html;
+        document.getElementById('labSubjectsArea').style.display = 'block';
+      } catch (err) {
+        showAlert('Error loading lab subjects: ' + err.message, 'error');
+      }
+    }
+
+    async function saveLabAssignments() {
+      if (!currentLabSectionId) return;
+      
+      const selects = document.querySelectorAll('#labSubjectsContainer select');
+      const assignments = [];
+      
+      for (const sel of selects) {
+        const subjectId = parseInt(sel.dataset.subject);
+        const batch = sel.dataset.batch;
+        const facultyId = sel.value ? parseInt(sel.value) : null;
+        
+        assignments.push({
+          section_id: currentLabSectionId,
+          subject_id: subjectId,
+          batch_name: batch,
+          faculty_id: facultyId
+        });
+      }
+      
+      try {
+        for (const assign of assignments) {
+          await fetch('/api/admin/lab-assignments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(assign)
+          });
+        }
+        showAlert('Lab batch assignments saved successfully!', 'success');
+        closeLabAssignmentModal();
+      } catch (err) {
+        showAlert('Error saving assignments: ' + err.message, 'error');
+      }
     }
   </script>
 </body>
