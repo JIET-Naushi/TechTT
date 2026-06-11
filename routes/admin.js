@@ -133,28 +133,34 @@ router.get('/departments', requireAuth, requireSuperAdmin, async (req, res) => {
 
 router.post('/departments', requireAuth, requireSuperAdmin, async (req, res) => {
   try {
-    const { name, code } = req.body;
+    const { name, code, course_prefix, num_years } = req.body;
     if (!name || !code) return res.status(400).json({ error: 'name and code required' });
     const result = await run(
       'INSERT INTO departments (name, code) VALUES ($1, $2) RETURNING id',
       [name, code.toUpperCase()]
     );
+    const newDeptId = result.rows[0].id;
     // Seed default time slots for new department
     const timeSlotsData = [
       [1,"08:00","09:00",0],[2,"09:00","09:50",0],[3,"09:50","10:40",0],
       [4,"10:40","11:30",0],[5,"11:30","12:30",1],[6,"12:30","13:20",0],
       [7,"13:20","14:10",0],[8,"14:10","15:00",0]
     ];
-    const newDeptId = result.rows[0].id;
     for (const [slot,start,end,is_break] of timeSlotsData) {
       await run('INSERT INTO time_slots (department_id,slot_number,start_time,end_time,is_break) VALUES ($1,$2,$3,$4,$5)',
         [newDeptId, slot, start, end, is_break]);
     }
-    // Seed default years
-    await run('INSERT INTO years (department_id,name,display_name) VALUES ($1,$2,$3)', [newDeptId,"year1","B.Tech I Year"]);
-    await run('INSERT INTO years (department_id,name,display_name) VALUES ($1,$2,$3)', [newDeptId,"year2","B.Tech II Year"]);
-    await run('INSERT INTO years (department_id,name,display_name) VALUES ($1,$2,$3)', [newDeptId,"year3","B.Tech III Year"]);
-    res.json({ id: newDeptId, message: 'Department created with default years and time slots' });
+    // Seed years using custom course prefix
+    const prefix = (course_prefix || 'B.Tech').trim();
+    const years = parseInt(num_years) || 3;
+    const ordinals = ['I','II','III','IV','V','VI'];
+    for (let i = 0; i < years; i++) {
+      const ord = ordinals[i] || `${i+1}`;
+      const yearName = `year${i+1}`;
+      const displayName = `${prefix} ${ord} Year`;
+      await run('INSERT INTO years (department_id,name,display_name) VALUES ($1,$2,$3)', [newDeptId, yearName, displayName]);
+    }
+    res.json({ id: newDeptId, message: `Department created with ${years} years using prefix "${prefix}"` });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -163,6 +169,38 @@ router.put('/departments/:id', requireAuth, requireSuperAdmin, async (req, res) 
     const { name, code } = req.body;
     await run('UPDATE departments SET name=$1, code=$2 WHERE id=$3', [name, code, req.params.id]);
     res.json({ message: 'Department updated' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Update year display name (e.g. change "B.Tech I Year" to "BCA I Year")
+router.put('/years/:id', requireAuth, async (req, res) => {
+  try {
+    const { display_name } = req.body;
+    if (!display_name) return res.status(400).json({ error: 'display_name required' });
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('years', req.params.id, deptId)))
+      return res.status(403).json({ error: 'Year not in your department' });
+    await run('UPDATE years SET display_name=$1 WHERE id=$2', [display_name.trim(), req.params.id]);
+    res.json({ message: 'Year name updated' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Bulk rename years using a course prefix
+router.put('/years/rename-all/:dept_id', requireAuth, async (req, res) => {
+  try {
+    const { course_prefix } = req.body;
+    if (!course_prefix) return res.status(400).json({ error: 'course_prefix required' });
+    const deptId = getDeptId(req);
+    // Super admin can target specific dept; incharge targets own dept
+    const targetDeptId = req.user.isSuperAdmin ? parseInt(req.params.dept_id) : deptId;
+    const years = await query('SELECT * FROM years WHERE department_id=$1 ORDER BY id', [targetDeptId]);
+    const ordinals = ['I','II','III','IV','V','VI'];
+    for (let i = 0; i < years.length; i++) {
+      const ord = ordinals[i] || `${i+1}`;
+      const newDisplay = `${course_prefix.trim()} ${ord} Year`;
+      await run('UPDATE years SET display_name=$1 WHERE id=$2', [newDisplay, years[i].id]);
+    }
+    res.json({ message: `Renamed ${years.length} years to "${course_prefix} ... Year" format` });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1023,7 +1061,8 @@ router.post('/generate', requireAuth, async (req, res) => {
       const dayLoad    = Object.fromEntries(days.map(d => [d, 0]));
       const dayLabLoad = Object.fromEntries(days.map(d => [d, 0]));
 
-      // ── Schedule LAB subjects: prefer less-loaded days for even spread ──────
+      // ── Schedule LAB subjects: all batches of a lab go in the SAME consecutive slots ──
+      // Different batches get different rooms; faculty determined per batch.
       for (const subj of labSubjects) {
         const hoursNeeded = subj.hours_per_week || 2;
         const preAssigned = assignedFaculty[subj.id] || {};
@@ -1033,10 +1072,10 @@ router.post('/generate', requireAuth, async (req, res) => {
         });
         const facPool = qualifiedFac.length >= numSubsections ? qualifiedFac : allFaculty;
 
+        // Pre-resolve faculty per batch
+        const batchFacultyList = [];
         for (let bi = 0; bi < numSubsections; bi++) {
           const batchName = batchNames[bi];
-          let batchPlaced = false;
-
           let batchFaculty = null;
           const preId = preAssigned[batchName];
           if (preId) {
@@ -1044,68 +1083,98 @@ router.post('/generate', requireAuth, async (req, res) => {
             if (pre) batchFaculty = pre;
           }
           if (!batchFaculty) {
-            batchFaculty = shuffle(facPool)[0] || null;
+            // Pick a faculty not already used for another batch of this lab
+            const usedFacIds = batchFacultyList.map(bf => bf && bf.id);
+            batchFaculty = shuffle(facPool).find(f => !usedFacIds.includes(f.id)) || shuffle(facPool)[0] || null;
           }
-          if (!batchFaculty) {
-            console.warn(`No faculty for ${subj.name} batch ${batchName}`);
-            continue;
-          }
+          batchFacultyList.push(batchFaculty);
+        }
 
-          // Sort days by lab load ascending for even distribution across days
-          const sortedDays = [...days].sort((a, b) => dayLabLoad[a] - dayLabLoad[b]);
+        // Sort days by lab load ascending for even distribution
+        const sortedDays = [...days].sort((a, b) => dayLabLoad[a] - dayLabLoad[b]);
+        let labPlaced = false;
 
-          for (const day of sortedDays) {
-            if (batchPlaced) break;
-            const freeSlots = allSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`));
-            if (freeSlots.length < hoursNeeded) continue;
+        for (const day of sortedDays) {
+          if (labPlaced) break;
 
-            // Build consecutive groups (respecting gaps like lunch)
-            const groups = [];
-            let cur = [freeSlots[0]];
-            for (let i = 1; i < freeSlots.length; i++) {
-              if (freeSlots[i].slot_number === freeSlots[i-1].slot_number + 1) {
-                cur.push(freeSlots[i]);
-              } else {
-                if (cur.length >= hoursNeeded) groups.push([...cur]);
-                cur = [freeSlots[i]];
-              }
+          // Find a consecutive slot group where ALL batches can be placed simultaneously
+          const freeSlots = allSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`));
+          if (freeSlots.length < hoursNeeded) continue;
+
+          // Build consecutive groups
+          const groups = [];
+          let cur = [freeSlots[0]];
+          for (let i = 1; i < freeSlots.length; i++) {
+            if (freeSlots[i].slot_number === freeSlots[i-1].slot_number + 1) {
+              cur.push(freeSlots[i]);
+            } else {
+              if (cur.length >= hoursNeeded) groups.push([...cur]);
+              cur = [freeSlots[i]];
             }
-            if (cur.length >= hoursNeeded) groups.push(cur);
-            if (!groups.length) continue;
+          }
+          if (cur.length >= hoursNeeded) groups.push(cur);
+          if (!groups.length) continue;
 
-            for (const group of groups) {
-              if (batchPlaced) break;
-              for (let start = 0; start <= group.length - hoursNeeded; start++) {
-                const candidate = group.slice(start, start + hoursNeeded);
-                if (!candidate.every(sl => isFacultyFree(day, sl.id, batchFaculty.id))) continue;
+          for (const group of groups) {
+            if (labPlaced) break;
+            for (let start = 0; start <= group.length - hoursNeeded; start++) {
+              const candidate = group.slice(start, start + hoursNeeded);
 
-                const availableLabs = labs.filter(r =>
+              // Check ALL batch faculty are free in these slots
+              const allFacultyFree = batchFacultyList.every(bf =>
+                bf ? candidate.every(sl => isFacultyFree(day, sl.id, bf.id)) : true
+              );
+              if (!allFacultyFree) continue;
+
+              // Find separate available labs for each batch
+              const usedLabIds = new Set();
+              const batchRooms = [];
+              let roomsOk = true;
+              for (let bi = 0; bi < numSubsections; bi++) {
+                const availableLab = labs.filter(r =>
+                  !usedLabIds.has(r.id) &&
                   candidate.every(sl => isRoomFree(day, sl.id, r.id))
-                ).sort((a, b) => roomUsageCount[a.id] - roomUsageCount[b.id]);
-                const labFreeAll = availableLabs[0];
-                if (!labFreeAll) continue;
+                ).sort((a, b) => roomUsageCount[a.id] - roomUsageCount[b.id])[0];
+
+                if (!availableLab) { roomsOk = false; break; }
+                batchRooms.push(availableLab);
+                usedLabIds.add(availableLab.id);
+              }
+              if (!roomsOk) continue;
+
+              // Place all batches in the SAME slots, different rooms
+              for (let bi = 0; bi < numSubsections; bi++) {
+                const batchName = batchNames[bi];
+                const batchFaculty = batchFacultyList[bi];
+                if (!batchFaculty) continue;
+                const labRoom = batchRooms[bi];
 
                 for (const sl of candidate) {
                   await run(
                     'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-                    [section.id, sl.id, day, subj.id, batchFaculty.id, labFreeAll.id, batchName]
+                    [section.id, sl.id, day, subj.id, batchFaculty.id, labRoom.id, batchName]
                   );
                   markFaculty(day, sl.id, batchFaculty.id);
-                  markRoom(day, sl.id, labFreeAll.id);
-                  usedSlots.add(`${day}_${sl.id}`);
-                  dayLabLoad[day]++;
-                  dayLoad[day]++;
+                  markRoom(day, sl.id, labRoom.id);
                 }
-                roomUsageCount[labFreeAll.id]++;
-                batchPlaced = true;
-                break;
+                roomUsageCount[labRoom.id]++;
               }
+
+              // Mark slots used for theory (all batches share the same slots)
+              for (const sl of candidate) {
+                usedSlots.add(`${day}_${sl.id}`);
+                dayLabLoad[day]++;
+                dayLoad[day]++;
+              }
+
+              labPlaced = true;
+              break;
             }
           }
+        }
 
-          if (!batchPlaced) {
-            console.warn(`Warning: Could not place ${subj.name} batch ${batchName} for section ${section.name}`);
-          }
+        if (!labPlaced) {
+          console.warn(`Warning: Could not place ${subj.name} for section ${section.name}`);
         }
       }
 
