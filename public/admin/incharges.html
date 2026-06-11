@@ -136,6 +136,21 @@
           <input type="text" id="newDeptCode" class="form-control" placeholder="ECE" maxlength="10">
           <small class="text-muted">Uppercase, short identifier (e.g., TECH, CS, MECH)</small>
         </div>
+        <div class="form-group">
+          <label>Course Prefix *</label>
+          <input type="text" id="newDeptCoursePrefix" class="form-control" placeholder="B.Tech" value="B.Tech">
+          <small class="text-muted">e.g., B.Tech, M.Tech, BCA, MCA, B.Sc, M.Sc</small>
+        </div>
+        <div class="form-group">
+          <label>Number of Years *</label>
+          <select id="newDeptNumYears" class="form-control">
+            <option value="2">2 Years</option>
+            <option value="3">3 Years</option>
+            <option value="4" selected>4 Years</option>
+            <option value="5">5 Years</option>
+          </select>
+          <small class="text-muted">Years will be created as: [Course Prefix] I Year, II Year, etc.</small>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" onclick="saveDept()">Create Department</button>
@@ -235,6 +250,8 @@
       document.getElementById('addDeptAlert').innerHTML = '';
       document.getElementById('newDeptName').value = '';
       document.getElementById('newDeptCode').value = '';
+      document.getElementById('newDeptCoursePrefix').value = 'B.Tech';
+      document.getElementById('newDeptNumYears').value = '4';
       document.getElementById('addDeptModal').style.display = 'flex';
     }
 
@@ -266,19 +283,24 @@
     async function saveDept() {
       const name = document.getElementById('newDeptName').value.trim();
       const code = document.getElementById('newDeptCode').value.trim().toUpperCase();
-      if (!name || !code) {
-        document.getElementById('addDeptAlert').innerHTML = '<div class="alert alert-error">Both fields required</div>';
+      const course_prefix = document.getElementById('newDeptCoursePrefix').value.trim();
+      const num_years = parseInt(document.getElementById('newDeptNumYears').value);
+      
+      if (!name || !code || !course_prefix || !num_years) {
+        document.getElementById('addDeptAlert').innerHTML = '<div class="alert alert-error">All fields are required</div>';
         return;
       }
+      
       const res = await fetch('/api/admin/departments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, code })
+        body: JSON.stringify({ name, code, course_prefix, num_years })
       });
       const data = await res.json();
       if (res.ok) {
         closeModal('addDeptModal');
         loadDepartments();
+        showAlert(data.message || 'Department created successfully', 'success');
       } else {
         document.getElementById('addDeptAlert').innerHTML = `<div class="alert alert-error">${data.error}</div>`;
       }
