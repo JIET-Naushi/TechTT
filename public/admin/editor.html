@@ -90,6 +90,10 @@
       letter-spacing: 0.3px; display: flex; align-items: center;
       justify-content: space-between; flex-shrink: 0;
       border-bottom: 2px solid rgba(0,0,0,0.15);
+      transition: background 0.12s;
+    }
+    .lab-header:hover {
+      background: rgba(0,0,0,0.06);
     }
     .lab-header .lab-tag {
       font-size: 0.6rem; font-weight: 700; padding: 1px 5px;
@@ -192,6 +196,38 @@
 
     /* ── Slot time label ─────────────────────────────────────────────── */
     .slot-time { font-size: 0.68rem; opacity: 0.75; font-weight: 400; margin-top: 2px; }
+    
+    /* ── Batch selector styles ───────────────────────────────────────── */
+    .batch-checkbox-wrapper {
+      display: flex; align-items: center; padding: 8px 12px;
+      border: 2px solid #e0e0e0; border-radius: 6px;
+      cursor: pointer; transition: all 0.15s;
+      background: white;
+    }
+    .batch-checkbox-wrapper:hover {
+      border-color: #9fa8da; background: #f5f7ff;
+    }
+    .batch-checkbox-wrapper input[type="checkbox"] {
+      width: 16px; height: 16px; margin-right: 8px; cursor: pointer;
+    }
+    .batch-checkbox-wrapper label {
+      margin: 0; cursor: pointer; font-weight: 600; font-size: 0.85rem;
+    }
+    .batch-checkbox-wrapper input:checked + label {
+      color: #1a237e;
+    }
+    
+    .batch-faculty-row, .batch-room-row {
+      display: flex; align-items: center; gap: 10px; padding: 8px;
+      background: #f5f7ff; border-radius: 6px; margin-bottom: 6px;
+    }
+    .batch-faculty-row .batch-label, .batch-room-row .batch-label {
+      min-width: 60px; font-weight: 700; font-size: 0.82rem;
+      color: #1a237e;
+    }
+    .batch-faculty-row select, .batch-room-row select {
+      flex: 1;
+    }
   </style>
 </head>
 <body>
@@ -306,17 +342,40 @@
             <option value="">— Free Period —</option>
           </select>
         </div>
+        
+        <!-- Batch selector for lab subjects -->
+        <div class="form-group" id="batchGroup" style="display:none;">
+          <label style="display:flex;align-items:center;gap:6px;">
+            <span>Lab Batches</span>
+            <span style="font-size:0.72rem;color:#666;font-weight:400;">(select all batches to schedule together)</span>
+          </label>
+          <div id="batchCheckboxes" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0;"></div>
+        </div>
+
         <div class="form-group">
           <label>Faculty</label>
           <select id="mFaculty" class="form-control">
             <option value="">— No Faculty —</option>
           </select>
         </div>
+        
+        <!-- Per-batch faculty assignment (shown when editing existing lab with multiple batches) -->
+        <div id="batchFacultyGroup" style="display:none;margin-top:12px;">
+          <label style="font-size:0.85rem;font-weight:600;color:#555;margin-bottom:8px;display:block;">Faculty per Batch</label>
+          <div id="batchFacultyList"></div>
+        </div>
+
         <div class="form-group">
           <label>Room</label>
           <select id="mRoom" class="form-control">
             <option value="">— No Room —</option>
           </select>
+        </div>
+        
+        <!-- Per-batch room assignment (shown when editing existing lab with multiple batches) -->
+        <div id="batchRoomGroup" style="display:none;margin-top:12px;">
+          <label style="font-size:0.85rem;font-weight:600;color:#555;margin-bottom:8px;display:block;">Room per Batch</label>
+          <div id="batchRoomList"></div>
         </div>
       </div>
 
@@ -332,8 +391,10 @@
 
   <script>
     /* ── Auth check ─────────────────────────────────────────────────── */
+    let deptId = 1;
     fetch('/api/auth/status').then(r => r.json()).then(d => {
       if (!d.loggedIn) { location.href = '/login.html'; return; }
+      deptId = d.user.isSuperAdmin ? 1 : (d.user.department_id || 1);
       init();
     });
 
@@ -351,8 +412,11 @@
 
     async function init() {
       const [yR, slR, subR, fR, rR] = await Promise.all([
-        fetch('/api/years'), fetch('/api/timeslots'),
-        fetch('/api/subjects'), fetch('/api/faculty'), fetch('/api/rooms')
+        fetch(`/api/years?department_id=${deptId}`), 
+        fetch(`/api/timeslots?department_id=${deptId}`),
+        fetch(`/api/subjects?department_id=${deptId}`), 
+        fetch(`/api/faculty?department_id=${deptId}`), 
+        fetch(`/api/rooms?department_id=${deptId}`)
       ]);
       const years   = await yR.json();
       slots         = await slR.json();
@@ -446,7 +510,7 @@
         const color  = getColor(slotEntries[0].subject_id);
         const isBtu  = slotEntries[0].subject_category === 'btu';
         let html = `<td><div class="cell-lab ${color}">`;
-        html += `<div class="lab-header">
+        html += `<div class="lab-header" style="cursor:pointer;" onclick="openModal('${day}',${slot.id},null,null)">
           <span>${slotEntries[0].subject_name || '?'}</span>
           <span style="display:flex;gap:3px;">
             <span class="lab-tag">LAB</span>
@@ -456,7 +520,7 @@
         html += `<div class="lab-batches">`;
         slotEntries.forEach(e => {
           html += `<div class="batch-row"
-            onclick="openModal('${day}',${slot.id},${e.id},'${e.subsection}')">
+            onclick="event.stopPropagation(); openModal('${day}',${slot.id},${e.id},'${e.subsection}')">
             <div class="batch-letter">${e.subsection}</div>
             <div class="batch-info">
               ${e.faculty_name
@@ -504,19 +568,33 @@
     function openModal(day, slotId, entryId, subsection) {
       if (!currentSectionId) return;
       const slot = slots.find(s => s.id === slotId);
-      const isLab = !!subsection;
+      
+      // Check if this is a lab slot with multiple batches (existing entries)
+      const slotEntries = entries.filter(e => e.day_of_week === day && e.time_slot_id === slotId);
+      const isMultiBatchLab = slotEntries.length > 1 && slotEntries.some(e => e.subsection);
+      const isLab = !!subsection || isMultiBatchLab;
 
       // Header
       document.getElementById('emTitle').textContent = `${day}  ·  Slot ${slot.slot_number}`;
       document.getElementById('emSubtitle').textContent = `${slot.start_time} – ${slot.end_time}`;
-      document.getElementById('emBadge').innerHTML = isLab
-        ? `<span class="em-badge lab">🔬 Lab Batch ${subsection}</span>`
-        : `<span class="em-badge">📖 Theory Slot</span>`;
+      
+      if (isMultiBatchLab && !subsection) {
+        // Editing a multi-batch lab slot
+        document.getElementById('emBadge').innerHTML = `<span class="em-badge lab">🔬 Lab (All Batches)</span>`;
+      } else if (isLab) {
+        document.getElementById('emBadge').innerHTML = `<span class="em-badge lab">🔬 Lab Batch ${subsection}</span>`;
+      } else {
+        document.getElementById('emBadge').innerHTML = `<span class="em-badge">📖 Theory Slot</span>`;
+      }
 
       // Info row
-      document.getElementById('emInfoRow').innerHTML = isLab
-        ? `🔬 Editing <strong>Batch ${subsection}</strong> — you can change the faculty and room for this batch`
-        : `📖 Theory slot — change the subject, faculty, or room`;
+      if (isMultiBatchLab && !subsection) {
+        document.getElementById('emInfoRow').innerHTML = `🔬 Editing <strong>all batches</strong> of this lab — assign faculty and rooms per batch below`;
+      } else if (isLab) {
+        document.getElementById('emInfoRow').innerHTML = `🔬 Editing <strong>Batch ${subsection}</strong> — you can change the faculty and room for this batch`;
+      } else {
+        document.getElementById('emInfoRow').innerHTML = `📖 Theory slot — change the subject, faculty, or room`;
+      }
 
       // Hidden fields
       document.getElementById('mSectionId').value  = currentSectionId;
@@ -525,20 +603,57 @@
       document.getElementById('mEntryId').value    = entryId || '';
       document.getElementById('mSubsection').value = subsection || '';
 
-      // Pre-fill
-      const e = entryId ? entries.find(x => x.id === entryId) : null;
-      document.getElementById('mSubject').value = e?.subject_id || '';
-      document.getElementById('mFaculty').value = e?.faculty_id || '';
-      document.getElementById('mRoom').value    = e?.room_id    || '';
+      // Pre-fill for single entry or single batch
+      if (isMultiBatchLab && !subsection) {
+        // Multi-batch lab: show all batches
+        const e0 = slotEntries[0];
+        document.getElementById('mSubject').value = e0?.subject_id || '';
+        document.getElementById('mSubject').disabled = true;
+        document.getElementById('subjectGroup').style.display = '';
+        
+        // Hide single faculty/room selectors
+        document.getElementById('mFaculty').parentElement.style.display = 'none';
+        document.getElementById('mRoom').parentElement.style.display = 'none';
+        
+        // Show per-batch faculty and room selectors
+        document.getElementById('batchFacultyGroup').style.display = 'block';
+        document.getElementById('batchRoomGroup').style.display = 'block';
+        renderBatchFacultyRooms(slotEntries);
+        
+        filterRooms('lab');
+      } else {
+        const e = entryId ? entries.find(x => x.id === entryId) : null;
+        document.getElementById('mSubject').value = e?.subject_id || '';
+        document.getElementById('mFaculty').value = e?.faculty_id || '';
+        document.getElementById('mRoom').value    = e?.room_id    || '';
+        
+        // Show single selectors
+        document.getElementById('mFaculty').parentElement.style.display = '';
+        document.getElementById('mRoom').parentElement.style.display = '';
+        document.getElementById('batchFacultyGroup').style.display = 'none';
+        document.getElementById('batchRoomGroup').style.display = 'none';
+      }
 
       // Subject field: hidden for lab batches
       const subjectGroup = document.getElementById('subjectGroup');
+      const batchGroup = document.getElementById('batchGroup');
+      
       if (isLab) {
-        subjectGroup.style.display = 'none';
-        document.getElementById('mSubject').disabled = false;
+        if (subsection) {
+          // Single batch edit
+          subjectGroup.style.display = 'none';
+          batchGroup.style.display = 'none';
+          document.getElementById('mSubject').disabled = false;
+        } else {
+          // Multi-batch edit
+          subjectGroup.style.display = '';
+          batchGroup.style.display = 'none';
+          document.getElementById('mSubject').disabled = true;
+        }
         filterRooms('lab');
       } else {
         subjectGroup.style.display = '';
+        batchGroup.style.display = 'none';
         document.getElementById('mSubject').disabled = false;
         onSubjectChange();
       }
@@ -548,11 +663,53 @@
 
       document.getElementById('editModal').classList.add('active');
     }
+    
+    /* ── Render per-batch faculty and room selectors ─────────────────── */
+    function renderBatchFacultyRooms(batchEntries) {
+      const facList = document.getElementById('batchFacultyList');
+      const roomList = document.getElementById('batchRoomList');
+      
+      facList.innerHTML = '';
+      roomList.innerHTML = '';
+      
+      batchEntries.sort((a, b) => (a.subsection || '').localeCompare(b.subsection || ''));
+      
+      batchEntries.forEach(e => {
+        // Faculty selector
+        const facRow = document.createElement('div');
+        facRow.className = 'batch-faculty-row';
+        facRow.innerHTML = `
+          <span class="batch-label">Batch ${e.subsection}</span>
+          <select class="form-control" data-batch="${e.subsection}" data-entry-id="${e.id}">
+            <option value="">— No Faculty —</option>
+            ${faculty.map(f => `<option value="${f.id}" ${f.id === e.faculty_id ? 'selected' : ''}>${f.name}${f.designation ? ' — ' + f.designation : ''}</option>`).join('')}
+          </select>
+        `;
+        facList.appendChild(facRow);
+        
+        // Room selector
+        const roomRow = document.createElement('div');
+        roomRow.className = 'batch-room-row';
+        roomRow.innerHTML = `
+          <span class="batch-label">Batch ${e.subsection}</span>
+          <select class="form-control" data-batch="${e.subsection}" data-entry-id="${e.id}">
+            <option value="">— No Room —</option>
+            ${rooms.filter(r => r.type === 'lab').map(r => `<option value="${r.id}" ${r.id === e.room_id ? 'selected' : ''}>${r.name} (${r.type})</option>`).join('')}
+          </select>
+        `;
+        roomList.appendChild(roomRow);
+      });
+    }
 
     function closeModal() {
       document.getElementById('editModal').classList.remove('active');
       document.getElementById('subjectGroup').style.display = '';
+      document.getElementById('batchGroup').style.display = 'none';
       document.getElementById('mSubject').disabled = false;
+      document.getElementById('mFaculty').parentElement.style.display = '';
+      document.getElementById('mRoom').parentElement.style.display = '';
+      document.getElementById('batchFacultyGroup').style.display = 'none';
+      document.getElementById('batchRoomGroup').style.display = 'none';
       filterRooms(''); // reset room filter
     }
 
@@ -564,31 +721,78 @@
 
       const entryId    = document.getElementById('mEntryId').value;
       const subsection = document.getElementById('mSubsection').value;
-      const body = {
-        section_id:   parseInt(document.getElementById('mSectionId').value),
-        time_slot_id: parseInt(document.getElementById('mSlotId').value),
-        day_of_week:  document.getElementById('mDay').value,
-        subject_id:   document.getElementById('mSubject').value   || null,
-        faculty_id:   document.getElementById('mFaculty').value   || null,
-        room_id:      document.getElementById('mRoom').value      || null,
-        entry_id:     entryId ? parseInt(entryId) : undefined,
-        subsection:   subsection || null
-      };
+      
+      // Check if this is a multi-batch lab edit
+      const batchFacultyGroup = document.getElementById('batchFacultyGroup');
+      const isMultiBatchEdit = batchFacultyGroup.style.display === 'block';
 
       try {
-        const res  = await fetch('/api/admin/timetable/entry', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        });
-        const data = await res.json();
-        if (res.ok) {
-          showAlert('✅ Saved — changes are live in all views', 'success');
+        if (isMultiBatchEdit) {
+          // Multi-batch lab: update each batch entry
+          const facSelects = batchFacultyGroup.querySelectorAll('select');
+          const roomSelects = document.getElementById('batchRoomGroup').querySelectorAll('select');
+          
+          for (let i = 0; i < facSelects.length; i++) {
+            const facSelect = facSelects[i];
+            const roomSelect = roomSelects[i];
+            const batchEntryId = facSelect.dataset.entryId;
+            const batch = facSelect.dataset.batch;
+            
+            const body = {
+              section_id:   parseInt(document.getElementById('mSectionId').value),
+              time_slot_id: parseInt(document.getElementById('mSlotId').value),
+              day_of_week:  document.getElementById('mDay').value,
+              subject_id:   document.getElementById('mSubject').value || null,
+              faculty_id:   facSelect.value || null,
+              room_id:      roomSelect.value || null,
+              entry_id:     parseInt(batchEntryId),
+              subsection:   batch
+            };
+            
+            const res = await fetch('/api/admin/timetable/entry', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body)
+            });
+            
+            if (!res.ok) {
+              const data = await res.json();
+              throw new Error(data.error || `Failed to save batch ${batch}`);
+            }
+          }
+          
+          showAlert('✅ Saved all batches — changes are live in all views', 'success');
           closeModal();
           await loadTimetable();
         } else {
-          showAlert(data.error || 'Save failed', 'error');
+          // Single entry save (existing logic)
+          const body = {
+            section_id:   parseInt(document.getElementById('mSectionId').value),
+            time_slot_id: parseInt(document.getElementById('mSlotId').value),
+            day_of_week:  document.getElementById('mDay').value,
+            subject_id:   document.getElementById('mSubject').value   || null,
+            faculty_id:   document.getElementById('mFaculty').value   || null,
+            room_id:      document.getElementById('mRoom').value      || null,
+            entry_id:     entryId ? parseInt(entryId) : undefined,
+            subsection:   subsection || null
+          };
+
+          const res  = await fetch('/api/admin/timetable/entry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          const data = await res.json();
+          if (res.ok) {
+            showAlert('✅ Saved — changes are live in all views', 'success');
+            closeModal();
+            await loadTimetable();
+          } else {
+            showAlert(data.error || 'Save failed', 'error');
+          }
         }
+      } catch (err) {
+        showAlert(err.message || 'Save failed', 'error');
       } finally {
         saveBtn.disabled = false;
         saveBtn.innerHTML = '💾 Save';
