@@ -370,8 +370,36 @@ router.delete('/faculty/:id', requireAuth, async (req, res) => {
     const deptId = getDeptId(req);
     if (!(await verifyDeptOwnership('faculty', req.params.id, deptId)))
       return res.status(403).json({ error: 'Faculty does not belong to your department' });
+
+    // Null-out faculty_id in all timetable entries so slots remain but show unassigned
+    const affected = await run(
+      'UPDATE timetable_entries SET faculty_id = NULL WHERE faculty_id = $1',
+      [req.params.id]
+    );
+
+    // Also remove from lab_assignments
+    await run('DELETE FROM lab_assignments WHERE faculty_id = $1', [req.params.id]);
+
     await run('DELETE FROM faculty WHERE id=$1', [req.params.id]);
-    res.json({ message: 'Faculty deleted' });
+
+    const count = affected.rowCount || 0;
+    res.json({
+      message: `Faculty deleted. ${count > 0 ? `${count} timetable slot(s) are now unassigned.` : 'No timetable entries were affected.'}`
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Get count of timetable entries for a faculty (used before deletion)
+router.get('/faculty/:id/timetable-count', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('faculty', req.params.id, deptId)))
+      return res.status(403).json({ error: 'Faculty does not belong to your department' });
+    const row = await queryOne(
+      'SELECT COUNT(*) as cnt FROM timetable_entries WHERE faculty_id = $1',
+      [req.params.id]
+    );
+    res.json({ count: parseInt(row.cnt) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1005,10 +1033,7 @@ router.post('/generate', requireAuth, async (req, res) => {
     const allFaculty  = await query("SELECT * FROM faculty WHERE role='faculty' AND department_id=$1", [deptId]);
     const allRooms    = await query('SELECT * FROM rooms WHERE department_id=$1', [deptId]);
     const classrooms  = allRooms.filter(r => r.type === 'classroom');
-    // Use lab rooms; fall back to classrooms if no lab rooms are configured
-    const labs        = allRooms.filter(r => r.type === 'lab').length > 0
-                          ? allRooms.filter(r => r.type === 'lab')
-                          : classrooms;
+    const labs        = allRooms.filter(r => r.type === 'lab');
 
     const facultyBusy = {};
     const roomBusy    = {};

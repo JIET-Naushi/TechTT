@@ -310,8 +310,24 @@
     function confirmDelete(btn) {
       const id   = btn.getAttribute('data-id');
       const name = faculty.find(f => f.id == id)?.name || 'this faculty';
-      if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
-      deleteFaculty(id, btn);
+      // First check how many timetable slots they're assigned to
+      fetch(`/api/admin/faculty/${id}/timetable-count`)
+        .then(r => r.json())
+        .then(data => {
+          const count = data.count || 0;
+          const slotWarning = count > 0
+            ? `\n\n⚠️ Warning: This faculty is assigned to ${count} timetable slot(s).\nThose slots will remain but will be marked as unassigned.`
+            : '';
+          if (confirm(`Delete "${name}"? This cannot be undone.${slotWarning}`)) {
+            deleteFaculty(id, btn);
+          }
+        })
+        .catch(() => {
+          // If count check fails, still allow deletion with generic warning
+          if (confirm(`Delete "${name}"? This cannot be undone.\n\nAny timetable slots assigned to this faculty will be marked as unassigned.`)) {
+            deleteFaculty(id, btn);
+          }
+        });
     }
 
     async function deleteFaculty(id, btn) {
@@ -321,7 +337,7 @@
         const res  = await fetch(`/api/admin/faculty/${id}`, { method: 'DELETE' });
         const data = await res.json();
         if (res.ok) {
-          showAlert('Faculty deleted successfully', 'success');
+          showAlert(data.message || 'Faculty deleted successfully', 'success');
           faculty = faculty.filter(f => f.id != id);
           renderTable();
         } else {
