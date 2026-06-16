@@ -572,7 +572,8 @@
       
       // Check if this is a lab slot with multiple batches (existing entries)
       const slotEntries = entries.filter(e => e.day_of_week === day && e.time_slot_id === slotId);
-      const isMultiBatchLab = slotEntries.length > 1 && slotEntries.some(e => e.subsection);
+      // isMultiBatchLab: any slot that has subsection entries (even 1 batch)
+      const isMultiBatchLab = slotEntries.length >= 1 && slotEntries.some(e => e.subsection) && !subsection;
       const isLab = !!subsection || isMultiBatchLab;
 
       // Header

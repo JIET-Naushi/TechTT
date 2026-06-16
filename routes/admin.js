@@ -1005,7 +1005,10 @@ router.post('/generate', requireAuth, async (req, res) => {
     const allFaculty  = await query("SELECT * FROM faculty WHERE role='faculty' AND department_id=$1", [deptId]);
     const allRooms    = await query('SELECT * FROM rooms WHERE department_id=$1', [deptId]);
     const classrooms  = allRooms.filter(r => r.type === 'classroom');
-    const labs        = allRooms.filter(r => r.type === 'lab');
+    // Use lab rooms; fall back to classrooms if no lab rooms are configured
+    const labs        = allRooms.filter(r => r.type === 'lab').length > 0
+                          ? allRooms.filter(r => r.type === 'lab')
+                          : classrooms;
 
     const facultyBusy = {};
     const roomBusy    = {};
