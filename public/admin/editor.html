@@ -338,7 +338,7 @@
 
         <div class="form-group" id="subjectGroup">
           <label>Subject</label>
-          <select id="mSubject" class="form-control" onchange="onSubjectChange()">
+          <select id="mSubject" class="form-control" onchange="onSubjectChange(document.getElementById('batchFacultyGroup').style.display==='block')">
             <option value="">— Free Period —</option>
           </select>
         </div>
@@ -382,6 +382,7 @@
       <!-- Footer -->
       <div class="em-footer">
         <button type="button" class="btn btn-danger btn-sm" id="clearBtn" onclick="clearEntry()" style="display:none; margin-right:auto;">🗑 Clear</button>
+        <button type="button" class="btn btn-warning btn-sm" id="clearSlotBtn" onclick="clearSlot()" style="display:none; margin-right:auto;">🗑 Clear Slot</button>
         <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
         <button type="button" class="btn btn-primary" onclick="saveEntry()">💾 Save</button>
       </div>
@@ -608,7 +609,7 @@
         // Multi-batch lab: show all batches
         const e0 = slotEntries[0];
         document.getElementById('mSubject').value = e0?.subject_id || '';
-        document.getElementById('mSubject').disabled = true;
+        document.getElementById('mSubject').disabled = false;  // allow changing subject to convert to theory
         document.getElementById('subjectGroup').style.display = '';
         
         // Hide single faculty/room selectors
@@ -640,15 +641,17 @@
       
       if (isLab) {
         if (subsection) {
-          // Single batch edit
+          // Single batch edit — hide subject, show single fac/room
           subjectGroup.style.display = 'none';
           batchGroup.style.display = 'none';
           document.getElementById('mSubject').disabled = false;
         } else {
-          // Multi-batch edit
+          // Multi-batch edit — show subject (user can switch to theory), batch controls visible
           subjectGroup.style.display = '';
           batchGroup.style.display = 'none';
-          document.getElementById('mSubject').disabled = true;
+          document.getElementById('mSubject').disabled = false;
+          // Wire subject change to show/hide batch controls
+          onSubjectChange(true /* inMultiBatchMode */);
         }
         filterRooms('lab');
       } else {
@@ -658,8 +661,9 @@
         onSubjectChange();
       }
 
-      // Clear button
-      document.getElementById('clearBtn').style.display = entryId ? 'inline-flex' : 'none';
+      // Clear buttons
+      document.getElementById('clearBtn').style.display = (entryId && !isMultiBatchLab) ? 'inline-flex' : 'none';
+      document.getElementById('clearSlotBtn').style.display = isMultiBatchLab ? 'inline-flex' : 'none';
 
       document.getElementById('editModal').classList.add('active');
     }
@@ -710,6 +714,8 @@
       document.getElementById('mRoom').parentElement.style.display = '';
       document.getElementById('batchFacultyGroup').style.display = 'none';
       document.getElementById('batchRoomGroup').style.display = 'none';
+      document.getElementById('clearBtn').style.display = 'none';
+      document.getElementById('clearSlotBtn').style.display = 'none';
       filterRooms(''); // reset room filter
     }
 
@@ -722,7 +728,7 @@
       const entryId    = document.getElementById('mEntryId').value;
       const subsection = document.getElementById('mSubsection').value;
       
-      // Check if this is a multi-batch lab edit
+      // Check if this is a multi-batch lab edit with batch controls still visible
       const batchFacultyGroup = document.getElementById('batchFacultyGroup');
       const isMultiBatchEdit = batchFacultyGroup.style.display === 'block';
 
@@ -765,7 +771,8 @@
           closeModal();
           await loadTimetable();
         } else {
-          // Single entry save (existing logic)
+          // Single entry save — works for both plain theory and converting lab→theory
+          // Backend will auto-delete any lab batch entries before inserting theory
           const body = {
             section_id:   parseInt(document.getElementById('mSectionId').value),
             time_slot_id: parseInt(document.getElementById('mSlotId').value),
@@ -773,7 +780,7 @@
             subject_id:   document.getElementById('mSubject').value   || null,
             faculty_id:   document.getElementById('mFaculty').value   || null,
             room_id:      document.getElementById('mRoom').value      || null,
-            entry_id:     entryId ? parseInt(entryId) : undefined,
+            entry_id:     (!subsection && entryId) ? parseInt(entryId) : undefined,
             subsection:   subsection || null
           };
 
@@ -799,7 +806,7 @@
       }
     }
 
-    /* ── Clear ──────────────────────────────────────────────────────── */
+    /* ── Clear single entry ─────────────────────────────────────────── */
     async function clearEntry() {
       const entryId = document.getElementById('mEntryId').value;
       if (!entryId) return;
@@ -807,6 +814,27 @@
       const res = await fetch(`/api/admin/timetable/entry/${entryId}`, { method: 'DELETE' });
       if (res.ok) {
         showAlert('Slot cleared', 'success');
+        closeModal();
+        await loadTimetable();
+      } else {
+        showAlert('Failed to clear slot', 'error');
+      }
+    }
+
+    /* ── Clear entire slot (all lab batches) ────────────────────────── */
+    async function clearSlot() {
+      if (!confirm('Clear this entire slot? All lab batch entries will be removed.')) return;
+      const res = await fetch('/api/admin/timetable/slot', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section_id:   parseInt(document.getElementById('mSectionId').value),
+          time_slot_id: parseInt(document.getElementById('mSlotId').value),
+          day_of_week:  document.getElementById('mDay').value
+        })
+      });
+      if (res.ok) {
+        showAlert('Slot cleared — all batches removed', 'success');
         closeModal();
         await loadTimetable();
       } else {
@@ -831,9 +859,27 @@
       if (curOpt && curOpt.style.display === 'none') rSel.value = '';
     }
 
-    function onSubjectChange() {
+    function onSubjectChange(inMultiBatchMode = false) {
       const opt  = document.getElementById('mSubject').selectedOptions[0];
       const type = opt?.dataset?.type || '';
+      
+      if (inMultiBatchMode) {
+        // In multi-batch mode: if user switches to a theory/empty subject,
+        // hide batch controls and show single faculty/room (converting lab→theory)
+        if (type !== 'lab') {
+          document.getElementById('mFaculty').parentElement.style.display = '';
+          document.getElementById('mRoom').parentElement.style.display = '';
+          document.getElementById('batchFacultyGroup').style.display = 'none';
+          document.getElementById('batchRoomGroup').style.display = 'none';
+          document.getElementById('emInfoRow').innerHTML = `⚠️ Changing to a non-lab subject will <strong>replace all lab batches</strong> with a single theory entry`;
+        } else {
+          document.getElementById('mFaculty').parentElement.style.display = 'none';
+          document.getElementById('mRoom').parentElement.style.display = 'none';
+          document.getElementById('batchFacultyGroup').style.display = 'block';
+          document.getElementById('batchRoomGroup').style.display = 'block';
+        }
+      }
+      
       if (type === 'lab')   filterRooms('lab');
       else if (type)        filterRooms('classroom');
       else                  filterRooms('');

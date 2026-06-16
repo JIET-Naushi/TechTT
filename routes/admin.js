@@ -476,6 +476,23 @@ router.post('/timetable/entry', requireAuth, async (req, res) => {
       return res.json({ id: entry_id, message: 'Entry updated' });
     }
 
+    // Saving a new theory slot (no subsection, no entry_id):
+    // If this slot already has lab batch entries, delete them ALL first
+    // so the slot can be replaced with a theory class cleanly.
+    if (!subsection) {
+      const existingLab = await queryOne(
+        'SELECT id FROM timetable_entries WHERE section_id=$1 AND time_slot_id=$2 AND day_of_week=$3 AND subsection IS NOT NULL LIMIT 1',
+        [section_id, time_slot_id, day_of_week]
+      );
+      if (existingLab) {
+        // Delete ALL batch entries for this slot (all subsections)
+        await run(
+          'DELETE FROM timetable_entries WHERE section_id=$1 AND time_slot_id=$2 AND day_of_week=$3',
+          [section_id, time_slot_id, day_of_week]
+        );
+      }
+    }
+
     // For theory (no subsection): find existing by section+slot+day where subsection IS NULL
     const existing = await queryOne(
       'SELECT id FROM timetable_entries WHERE section_id=$1 AND time_slot_id=$2 AND day_of_week=$3 AND subsection IS NULL',
@@ -495,10 +512,20 @@ router.post('/timetable/entry', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.delete('/timetable/entry/:id', requireAuth, async (req, res) => {
+// Delete ALL entries for a specific section+slot+day (used to clear an entire slot including all lab batches)
+router.delete('/timetable/slot', requireAuth, async (req, res) => {
   try {
-    await run('DELETE FROM timetable_entries WHERE id=$1', [req.params.id]);
-    res.json({ message: 'Entry deleted' });
+    const { section_id, time_slot_id, day_of_week } = req.body;
+    if (!section_id || !time_slot_id || !day_of_week)
+      return res.status(400).json({ error: 'section_id, time_slot_id, day_of_week required' });
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('sections', section_id, deptId)))
+      return res.status(403).json({ error: 'Section does not belong to your department' });
+    await run(
+      'DELETE FROM timetable_entries WHERE section_id=$1 AND time_slot_id=$2 AND day_of_week=$3',
+      [section_id, time_slot_id, day_of_week]
+    );
+    res.json({ message: 'Slot cleared' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1371,45 +1398,68 @@ router.post('/generate', requireAuth, async (req, res) => {
         const dLoad2 = Object.fromEntries(days.map(d=>[d,0]));
         const dLab2  = Object.fromEntries(days.map(d=>[d,0]));
 
-        // Re-schedule labs
+        // Re-schedule labs (synchronized: all batches in same slots, different rooms)
         for (const subj of labSubjs2) {
           const hrs = subj.hours_per_week || 2;
           const pre2 = aFac2[subj.id] || {};
           const qFac2 = allFaculty.filter(f => { try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; } });
           const fPool2 = qFac2.length >= numSubs2 ? qFac2 : allFaculty;
+
+          // Pre-resolve faculty per batch (same as main scheduling)
+          const bFacList2 = [];
           for (let bi = 0; bi < numSubs2; bi++) {
             const bn = bNames2[bi];
-            let placed2 = false;
             let bFac2 = null;
             if (pre2[bn]) { const p = allFaculty.find(f=>f.id===pre2[bn]); if(p) bFac2=p; }
-            if (!bFac2) bFac2 = shuffle(fPool2)[0] || null;
-            if (!bFac2) continue;
-            for (const day of [...days].sort((a,b)=>dLab2[a]-dLab2[b])) {
-              if (placed2) break;
-              const fs2 = allSlots.filter(sl=>!used2.has(`${day}_${sl.id}`));
-              if (fs2.length < hrs) continue;
-              const grps2 = [];
-              let c2 = [fs2[0]];
-              for (let i=1;i<fs2.length;i++) {
-                if (fs2[i].slot_number===fs2[i-1].slot_number+1) c2.push(fs2[i]);
-                else { if(c2.length>=hrs) grps2.push([...c2]); c2=[fs2[i]]; }
-              }
-              if (c2.length>=hrs) grps2.push(c2);
-              for (const g2 of grps2) {
-                if (placed2) break;
-                for (let s2=0;s2<=g2.length-hrs;s2++) {
-                  const cand2 = g2.slice(s2,s2+hrs);
-                  if (!cand2.every(sl=>isFacultyFree(day,sl.id,bFac2.id))) continue;
-                  const aLabs2 = labs.filter(r=>cand2.every(sl=>isRoomFree(day,sl.id,r.id))).sort((a,b)=>roomUsageCount[a.id]-roomUsageCount[b.id]);
-                  const lf2 = aLabs2[0]; if(!lf2) continue;
+            if (!bFac2) {
+              const usedFacIds2 = bFacList2.map(bf => bf && bf.id);
+              bFac2 = shuffle(fPool2).find(f=>!usedFacIds2.includes(f.id)) || shuffle(fPool2)[0] || null;
+            }
+            bFacList2.push(bFac2);
+          }
+
+          let labPlaced2 = false;
+          for (const day of [...days].sort((a,b)=>dLab2[a]-dLab2[b])) {
+            if (labPlaced2) break;
+            const fs2 = allSlots.filter(sl=>!used2.has(`${day}_${sl.id}`));
+            if (fs2.length < hrs) continue;
+            const grps2 = [];
+            let c2 = [fs2[0]];
+            for (let i=1;i<fs2.length;i++) {
+              if (fs2[i].slot_number===fs2[i-1].slot_number+1) c2.push(fs2[i]);
+              else { if(c2.length>=hrs) grps2.push([...c2]); c2=[fs2[i]]; }
+            }
+            if (c2.length>=hrs) grps2.push(c2);
+            for (const g2 of grps2) {
+              if (labPlaced2) break;
+              for (let s2=0;s2<=g2.length-hrs;s2++) {
+                const cand2 = g2.slice(s2,s2+hrs);
+                // Check ALL batch faculty are free
+                const allFacFree2 = bFacList2.every(bf => bf ? cand2.every(sl=>isFacultyFree(day,sl.id,bf.id)) : true);
+                if (!allFacFree2) continue;
+                // Find separate lab rooms for each batch
+                const usedLabIds2 = new Set();
+                const bRooms2 = [];
+                let roomsOk2 = true;
+                for (let bi=0;bi<numSubs2;bi++) {
+                  const aLab2 = labs.filter(r=>!usedLabIds2.has(r.id)&&cand2.every(sl=>isRoomFree(day,sl.id,r.id))).sort((a,b)=>roomUsageCount[a.id]-roomUsageCount[b.id])[0];
+                  if (!aLab2) { roomsOk2=false; break; }
+                  bRooms2.push(aLab2); usedLabIds2.add(aLab2.id);
+                }
+                if (!roomsOk2) continue;
+                // Place all batches in SAME slots, different rooms
+                for (let bi=0;bi<numSubs2;bi++) {
+                  const bn=bNames2[bi]; const bf=bFacList2[bi]; if(!bf) continue;
+                  const lr=bRooms2[bi];
                   for (const sl of cand2) {
                     await run('INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-                      [section.id,sl.id,day,subj.id,bFac2.id,lf2.id,bn]);
-                    markFaculty(day,sl.id,bFac2.id); markRoom(day,sl.id,lf2.id);
-                    used2.add(`${day}_${sl.id}`); dLab2[day]++; dLoad2[day]++;
+                      [section.id,sl.id,day,subj.id,bf.id,lr.id,bn]);
+                    markFaculty(day,sl.id,bf.id); markRoom(day,sl.id,lr.id);
                   }
-                  roomUsageCount[lf2.id]++; placed2=true; break;
+                  roomUsageCount[lr.id]++;
                 }
+                for (const sl of cand2) { used2.add(`${day}_${sl.id}`); dLab2[day]++; dLoad2[day]++; }
+                labPlaced2=true; break;
               }
             }
           }
