@@ -250,6 +250,8 @@
 
     // ── Subject checkboxes ────────────────────────────────────────────────────
     function renderSubjectCheckboxes(selected = []) {
+      // Normalize to strings for reliable comparison regardless of how IDs were stored
+      const selectedIds = selected.map(id => String(id));
       const container = document.getElementById('subjectCheckboxes');
       if (!allSubjects.length) {
         container.innerHTML = '<p class="text-muted" style="grid-column:1/-1;">No subjects found for this department.</p>';
@@ -265,12 +267,15 @@
         <div style="grid-column:1/-1;margin-top:6px;">
           <div style="font-size:0.75rem;font-weight:700;color:#1a237e;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #e0e0e0;padding-bottom:3px;margin-bottom:4px;">${yr}</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
-            ${subjects.map(s => `
-              <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer;padding:3px 4px;border-radius:4px;${selected.includes(s.id) ? 'background:#e8eaf6;' : ''}">
-                <input type="checkbox" value="${s.id}" ${selected.includes(s.id) ? 'checked' : ''} style="cursor:pointer;"
+            ${subjects.map(s => {
+              const isSelected = selectedIds.includes(String(s.id));
+              return `
+              <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer;padding:3px 4px;border-radius:4px;${isSelected ? 'background:#e8eaf6;' : ''}">
+                <input type="checkbox" value="${s.id}" ${isSelected ? 'checked' : ''} style="cursor:pointer;"
                   onchange="this.closest('label').style.background=this.checked?'#e8eaf6':''">
                 <span>${s.name}${s.type==='lab' ? ' <span style="background:#e8f5e9;color:#2e7d32;font-size:0.68rem;font-weight:700;padding:1px 5px;border-radius:8px;">LAB</span>' : ''}</span>
-              </label>`).join('')}
+              </label>`;
+            }).join('')}
           </div>
         </div>`).join('');
     }
@@ -460,29 +465,28 @@
       currentLabSectionId = sectionId;
       
       try {
-        const [subRes, assignRes] = await Promise.all([
+        // Use different variable name to avoid shadowing the outer allSubjects
+        const [subRes, assignRes, secRes] = await Promise.all([
           fetch(`/api/subjects?department_id=${deptId}`),
-          fetch(`/api/admin/lab-assignments/${sectionId}`)
+          fetch(`/api/admin/lab-assignments/${sectionId}`),
+          // Fetch sections for this year to get lab_subsections — use department query then filter
+          fetch(`/api/sections?year_id=${document.getElementById('labYearSelect').value}`)
         ]);
         
-        const allSubjects = await subRes.json();
-        const labSubjects = allSubjects.filter(s => s.type === 'lab');
+        const deptSubjects = await subRes.json();
+        const labSubjects = deptSubjects.filter(s => s.type === 'lab');
         const assignments = await assignRes.json();
+        const allSections = await secRes.json();
         
         if (!labSubjects.length) {
           document.getElementById('labSubjectsArea').style.display = 'none';
-          showAlert('No lab subjects found for this section', 'info');
+          showAlert('No lab subjects found for this department', 'warning');
           return;
         }
 
-        // Determine number of subsections
-        let numSubsections = 2;
-        try {
-          const secRes = await fetch(`/api/sections/${sectionId}`);
-          const sec = await secRes.json();
-          numSubsections = sec.lab_subsections || 2;
-        } catch {}
-
+        // Get lab_subsections from the fetched section list
+        const currentSection = allSections.find(s => String(s.id) === String(sectionId));
+        const numSubsections = (currentSection && currentSection.lab_subsections) ? currentSection.lab_subsections : 2;
         const batchNames = Array.from({length: numSubsections}, (_, i) => String.fromCharCode(65 + i));
         
         let html = '';
@@ -490,18 +494,20 @@
           html += `
             <div style="background:#f5f7ff;border-radius:8px;padding:16px;margin-bottom:12px;border:1px solid #e8eaf6;">
               <div style="font-weight:700;color:#1a237e;margin-bottom:10px;font-size:0.95rem;">
-                ${subj.name} <span style="background:#e8f5e9;color:#2e7d32;font-size:0.7rem;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:6px;">LAB</span>
+                ${subj.name} 
+                <span style="background:#e8f5e9;color:#2e7d32;font-size:0.7rem;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:6px;">LAB</span>
+                ${subj.year_name ? `<span style="font-size:0.75rem;color:#666;font-weight:400;margin-left:6px;">${subj.year_name}</span>` : ''}
               </div>
               <div style="display:grid;gap:8px;">`;
           
           for (const batch of batchNames) {
-            const assigned = assignments.find(a => a.subject_id === subj.id && a.batch_name === batch);
+            const assigned = assignments.find(a => String(a.subject_id) === String(subj.id) && a.batch_name === batch);
             html += `
               <div style="display:flex;align-items:center;gap:10px;">
                 <label style="min-width:60px;font-weight:600;font-size:0.85rem;color:#1a237e;">Batch ${batch}</label>
                 <select class="form-control" data-subject="${subj.id}" data-batch="${batch}" style="flex:1;font-size:0.85rem;">
                   <option value="">— No Faculty —</option>
-                  ${faculty.map(f => `<option value="${f.id}" ${assigned && assigned.faculty_id === f.id ? 'selected' : ''}>${f.name}</option>`).join('')}
+                  ${faculty.map(f => `<option value="${f.id}" ${assigned && String(assigned.faculty_id) === String(f.id) ? 'selected' : ''}>${f.name}${f.designation ? ' — ' + f.designation : ''}</option>`).join('')}
                 </select>
               </div>`;
           }
@@ -520,33 +526,53 @@
       if (!currentLabSectionId) return;
       
       const selects = document.querySelectorAll('#labSubjectsContainer select');
-      const assignments = [];
-      
-      for (const sel of selects) {
-        const subjectId = parseInt(sel.dataset.subject);
-        const batch = sel.dataset.batch;
-        const facultyId = sel.value ? parseInt(sel.value) : null;
-        
-        assignments.push({
-          section_id: currentLabSectionId,
-          subject_id: subjectId,
-          batch_name: batch,
-          faculty_id: facultyId
-        });
+      if (!selects.length) {
+        showAlert('No lab assignments to save', 'warning');
+        return;
       }
-      
+
+      const saveBtn = document.querySelector('#labAssignmentModal .btn-primary');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+
+      let successCount = 0;
+      let errors = [];
+
       try {
-        for (const assign of assignments) {
-          await fetch('/api/admin/lab-assignments', {
+        for (const sel of selects) {
+          const subjectId = parseInt(sel.dataset.subject);
+          const batch = sel.dataset.batch;
+          const facultyId = sel.value ? parseInt(sel.value) : null;
+
+          const res = await fetch('/api/admin/lab-assignments', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(assign)
+            body: JSON.stringify({
+              section_id: parseInt(currentLabSectionId),
+              subject_id: subjectId,
+              batch_name: batch,
+              faculty_id: facultyId
+            })
           });
+          const data = await res.json();
+          if (res.ok) {
+            successCount++;
+          } else {
+            errors.push(`Batch ${batch}: ${data.error || 'Save failed'}`);
+          }
         }
-        showAlert('Lab batch assignments saved successfully!', 'success');
-        closeLabAssignmentModal();
+
+        if (errors.length) {
+          showAlert(`Saved ${successCount} assignment(s). Errors: ${errors.join('; ')}`, 'warning');
+        } else {
+          showAlert(`✅ All ${successCount} lab batch assignment(s) saved successfully!`, 'success');
+          closeLabAssignmentModal();
+        }
       } catch (err) {
-        showAlert('Error saving assignments: ' + err.message, 'error');
+        showAlert('Network error saving assignments: ' + err.message, 'error');
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Assignments';
       }
     }
   </script>

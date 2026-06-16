@@ -345,9 +345,13 @@ router.post('/faculty', requireAuth, async (req, res) => {
     const { name, designation, role, email, subjects_can_teach } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
     const deptId = getDeptId(req);
+    // Normalize to array of integers
+    const subjectsArray = Array.isArray(subjects_can_teach)
+      ? subjects_can_teach.map(id => parseInt(id)).filter(id => !isNaN(id))
+      : [];
     const result = await run(
       'INSERT INTO faculty (department_id,name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
-      [deptId, name, designation||'', role||'faculty', email||'', JSON.stringify(subjects_can_teach||[])]
+      [deptId, name, designation||'', role||'faculty', email||'', JSON.stringify(subjectsArray)]
     );
     res.json({ id: result.rows[0].id, message: 'Faculty created' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -359,8 +363,12 @@ router.put('/faculty/:id', requireAuth, async (req, res) => {
     if (!(await verifyDeptOwnership('faculty', req.params.id, deptId)))
       return res.status(403).json({ error: 'Faculty does not belong to your department' });
     const { name, designation, role, email, subjects_can_teach } = req.body;
+    // Normalize to array of integers
+    const subjectsArray = Array.isArray(subjects_can_teach)
+      ? subjects_can_teach.map(id => parseInt(id)).filter(id => !isNaN(id))
+      : [];
     await run('UPDATE faculty SET name=$1,designation=$2,role=$3,email=$4,subjects_can_teach=$5 WHERE id=$6',
-      [name, designation, role, email, JSON.stringify(subjects_can_teach||[]), req.params.id]);
+      [name, designation, role, email, JSON.stringify(subjectsArray), req.params.id]);
     res.json({ message: 'Faculty updated' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -481,6 +489,21 @@ router.delete('/sections/:id', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Section does not belong to your department' });
     await run('DELETE FROM sections WHERE id=$1', [req.params.id]);
     res.json({ message: 'Section deleted' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET single section by ID (used for lab_subsections lookup)
+router.get('/sections/:id', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('sections', req.params.id, deptId)))
+      return res.status(403).json({ error: 'Section does not belong to your department' });
+    const row = await queryOne(
+      'SELECT s.*, y.display_name as year_name FROM sections s JOIN years y ON s.year_id = y.id WHERE s.id = $1',
+      [req.params.id]
+    );
+    if (!row) return res.status(404).json({ error: 'Section not found' });
+    res.json(row);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
