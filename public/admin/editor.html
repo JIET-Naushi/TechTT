@@ -410,6 +410,7 @@
 
     let slots = [], entries = [], subjects = [], faculty = [], rooms = [];
     let currentSectionId = null;
+    let currentSectionBatches = []; // batch names for the loaded section (e.g. ['A','B'])
 
     async function init() {
       const [yR, slR, subR, fR, rR] = await Promise.all([
@@ -461,7 +462,22 @@
       if (!sId) { showAlert('Please select a section first', 'warning'); return; }
       currentSectionId = sId;
 
-      entries = await (await fetch(`/api/timetable/class?section_id=${sId}`)).json();
+      // Fetch section info for batch names + timetable entries in parallel
+      const [secRes, ttRes] = await Promise.all([
+        fetch(`/api/sections?year_id=${document.getElementById('yearSelect').value}`),
+        fetch(`/api/timetable/class?section_id=${sId}`)
+      ]);
+      const allSecs = await secRes.json();
+      const sec = allSecs.find(s => String(s.id) === String(sId));
+      const numBatches = (sec && sec.lab_subsections) ? sec.lab_subsections : 2;
+      let batchNames = null;
+      try { batchNames = JSON.parse(sec?.subsection_names || 'null'); } catch {}
+      if (!Array.isArray(batchNames) || batchNames.length !== numBatches) {
+        batchNames = Array.from({ length: numBatches }, (_, i) => String.fromCharCode(65 + i));
+      }
+      currentSectionBatches = batchNames;
+
+      entries = await ttRes.json();
 
       const yText = document.getElementById('yearSelect').selectedOptions[0].text;
       const sText = document.getElementById('sectionSelect').selectedOptions[0].text;
@@ -656,6 +672,7 @@
         }
         filterRooms('lab');
       } else {
+        // Theory or empty slot — subject change will auto-detect lab and switch mode
         subjectGroup.style.display = '';
         batchGroup.style.display = 'none';
         document.getElementById('mSubject').disabled = false;
@@ -735,26 +752,29 @@
 
       try {
         if (isMultiBatchEdit) {
-          // Multi-batch lab: update each batch entry
+          // Multi-batch lab: update existing entries OR create new ones
           const facSelects = batchFacultyGroup.querySelectorAll('select');
           const roomSelects = document.getElementById('batchRoomGroup').querySelectorAll('select');
+          const subjId = document.getElementById('mSubject').value || null;
           
           for (let i = 0; i < facSelects.length; i++) {
-            const facSelect = facSelects[i];
+            const facSelect  = facSelects[i];
             const roomSelect = roomSelects[i];
-            const batchEntryId = facSelect.dataset.entryId;
+            const batchEntryId = facSelect.dataset.entryId; // empty string = new entry
             const batch = facSelect.dataset.batch;
             
             const body = {
               section_id:   parseInt(document.getElementById('mSectionId').value),
               time_slot_id: parseInt(document.getElementById('mSlotId').value),
               day_of_week:  document.getElementById('mDay').value,
-              subject_id:   document.getElementById('mSubject').value || null,
-              faculty_id:   facSelect.value || null,
+              subject_id:   subjId,
+              faculty_id:   facSelect.value  || null,
               room_id:      roomSelect.value || null,
-              entry_id:     parseInt(batchEntryId),
               subsection:   batch
             };
+
+            // Only pass entry_id if we're updating an existing entry
+            if (batchEntryId) body.entry_id = parseInt(batchEntryId);
             
             const res = await fetch('/api/admin/timetable/entry', {
               method: 'POST',
@@ -863,27 +883,77 @@
     function onSubjectChange(inMultiBatchMode = false) {
       const opt  = document.getElementById('mSubject').selectedOptions[0];
       const type = opt?.dataset?.type || '';
-      
-      if (inMultiBatchMode) {
-        // In multi-batch mode: if user switches to a theory/empty subject,
-        // hide batch controls and show single faculty/room (converting lab→theory)
-        if (type !== 'lab') {
-          document.getElementById('mFaculty').parentElement.style.display = '';
-          document.getElementById('mRoom').parentElement.style.display = '';
-          document.getElementById('batchFacultyGroup').style.display = 'none';
-          document.getElementById('batchRoomGroup').style.display = 'none';
-          document.getElementById('emInfoRow').innerHTML = `⚠️ Changing to a non-lab subject will <strong>replace all lab batches</strong> with a single theory entry`;
+      const isEmptySlot = !document.getElementById('mEntryId').value && !document.getElementById('mSubsection').value;
+
+      if (type === 'lab') {
+        // Lab subject selected — always switch to batch mode
+        document.getElementById('mFaculty').parentElement.style.display = 'none';
+        document.getElementById('mRoom').parentElement.style.display = 'none';
+        document.getElementById('batchFacultyGroup').style.display = 'block';
+        document.getElementById('batchRoomGroup').style.display = 'block';
+        document.getElementById('emInfoRow').innerHTML = `🔬 Lab subject — assign faculty and room for each batch below`;
+
+        if (isEmptySlot || inMultiBatchMode) {
+          // Build fresh batch rows from the section's batch config
+          renderNewBatchRows();
+        }
+        filterRooms('lab');
+      } else {
+        // Theory / free subject selected — switch to single mode
+        document.getElementById('mFaculty').parentElement.style.display = '';
+        document.getElementById('mRoom').parentElement.style.display = '';
+        document.getElementById('batchFacultyGroup').style.display = 'none';
+        document.getElementById('batchRoomGroup').style.display = 'none';
+
+        if (type) {
+          document.getElementById('emInfoRow').innerHTML = `📖 Theory slot — assign faculty and room`;
+          filterRooms('classroom');
         } else {
-          document.getElementById('mFaculty').parentElement.style.display = 'none';
-          document.getElementById('mRoom').parentElement.style.display = 'none';
-          document.getElementById('batchFacultyGroup').style.display = 'block';
-          document.getElementById('batchRoomGroup').style.display = 'block';
+          document.getElementById('emInfoRow').innerHTML = `📖 Select a subject, faculty, and room`;
+          filterRooms('');
+        }
+
+        if (inMultiBatchMode) {
+          document.getElementById('emInfoRow').innerHTML = `⚠️ Changing to a non-lab subject will <strong>replace all lab batches</strong> with a single theory entry`;
         }
       }
-      
-      if (type === 'lab')   filterRooms('lab');
-      else if (type)        filterRooms('classroom');
-      else                  filterRooms('');
+    }
+
+    /* ── Build fresh per-batch rows for a NEW lab assignment ─────────── */
+    function renderNewBatchRows() {
+      const facList = document.getElementById('batchFacultyList');
+      const roomList = document.getElementById('batchRoomList');
+      facList.innerHTML = '';
+      roomList.innerHTML = '';
+
+      const batches = currentSectionBatches.length ? currentSectionBatches
+        : ['A', 'B']; // fallback if not loaded yet
+
+      batches.forEach(batch => {
+        const facRow = document.createElement('div');
+        facRow.className = 'batch-faculty-row';
+        facRow.innerHTML = `
+          <span class="batch-label">Batch ${batch}</span>
+          <select class="form-control" data-batch="${batch}" data-entry-id="">
+            <option value="">— No Faculty —</option>
+            ${faculty.map(f => `<option value="${f.id}">${f.name}${f.designation ? ' — ' + f.designation : ''}</option>`).join('')}
+          </select>
+        `;
+        facList.appendChild(facRow);
+
+        const roomRow = document.createElement('div');
+        roomRow.className = 'batch-room-row';
+        roomRow.innerHTML = `
+          <span class="batch-label">Batch ${batch}</span>
+          <select class="form-control" data-batch="${batch}" data-entry-id="">
+            <option value="">— No Room —</option>
+            ${rooms.filter(r => r.type === 'lab').length
+              ? rooms.filter(r => r.type === 'lab').map(r => `<option value="${r.id}">${r.name} (${r.type})</option>`).join('')
+              : rooms.map(r => `<option value="${r.id}">${r.name} (${r.type})</option>`).join('')}
+          </select>
+        `;
+        roomList.appendChild(roomRow);
+      });
     }
 
     /* ── Alert ──────────────────────────────────────────────────────── */
