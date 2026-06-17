@@ -1080,12 +1080,17 @@ router.get('/constraints', requireAuth, async (req, res) => {
 
 // POST — create a constraint
 // Body fields:
-//   constraint_type  (required)  "faculty_unavailable" | "faculty_subject_lock"
-//   faculty_id       (required for both types)
-//   day              (required for faculty_unavailable)  e.g. "Monday"
-//   slot_id          (required for faculty_unavailable)  time_slots.id
-//   subject_id       (required for faculty_subject_lock)
-//   section_id       (optional for faculty_subject_lock — scope lock to one section)
+//   constraint_type  (required)  "faculty_unavailable" | "faculty_subject_lock" | "theory_batch_slot"
+//
+//   faculty_unavailable:
+//     faculty_id, day, slot_id  (all required)
+//
+//   faculty_subject_lock:
+//     faculty_id, subject_id    (required); section_id (optional — scopes to one section)
+//
+//   theory_batch_slot:
+//     section_id, subject_id, day, slot_id  (all required)
+//     faculty_id  (optional — pre-assigns the faculty for this pinned slot)
 router.post('/constraints', requireAuth, async (req, res) => {
   try {
     const { section_id, subject_id, faculty_id, constraint_type, value, day, slot_id } = req.body;
@@ -1102,6 +1107,12 @@ router.post('/constraints', requireAuth, async (req, res) => {
       if (!faculty_id) return res.status(400).json({ error: 'faculty_id required for faculty_subject_lock' });
       if (!subject_id) return res.status(400).json({ error: 'subject_id required for faculty_subject_lock' });
     }
+    if (constraint_type === 'theory_batch_slot') {
+      if (!section_id) return res.status(400).json({ error: 'section_id required for theory_batch_slot' });
+      if (!subject_id) return res.status(400).json({ error: 'subject_id required for theory_batch_slot' });
+      if (!day)        return res.status(400).json({ error: 'day required for theory_batch_slot' });
+      if (!slot_id)    return res.status(400).json({ error: 'slot_id required for theory_batch_slot' });
+    }
 
     // Validate ownership of referenced entities
     if (section_id && !(await verifyDeptOwnership('sections', section_id, deptId)))
@@ -1113,12 +1124,21 @@ router.post('/constraints', requireAuth, async (req, res) => {
     if (slot_id && !(await verifyDeptOwnership('time_slots', slot_id, deptId)))
       return res.status(403).json({ error: 'Time slot not in your department' });
 
-    // Prevent exact duplicate unavailability entries
+    // Prevent exact duplicates
     if (constraint_type === 'faculty_unavailable') {
       const existing = await queryOne(
         `SELECT id FROM generation_constraints
          WHERE department_id=$1 AND faculty_id=$2 AND constraint_type='faculty_unavailable' AND day=$3 AND slot_id=$4`,
         [deptId, faculty_id, day, slot_id]
+      );
+      if (existing) return res.json({ id: existing.id, message: 'Constraint already exists' });
+    }
+    if (constraint_type === 'theory_batch_slot') {
+      const existing = await queryOne(
+        `SELECT id FROM generation_constraints
+         WHERE department_id=$1 AND section_id=$2 AND subject_id=$3
+           AND constraint_type='theory_batch_slot' AND day=$4 AND slot_id=$5`,
+        [deptId, section_id, subject_id, day, slot_id]
       );
       if (existing) return res.json({ id: existing.id, message: 'Constraint already exists' });
     }
@@ -1245,6 +1265,21 @@ router.post('/generate', requireAuth, async (req, res) => {
     // Returns true if faculty is blocked at this day+slot by a constraint
     const isFacultyUnavailable = (day, slotId, facultyId) =>
       unavailableSet.has(`${facultyId}|${day}|${slotId}`);
+
+    // Map: "section_id|subject_id" → array of { day, slot_id, faculty_id|null }
+    // Used by the generator to pre-place pinned theory tokens before the shuffle loop.
+    const theoryBatchSlotMap = {}; // key: "sectionId|subjectId" → [{ day, slotId, facultyId }]
+    for (const c of allConstraints) {
+      if (c.constraint_type === 'theory_batch_slot' && c.section_id && c.subject_id && c.day && c.slot_id) {
+        const key = `${c.section_id}|${c.subject_id}`;
+        if (!theoryBatchSlotMap[key]) theoryBatchSlotMap[key] = [];
+        theoryBatchSlotMap[key].push({
+          day:       c.day,
+          slotId:    parseInt(c.slot_id),
+          facultyId: c.faculty_id ? parseInt(c.faculty_id) : null
+        });
+      }
+    }
 
     // Returns the locked faculty object for a subject (+ optional section), or null
     const getLockedFaculty = (subjId, sectionId) => {
@@ -1482,6 +1517,84 @@ router.post('/generate', requireAuth, async (req, res) => {
       const daySubjects = Object.fromEntries(days.map(d => [d, new Set()]));
       const preferredRoomId = sectionRoomMap[section.id];
       const facultyTheoryCount = Object.fromEntries(allFaculty.map(f => [f.id, 0]));
+
+      // ── Pre-place theory_batch_slot pinned entries ─────────────────────────
+      // These are placed BEFORE the random shuffle loop so the slot is reserved.
+      // Each pin consumes one token from theoryTokens for the matching subject.
+      // Collect all pins for this section (across all subjects)
+      const sectionPins = allConstraints.filter(c =>
+        c.constraint_type === 'theory_batch_slot' &&
+        parseInt(c.section_id) === section.id &&
+        c.day && c.slot_id
+      );
+
+      for (const pin of sectionPins) {
+        const pinDay    = pin.day;
+        const pinSlotId = parseInt(pin.slot_id);
+        const pinSubj   = cappedTheory.find(s => s.id === parseInt(pin.subject_id));
+        if (!pinSubj) continue; // subject not in this section's theory list — skip
+
+        // Skip if this slot is already occupied (e.g. lab placed here)
+        const slotKey = `${pinDay}_${pinSlotId}`;
+        if (usedSlots.has(slotKey)) {
+          console.warn(`theory_batch_slot: slot ${pinDay} #${pinSlotId} already occupied for section ${section.name} — skipping pin for ${pinSubj.name}`);
+          continue;
+        }
+
+        // Resolve the slot object
+        const slotObj = allSlots.find(sl => sl.id === pinSlotId);
+        if (!slotObj) continue;
+
+        // Resolve faculty: use pin's faculty_id → subject-lock → eligible pool
+        let chosenF = null;
+        if (pin.faculty_id) {
+          chosenF = allFaculty.find(f => f.id === parseInt(pin.faculty_id)) || null;
+          // Verify they're actually free (not double-booked by another section placed earlier)
+          if (chosenF && (!isFacultyFree(pinDay, pinSlotId, chosenF.id) || isFacultyUnavailable(pinDay, pinSlotId, chosenF.id))) {
+            console.warn(`theory_batch_slot: pinned faculty ${chosenF.name} is busy at ${pinDay} #${pinSlotId} — trying fallback`);
+            chosenF = null;
+          }
+        }
+        if (!chosenF) {
+          const locked = getLockedFaculty(pinSubj.id, section.id);
+          if (locked && isFacultyFree(pinDay, pinSlotId, locked.id) && !isFacultyUnavailable(pinDay, pinSlotId, locked.id)) {
+            chosenF = locked;
+          }
+        }
+        if (!chosenF) {
+          const eligible = allFaculty.filter(f => canTeach(f, pinSubj.id));
+          chosenF = shuffle(eligible.length ? eligible : allFaculty)
+            .find(f => isFacultyFree(pinDay, pinSlotId, f.id) && !isFacultyUnavailable(pinDay, pinSlotId, f.id))
+            || null;
+        }
+
+        // Resolve room
+        const preferred = classrooms.find(r => r.id === preferredRoomId);
+        const chosenR = (preferred && isRoomFree(pinDay, pinSlotId, preferred.id))
+          ? preferred
+          : shuffle([...classrooms]).find(r => isRoomFree(pinDay, pinSlotId, r.id)) || null;
+
+        if (!chosenR) {
+          console.warn(`theory_batch_slot: no room available at ${pinDay} #${pinSlotId} for section ${section.name} — skipping pin`);
+          continue;
+        }
+
+        // Insert the timetable entry
+        await run(
+          'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
+          [section.id, pinSlotId, pinDay, pinSubj.id, chosenF ? chosenF.id : null, chosenR.id]
+        );
+        if (chosenF) { markFaculty(pinDay, pinSlotId, chosenF.id); facultyTheoryCount[chosenF.id] = (facultyTheoryCount[chosenF.id] || 0) + 1; }
+        markRoom(pinDay, pinSlotId, chosenR.id);
+        usedSlots.add(slotKey);
+        daySubjects[pinDay].add(pinSubj.id);
+        dayLoad[pinDay]++;
+
+        // Remove ONE token for this subject from theoryTokens so it isn't scheduled again
+        const tokenIdx = theoryTokens.findIndex(t => t.id === pinSubj.id);
+        if (tokenIdx !== -1) theoryTokens.splice(tokenIdx, 1);
+      }
+      // ── End pre-placement ──────────────────────────────────────────────────
 
       // Target slots per day: spread tokens evenly across available days
       const targetPerDay = Math.ceil(theoryTokens.length / days.length);

@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Generation Constraints — Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .constraint-type-tabs {
+      display: flex; gap: 0; border-bottom: 2px solid #e0e0e0; margin-bottom: 20px;
+    }
+    .constraint-tab {
+      padding: 10px 22px; cursor: pointer; font-size: 0.88rem; font-weight: 600;
+      color: #666; border-bottom: 3px solid transparent; margin-bottom: -2px;
+      transition: all .15s;
+    }
+    .constraint-tab.active { color: #4a148c; border-bottom-color: #7b1fa2; }
+    .constraint-tab:hover:not(.active) { color: #333; background: #f5f5f5; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .pin-row {
+      display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;
+      padding: 12px; background: #f9f9f9; border: 1px solid #e0e0e0;
+      border-radius: 6px; margin-bottom: 8px;
+    }
+    .pin-row .form-group { margin: 0; flex: 1; min-width: 130px; }
+    .pin-row label { font-size: 0.75rem; font-weight: 600; color: #555;
+                     text-transform: uppercase; letter-spacing: .3px; }
+    .pin-row .form-control { font-size: 0.85rem; padding: 6px 8px; }
+
+    .constraints-table th, .constraints-table td {
+      padding: 8px 12px; font-size: 0.83rem;
+    }
+    .badge-pin   { background: #e8eaf6; color: #283593; }
+    .badge-lock  { background: #f3e5f5; color: #6a1b9a; }
+    .badge-block { background: #ffebee; color: #c62828; }
+
+    .section-tag {
+      display: inline-block; background: #e8f5e9; color: #2e7d32;
+      font-size: 0.72rem; font-weight: 700; padding: 1px 7px;
+      border-radius: 10px; margin: 1px;
+    }
+    #addPinBtn { white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="logo">🎓 <span>JIET Universe</span> — Admin</div>
+    <nav>
+      <a href="/index.html">Home</a>
+      <span id="userBadge" style="color:rgba(255,255,255,0.8);font-size:0.82rem;margin-left:12px;"></span>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </nav>
+  </header>
+
+  <div class="admin-layout">
+    <nav class="sidebar">
+      <div class="sidebar-title">Main</div>
+      <a href="/admin/dashboard.html"><span class="icon">📊</span> Dashboard</a>
+      <div id="superAdminMenu" style="display:none;">
+        <div class="sidebar-title">Super Admin</div>
+        <a href="/admin/incharges.html"><span class="icon">👥</span> Timetable Incharges</a>
+      </div>
+      <div class="sidebar-title">Manage</div>
+      <a href="/admin/sections.html"><span class="icon">🏛️</span> Years &amp; Sections</a>
+      <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
+      <a href="/admin/faculty.html"><span class="icon">👨‍🏫</span> Faculty</a>
+      <a href="/admin/rooms.html"><span class="icon">🏫</span> Rooms</a>
+      <div class="sidebar-title">Timetable</div>
+      <a href="/admin/generate.html"><span class="icon">⚡</span> Generate</a>
+      <a href="/admin/constraints.html" class="active"><span class="icon">📌</span> Constraints</a>
+      <a href="/admin/editor.html"><span class="icon">✏️</span> Editor</a>
+      <a href="/admin/conflicts.html"><span class="icon">⚠️</span> Conflicts</a>
+      <div class="sidebar-title">Views</div>
+      <a href="/views/class-timetable.html"><span class="icon">📅</span> Class View</a>
+      <a href="/views/faculty-timetable.html"><span class="icon">👤</span> Faculty View</a>
+      <a href="/views/location-timetable.html"><span class="icon">📍</span> Location View</a>
+    </nav>
+
+    <main class="admin-content">
+      <div class="page-title" id="pageTitle">📌 Generation Constraints</div>
+      <div id="alertBox"></div>
+
+      <!-- Tab bar -->
+      <div class="constraint-type-tabs">
+        <div class="constraint-tab active" onclick="switchTab('batch')">📌 Theory Batch Slots</div>
+        <div class="constraint-tab" onclick="switchTab('faculty')">🔒 Faculty Constraints</div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════
+           TAB 1 — Theory Batch Slot Constraints
+           Assign a theory subject to a fixed day+slot for one or more
+           sections. Each section can have its own faculty for that slot.
+           ═══════════════════════════════════════════════════════════ -->
+      <div class="tab-panel active" id="tab-batch">
+
+        <!-- Add form -->
+        <div class="card">
+          <div class="card-title">Add Theory Batch Slot Pin</div>
+          <p style="font-size:0.85rem;color:#555;margin-bottom:16px;">
+            Pin a <strong>theory subject</strong> to a specific <strong>day + period</strong> for selected sections.
+            The generator will place that subject at the exact slot during auto-generation.
+            Each section can have a different faculty assigned.
+          </p>
+
+          <!-- Row 1: Year, Subject -->
+          <div class="pin-row">
+            <div class="form-group" style="flex:1.5;">
+              <label>Year</label>
+              <select id="pinYear" class="form-control" onchange="onPinYearChange()">
+                <option value="">Select Year…</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:2;">
+              <label>Subject (Theory)</label>
+              <select id="pinSubject" class="form-control">
+                <option value="">Select Subject…</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label>Day</label>
+              <select id="pinDay" class="form-control">
+                <option value="">Day…</option>
+                <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
+                <option>Thursday</option><option>Friday</option><option>Saturday</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:1.2;">
+              <label>Period (Time Slot)</label>
+              <select id="pinSlot" class="form-control">
+                <option value="">Slot…</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Row 2: Section checkboxes (multi-select) -->
+          <div style="margin:8px 0 12px;">
+            <label style="font-size:0.75rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.3px;">
+              Sections to Pin (select one or more)
+            </label>
+            <div id="pinSectionsArea" style="margin-top:6px;padding:10px;border:1.5px solid #ddd;border-radius:6px;min-height:40px;display:flex;flex-wrap:wrap;gap:8px;">
+              <span class="text-muted" style="font-size:0.83rem;">Select a year first…</span>
+            </div>
+          </div>
+
+          <!-- Row 3: Faculty per section (rendered dynamically after sections chosen) -->
+          <div id="pinFacultyArea" style="display:none;">
+            <label style="font-size:0.75rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:8px;">
+              Faculty per Section (optional — leave blank to auto-assign)
+            </label>
+            <div id="pinFacultyRows"></div>
+          </div>
+
+          <div style="margin-top:14px;display:flex;gap:10px;align-items:center;">
+            <button class="btn btn-primary" id="addPinBtn" onclick="addPins()">📌 Add Pin(s)</button>
+            <span id="pinStatus" style="font-size:0.83rem;color:#666;"></span>
+          </div>
+        </div>
+
+        <!-- Current pins table -->
+        <div class="card">
+          <div class="card-title">
+            Current Theory Batch Slot Pins
+            <button class="btn btn-danger btn-sm" style="float:right;font-size:0.75rem;"
+              onclick="clearAllPins()">🗑️ Clear All</button>
+          </div>
+          <div class="table-wrapper">
+            <table class="constraints-table">
+              <thead>
+                <tr>
+                  <th>Subject</th>
+                  <th>Section</th>
+                  <th>Year</th>
+                  <th>Day</th>
+                  <th>Period</th>
+                  <th>Faculty</th>
+                  <th>Remove</th>
+                </tr>
+              </thead>
+              <tbody id="pinsTableBody">
+                <tr><td colspan="7" class="text-center text-muted">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div><!-- /tab-batch -->
+
+      <!-- ═══════════════════════════════════════════════════════════
+           TAB 2 — Faculty Constraints (unavailable slots + subject locks)
+           Mirrors the modal from faculty.html but in full-page form.
+           ═══════════════════════════════════════════════════════════ -->
+      <div class="tab-panel" id="tab-faculty">
+        <div class="card">
+          <div class="card-title">Faculty Constraints Overview</div>
+          <p style="font-size:0.85rem;color:#555;margin-bottom:14px;">
+            Manage per-faculty unavailable slots and subject locks.
+            Use the <strong>🔒 Constraints</strong> button on the
+            <a href="/admin/faculty.html" style="color:#4a148c;">Faculty page</a>
+            to edit a specific faculty member's constraints.
+          </p>
+          <div class="table-wrapper">
+            <table class="constraints-table">
+              <thead>
+                <tr>
+                  <th>Faculty</th>
+                  <th>Type</th>
+                  <th>Detail</th>
+                  <th>Remove</th>
+                </tr>
+              </thead>
+              <tbody id="facultyConstraintsBody">
+                <tr><td colspan="4" class="text-center text-muted">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;">
+            <a href="/admin/faculty.html" class="btn btn-outline" style="border-color:#7b1fa2;color:#7b1fa2;">
+              🔒 Edit Faculty Constraints
+            </a>
+            <button class="btn btn-danger btn-sm" onclick="clearFacultyConstraints()">
+              🗑️ Clear All Faculty Constraints
+            </button>
+          </div>
+        </div>
+      </div><!-- /tab-faculty -->
+
+    </main>
+  </div>
+
+  <script>
+    let deptId = 1;
+    let allYears = [], allSections = [], allSlots = [], allFaculty = [], allSubjects = [];
+
+    // ── Auth ──────────────────────────────────────────────────────────────────
+    fetch('/api/auth/status').then(r => r.json()).then(d => {
+      if (!d.loggedIn) { location.href = '/login.html'; return; }
+      const badge = document.getElementById('userBadge');
+      if (d.user.loginType === 'google') {
+        badge.innerHTML = (d.user.picture ? `<img src="${d.user.picture}" style="width:24px;height:24px;border-radius:50%;">` : '')
+          + `<span>${d.user.name || d.user.username}</span>`;
+      } else {
+        badge.innerHTML = `<span>👤 ${d.user.username}</span>`;
+      }
+      if (d.user.isSuperAdmin) {
+        document.getElementById('superAdminMenu').style.display = 'block';
+        deptId = 1;
+      } else {
+        deptId = d.user.department_id;
+        document.getElementById('pageTitle').textContent = `📌 Generation Constraints — ${d.user.dept_name || ''}`;
+      }
+      const urlDept = new URLSearchParams(location.search).get('dept');
+      if (urlDept && d.user.isSuperAdmin) deptId = parseInt(urlDept);
+      init();
+    });
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+    async function init() {
+      const [yRes, slotRes, fRes, sRes] = await Promise.all([
+        fetch(`/api/years?department_id=${deptId}`),
+        fetch(`/api/timeslots?department_id=${deptId}`),
+        fetch(`/api/faculty?department_id=${deptId}`),
+        fetch(`/api/subjects?department_id=${deptId}`)
+      ]);
+      allYears    = await yRes.json();
+      const rawSlots = await slotRes.json();
+      allSlots    = rawSlots.filter(s => !s.is_break);
+      allFaculty  = await fRes.json();
+      allSubjects = await sRes.json();
+
+      // Populate year select
+      const yearSel = document.getElementById('pinYear');
+      yearSel.innerHTML = '<option value="">Select Year…</option>' +
+        allYears.map(y => `<option value="${y.id}">${y.display_name}</option>`).join('');
+
+      // Populate slot select
+      const slotSel = document.getElementById('pinSlot');
+      slotSel.innerHTML = '<option value="">Slot…</option>' +
+        allSlots.map(s => `<option value="${s.id}">P${s.slot_number} (${s.start_time}–${s.end_time})</option>`).join('');
+
+      await refreshPinsTable();
+      await refreshFacultyConstraintsTable();
+    }
+
+    // ── Tab switching ─────────────────────────────────────────────────────────
+    function switchTab(name) {
+      document.querySelectorAll('.constraint-tab').forEach((t, i) => {
+        const tabName = ['batch', 'faculty'][i];
+        t.classList.toggle('active', tabName === name);
+      });
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.getElementById(`tab-${name}`).classList.add('active');
+    }
+
+    // ── Year change: reload sections + subjects ───────────────────────────────
+    async function onPinYearChange() {
+      const yearId = document.getElementById('pinYear').value;
+      document.getElementById('pinFacultyArea').style.display = 'none';
+      document.getElementById('pinFacultyRows').innerHTML = '';
+
+      if (!yearId) {
+        document.getElementById('pinSectionsArea').innerHTML =
+          '<span class="text-muted" style="font-size:0.83rem;">Select a year first…</span>';
+        document.getElementById('pinSubject').innerHTML = '<option value="">Select Subject…</option>';
+        allSections = [];
+        return;
+      }
+
+      // Load sections for this year
+      const sRes = await fetch(`/api/sections?year_id=${yearId}`);
+      allSections = await sRes.json();
+
+      // Render section checkboxes
+      document.getElementById('pinSectionsArea').innerHTML = allSections.length
+        ? allSections.map(sec => `
+            <label style="display:inline-flex;align-items:center;gap:5px;font-size:0.83rem;
+                          cursor:pointer;padding:4px 8px;border-radius:4px;background:#f5f5f5;
+                          border:1px solid #ddd;" title="Section ${sec.name}">
+              <input type="checkbox" value="${sec.id}" data-name="${sec.name}"
+                onchange="onSectionSelectionChange()">
+              Sec ${sec.name}
+            </label>`).join('')
+        : '<span class="text-muted" style="font-size:0.83rem;">No sections found for this year.</span>';
+
+      // Load theory subjects for this year
+      const yearSubjects = allSubjects.filter(s =>
+        String(s.year_id) === String(yearId) && s.type !== 'lab'
+      );
+      document.getElementById('pinSubject').innerHTML =
+        '<option value="">Select Subject…</option>' +
+        yearSubjects.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+    }
+
+    // ── Section checkbox change: show/hide faculty-per-section selects ────────
+    function onSectionSelectionChange() {
+      const checked = Array.from(document.querySelectorAll('#pinSectionsArea input:checked'));
+      const facultyArea = document.getElementById('pinFacultyArea');
+      const facultyRows = document.getElementById('pinFacultyRows');
+
+      if (!checked.length) {
+        facultyArea.style.display = 'none';
+        facultyRows.innerHTML = '';
+        return;
+      }
+
+      facultyArea.style.display = 'block';
+      facultyRows.innerHTML = checked.map(cb => {
+        const secId   = cb.value;
+        const secName = cb.dataset.name;
+        const facOptions = '<option value="">Auto-assign…</option>' +
+          allFaculty.map(f => `<option value="${f.id}">${f.name}</option>`).join('');
+        return `
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+            <span class="section-tag" style="min-width:60px;text-align:center;">Sec ${secName}</span>
+            <select class="form-control" style="flex:1;font-size:0.85rem;"
+              data-section-id="${secId}" id="facSel_${secId}">
+              ${facOptions}
+            </select>
+          </div>`;
+      }).join('');
+    }
+
+    // ── Add pins ──────────────────────────────────────────────────────────────
+    async function addPins() {
+      const subjectId = document.getElementById('pinSubject').value;
+      const day       = document.getElementById('pinDay').value;
+      const slotId    = document.getElementById('pinSlot').value;
+      const checked   = Array.from(document.querySelectorAll('#pinSectionsArea input:checked'));
+
+      if (!subjectId) return showAlert('Select a subject', 'error');
+      if (!day)       return showAlert('Select a day', 'error');
+      if (!slotId)    return showAlert('Select a time slot', 'error');
+      if (!checked.length) return showAlert('Select at least one section', 'error');
+
+      const btn = document.getElementById('addPinBtn');
+      btn.disabled = true;
+      const statusEl = document.getElementById('pinStatus');
+      statusEl.textContent = 'Saving…';
+
+      let saved = 0, skipped = 0, errors = [];
+
+      for (const cb of checked) {
+        const secId    = cb.value;
+        const facSelEl = document.getElementById(`facSel_${secId}`);
+        const facultyId = facSelEl ? (facSelEl.value || null) : null;
+
+        const res = await fetch('/api/admin/constraints', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            constraint_type: 'theory_batch_slot',
+            section_id: parseInt(secId),
+            subject_id: parseInt(subjectId),
+            day,
+            slot_id: parseInt(slotId),
+            faculty_id: facultyId ? parseInt(facultyId) : null
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          errors.push(`Sec ${cb.dataset.name}: ${data.error}`);
+        } else if (data.message === 'Constraint already exists') {
+          skipped++;
+        } else {
+          saved++;
+        }
+      }
+
+      btn.disabled = false;
+      if (errors.length) {
+        showAlert(`${saved} saved, ${skipped} already existed. Errors: ${errors.join('; ')}`, 'error');
+      } else {
+        showAlert(`✅ ${saved} pin(s) saved${skipped ? `, ${skipped} already existed` : ''}.`, 'success');
+      }
+      statusEl.textContent = '';
+      await refreshPinsTable();
+    }
+
+    // ── Refresh pins table ────────────────────────────────────────────────────
+    async function refreshPinsTable() {
+      const res = await fetch('/api/admin/constraints');
+      const all = res.ok ? await res.json() : [];
+      const pins = all.filter(c => c.constraint_type === 'theory_batch_slot');
+      const tbody = document.getElementById('pinsTableBody');
+
+      if (!pins.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No theory batch slot pins set.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = pins.map(c => `
+        <tr>
+          <td><strong>${c.subject_name || '—'}</strong></td>
+          <td><span class="section-tag">Sec ${c.section_name || '—'}</span></td>
+          <td style="font-size:0.8rem;color:#666;">${c.year_name || '—'}</td>
+          <td>${c.day || '—'}</td>
+          <td>P${c.slot_number || '?'} <span style="font-size:0.75rem;color:#888;">(${c.slot_start || ''}–${c.slot_end || ''})</span></td>
+          <td style="font-size:0.82rem;">${c.faculty_name || '<span class="text-muted">Auto</span>'}</td>
+          <td>
+            <button class="btn btn-danger btn-sm" style="padding:2px 10px;font-size:0.75rem;"
+              onclick="deletePin(${c.id}, this)">Remove</button>
+          </td>
+        </tr>`).join('');
+    }
+
+    async function deletePin(id, btn) {
+      btn.disabled = true;
+      const res = await fetch(`/api/admin/constraints/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        await refreshPinsTable();
+        showAlert('Pin removed', 'success');
+      } else {
+        showAlert('Failed to remove pin', 'error');
+        btn.disabled = false;
+      }
+    }
+
+    async function clearAllPins() {
+      const pins = document.querySelectorAll('#pinsTableBody tr[data-id]');
+      if (!confirm('Remove ALL theory batch slot pins for this department?')) return;
+      // Fetch all pins and delete individually (department-wide DELETE would also clear faculty constraints)
+      const res = await fetch('/api/admin/constraints');
+      const all = res.ok ? await res.json() : [];
+      const pinIds = all.filter(c => c.constraint_type === 'theory_batch_slot').map(c => c.id);
+      let deleted = 0;
+      for (const id of pinIds) {
+        const r = await fetch(`/api/admin/constraints/${id}`, { method: 'DELETE' });
+        if (r.ok) deleted++;
+      }
+      showAlert(`${deleted} pin(s) removed.`, 'success');
+      await refreshPinsTable();
+    }
+
+    // ── Faculty constraints tab ───────────────────────────────────────────────
+    async function refreshFacultyConstraintsTable() {
+      const res = await fetch('/api/admin/constraints');
+      const all = res.ok ? await res.json() : [];
+      const fcRows = all.filter(c =>
+        c.constraint_type === 'faculty_unavailable' || c.constraint_type === 'faculty_subject_lock'
+      );
+      const tbody = document.getElementById('facultyConstraintsBody');
+
+      if (!fcRows.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No faculty constraints set.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = fcRows.map(c => {
+        const typeBadge = c.constraint_type === 'faculty_unavailable'
+          ? `<span class="badge badge-block">🚫 Unavailable</span>`
+          : `<span class="badge badge-lock">📌 Subject Lock</span>`;
+        const detail = c.constraint_type === 'faculty_unavailable'
+          ? `${c.day} — P${c.slot_number || '?'} (${c.slot_start || ''}–${c.slot_end || ''})`
+          : `${c.subject_name || '—'}${c.section_name ? ' / Sec ' + c.section_name : ' (all sections)'}`;
+        return `<tr>
+          <td><strong>${c.faculty_name || '—'}</strong></td>
+          <td>${typeBadge}</td>
+          <td style="font-size:0.82rem;">${detail}</td>
+          <td>
+            <button class="btn btn-danger btn-sm" style="padding:2px 10px;font-size:0.75rem;"
+              onclick="deleteFacultyConstraint(${c.id}, this)">Remove</button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function deleteFacultyConstraint(id, btn) {
+      btn.disabled = true;
+      const res = await fetch(`/api/admin/constraints/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        await refreshFacultyConstraintsTable();
+        showAlert('Constraint removed', 'success');
+      } else {
+        showAlert('Failed to remove constraint', 'error');
+        btn.disabled = false;
+      }
+    }
+
+    async function clearFacultyConstraints() {
+      if (!confirm('Remove ALL faculty unavailable + subject lock constraints for this department?')) return;
+      const res = await fetch('/api/admin/constraints');
+      const all = res.ok ? await res.json() : [];
+      const ids = all
+        .filter(c => c.constraint_type === 'faculty_unavailable' || c.constraint_type === 'faculty_subject_lock')
+        .map(c => c.id);
+      let deleted = 0;
+      for (const id of ids) {
+        const r = await fetch(`/api/admin/constraints/${id}`, { method: 'DELETE' });
+        if (r.ok) deleted++;
+      }
+      showAlert(`${deleted} faculty constraint(s) removed.`, 'success');
+      await refreshFacultyConstraintsTable();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function showAlert(msg, type) {
+      const box = document.getElementById('alertBox');
+      box.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+      setTimeout(() => box.innerHTML = '', 4000);
+    }
+
+    async function logout() {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      location.href = '/login.html';
+    }
+  </script>
+</body>
+</html>
