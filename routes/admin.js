@@ -1018,6 +1018,159 @@ router.post('/validate-lab-assignments', requireAuth, async (req, res) => {
 });
 
 // =============================================================================
+// ==================== GENERATION CONSTRAINTS =================================
+// =============================================================================
+
+// Supported constraint_type values:
+//   faculty_unavailable  — faculty cannot be assigned to a specific day+slot
+//   faculty_subject_lock — faculty must teach a specific subject (optionally for a specific section)
+
+// GET constraints for a specific faculty member (must be before /constraints to avoid route ambiguity)
+router.get('/constraints/faculty/:facultyId', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('faculty', req.params.facultyId, deptId)))
+      return res.status(403).json({ error: 'Faculty not in your department' });
+
+    const rows = await query(`
+      SELECT gc.*,
+        sec.name        AS section_name,
+        y.display_name  AS year_name,
+        subj.name       AS subject_name,
+        ts.start_time   AS slot_start,
+        ts.end_time     AS slot_end,
+        ts.slot_number  AS slot_number
+      FROM generation_constraints gc
+      LEFT JOIN sections  sec  ON gc.section_id  = sec.id
+      LEFT JOIN years     y    ON sec.year_id     = y.id
+      LEFT JOIN subjects  subj ON gc.subject_id   = subj.id
+      LEFT JOIN time_slots ts  ON gc.slot_id      = ts.id
+      WHERE gc.department_id = $1 AND gc.faculty_id = $2
+      ORDER BY gc.constraint_type, gc.day, ts.slot_number
+    `, [deptId, req.params.facultyId]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET all constraints for this department
+router.get('/constraints', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    const rows = await query(`
+      SELECT gc.*,
+        sec.name        AS section_name,
+        y.display_name  AS year_name,
+        subj.name       AS subject_name,
+        f.name          AS faculty_name,
+        ts.start_time   AS slot_start,
+        ts.end_time     AS slot_end,
+        ts.slot_number  AS slot_number
+      FROM generation_constraints gc
+      LEFT JOIN sections  sec  ON gc.section_id  = sec.id
+      LEFT JOIN years     y    ON sec.year_id     = y.id
+      LEFT JOIN subjects  subj ON gc.subject_id   = subj.id
+      LEFT JOIN faculty   f    ON gc.faculty_id   = f.id
+      LEFT JOIN time_slots ts  ON gc.slot_id      = ts.id
+      WHERE gc.department_id = $1
+      ORDER BY gc.constraint_type, f.name, gc.day, ts.slot_number
+    `, [deptId]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST — create a constraint
+// Body fields:
+//   constraint_type  (required)  "faculty_unavailable" | "faculty_subject_lock"
+//   faculty_id       (required for both types)
+//   day              (required for faculty_unavailable)  e.g. "Monday"
+//   slot_id          (required for faculty_unavailable)  time_slots.id
+//   subject_id       (required for faculty_subject_lock)
+//   section_id       (optional for faculty_subject_lock — scope lock to one section)
+router.post('/constraints', requireAuth, async (req, res) => {
+  try {
+    const { section_id, subject_id, faculty_id, constraint_type, value, day, slot_id } = req.body;
+    if (!constraint_type) return res.status(400).json({ error: 'constraint_type required' });
+    const deptId = getDeptId(req);
+
+    // Type-specific validation
+    if (constraint_type === 'faculty_unavailable') {
+      if (!faculty_id) return res.status(400).json({ error: 'faculty_id required for faculty_unavailable' });
+      if (!day)        return res.status(400).json({ error: 'day required for faculty_unavailable' });
+      if (!slot_id)    return res.status(400).json({ error: 'slot_id required for faculty_unavailable' });
+    }
+    if (constraint_type === 'faculty_subject_lock') {
+      if (!faculty_id) return res.status(400).json({ error: 'faculty_id required for faculty_subject_lock' });
+      if (!subject_id) return res.status(400).json({ error: 'subject_id required for faculty_subject_lock' });
+    }
+
+    // Validate ownership of referenced entities
+    if (section_id && !(await verifyDeptOwnership('sections', section_id, deptId)))
+      return res.status(403).json({ error: 'Section not in your department' });
+    if (subject_id && !(await verifyDeptOwnership('subjects', subject_id, deptId)))
+      return res.status(403).json({ error: 'Subject not in your department' });
+    if (faculty_id && !(await verifyDeptOwnership('faculty', faculty_id, deptId)))
+      return res.status(403).json({ error: 'Faculty not in your department' });
+    if (slot_id && !(await verifyDeptOwnership('time_slots', slot_id, deptId)))
+      return res.status(403).json({ error: 'Time slot not in your department' });
+
+    // Prevent exact duplicate unavailability entries
+    if (constraint_type === 'faculty_unavailable') {
+      const existing = await queryOne(
+        `SELECT id FROM generation_constraints
+         WHERE department_id=$1 AND faculty_id=$2 AND constraint_type='faculty_unavailable' AND day=$3 AND slot_id=$4`,
+        [deptId, faculty_id, day, slot_id]
+      );
+      if (existing) return res.json({ id: existing.id, message: 'Constraint already exists' });
+    }
+
+    const result = await run(`
+      INSERT INTO generation_constraints
+        (department_id, section_id, subject_id, faculty_id, constraint_type, value, day, slot_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id
+    `, [deptId, section_id||null, subject_id||null, faculty_id||null,
+        constraint_type, value||null, day||null, slot_id||null]);
+
+    res.json({ id: result.rows[0].id, message: 'Constraint saved' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE all constraints for a faculty member (must be before /:id to avoid route collision)
+router.delete('/constraints/faculty/:facultyId', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('faculty', req.params.facultyId, deptId)))
+      return res.status(403).json({ error: 'Faculty not in your department' });
+    await run(
+      'DELETE FROM generation_constraints WHERE department_id=$1 AND faculty_id=$2',
+      [deptId, req.params.facultyId]
+    );
+    res.json({ message: 'Faculty constraints cleared' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE a constraint by id
+router.delete('/constraints/:id', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    const row = await queryOne('SELECT department_id FROM generation_constraints WHERE id=$1', [req.params.id]);
+    if (!row) return res.status(404).json({ error: 'Constraint not found' });
+    if (!req.user.isSuperAdmin && row.department_id !== deptId)
+      return res.status(403).json({ error: 'Not authorized' });
+    await run('DELETE FROM generation_constraints WHERE id=$1', [req.params.id]);
+    res.json({ message: 'Constraint deleted' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE all constraints for this department (bulk reset)
+router.delete('/constraints', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    await run('DELETE FROM generation_constraints WHERE department_id=$1', [deptId]);
+    res.json({ message: 'All constraints cleared' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// =============================================================================
 // ==================== GENERATE ===============================================
 // =============================================================================
 
@@ -1059,6 +1212,48 @@ router.post('/generate', requireAuth, async (req, res) => {
     // Use dedicated lab rooms; fall back to classrooms if none configured
     const labRoomsRaw = allRooms.filter(r => r.type === 'lab');
     const labs        = labRoomsRaw.length > 0 ? labRoomsRaw : classrooms;
+
+    // ── Load generation constraints ───────────────────────────────────────────
+    const allConstraints = await query(
+      'SELECT * FROM generation_constraints WHERE department_id=$1', [deptId]
+    );
+
+    // Set of "faculty_id|day|slot_id" keys where faculty is marked unavailable
+    const unavailableSet = new Set();
+    for (const c of allConstraints) {
+      if (c.constraint_type === 'faculty_unavailable' && c.faculty_id && c.day && c.slot_id) {
+        unavailableSet.add(`${c.faculty_id}|${c.day}|${c.slot_id}`);
+      }
+    }
+
+    // Map: "subject_id|section_id" → faculty_id  (section_id may be null = applies to all sections)
+    // More specific (section-scoped) locks override global ones
+    const subjectLockMap = {}; // key: "subjectId" or "subjectId|sectionId" → facultyId
+    for (const c of allConstraints) {
+      if (c.constraint_type === 'faculty_subject_lock' && c.faculty_id && c.subject_id) {
+        if (c.section_id) {
+          subjectLockMap[`${c.subject_id}|${c.section_id}`] = c.faculty_id;
+        } else {
+          // Global (all-sections) lock — only set if no section-specific one exists yet
+          if (!subjectLockMap[`${c.subject_id}`]) {
+            subjectLockMap[`${c.subject_id}`] = c.faculty_id;
+          }
+        }
+      }
+    }
+
+    // Returns true if faculty is blocked at this day+slot by a constraint
+    const isFacultyUnavailable = (day, slotId, facultyId) =>
+      unavailableSet.has(`${facultyId}|${day}|${slotId}`);
+
+    // Returns the locked faculty object for a subject (+ optional section), or null
+    const getLockedFaculty = (subjId, sectionId) => {
+      const sectionKey = `${subjId}|${sectionId}`;
+      const globalKey  = `${subjId}`;
+      const lockedId   = subjectLockMap[sectionKey] ?? subjectLockMap[globalKey] ?? null;
+      if (!lockedId) return null;
+      return allFaculty.find(f => f.id === lockedId) || null;
+    };
 
     const facultyBusy = {};
     const roomBusy    = {};
@@ -1168,8 +1363,13 @@ router.post('/generate', requireAuth, async (req, res) => {
             const pre = allFaculty.find(f => f.id === preId);
             if (pre) batchFaculty = pre;
           }
+          // If not pre-assigned, check subject-lock constraint for this lab+section
+          if (!batchFaculty) {
+            const locked = getLockedFaculty(subj.id, section.id);
+            if (locked) batchFaculty = locked;
+          }
           if (!batchFaculty && facPool.length > 0) {
-            // Pick a faculty not already used for another batch of this lab
+            // Pick a faculty not already used for another batch of this lab, and not unavailable
             const usedFacIds = batchFacultyList.map(bf => bf && bf.id);
             batchFaculty = shuffle(facPool).find(f => !usedFacIds.includes(f.id))
                         || shuffle(facPool)[0]
@@ -1209,8 +1409,11 @@ router.post('/generate', requireAuth, async (req, res) => {
               const candidate = group.slice(start, start + hoursNeeded);
 
               // Check only batches that HAVE faculty assigned are free — null faculty batches don't block placement
+              // Also respect faculty_unavailable constraints for every candidate slot
               const allFacultyFree = batchFacultyList.every(bf =>
-                bf ? candidate.every(sl => isFacultyFree(day, sl.id, bf.id)) : true
+                bf ? candidate.every(sl =>
+                  isFacultyFree(day, sl.id, bf.id) && !isFacultyUnavailable(day, sl.id, bf.id)
+                ) : true
               );
               if (!allFacultyFree) continue;
 
@@ -1315,11 +1518,21 @@ router.post('/generate', requireAuth, async (req, res) => {
           for (const slot of shuffledFree) {
             const key = `${day}_${slot.id}`;
 
-            // Find eligible faculty
-            const eligible = allFaculty.filter(f => canTeach(f, subj.id));
-            const candidateFaculty = shuffle(eligible.length ? eligible : allFaculty)
-              .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id]);
-            const chosenF = candidateFaculty.find(f => isFacultyFree(day, slot.id, f.id));
+            // Find eligible faculty — respect subject-lock and unavailability constraints
+            const lockedF = getLockedFaculty(subj.id, section.id);
+            let chosenF;
+            if (lockedF) {
+              // Use locked faculty if they are free and available at this slot
+              chosenF = (isFacultyFree(day, slot.id, lockedF.id) && !isFacultyUnavailable(day, slot.id, lockedF.id))
+                ? lockedF : null;
+            } else {
+              const eligible = allFaculty.filter(f => canTeach(f, subj.id));
+              const candidateFaculty = shuffle(eligible.length ? eligible : allFaculty)
+                .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id]);
+              chosenF = candidateFaculty.find(f =>
+                isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id)
+              );
+            }
             if (!chosenF) continue;
 
             const preferred = classrooms.find(r => r.id === preferredRoomId);
@@ -1351,9 +1564,17 @@ router.post('/generate', requireAuth, async (req, res) => {
             if (forcePlaced) break;
             const freeSlots = shuffle(allSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`)));
             for (const slot of freeSlots) {
-              const eligible = allFaculty.filter(f => canTeach(f, subj.id));
-              const chosenF = shuffle(eligible.length ? eligible : allFaculty)
-                .find(f => isFacultyFree(day, slot.id, f.id));
+              // Respect subject-lock and unavailability constraints in force-place too
+              const lockedF2 = getLockedFaculty(subj.id, section.id);
+              let chosenF;
+              if (lockedF2) {
+                chosenF = (isFacultyFree(day, slot.id, lockedF2.id) && !isFacultyUnavailable(day, slot.id, lockedF2.id))
+                  ? lockedF2 : null;
+              } else {
+                const eligible = allFaculty.filter(f => canTeach(f, subj.id));
+                chosenF = shuffle(eligible.length ? eligible : allFaculty)
+                  .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+              }
               if (!chosenF) continue;
               const preferred = classrooms.find(r => r.id === preferredRoomId);
               const chosenR = (preferred && isRoomFree(day, slot.id, preferred.id))

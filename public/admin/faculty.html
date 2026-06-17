@@ -47,6 +47,7 @@
           <span id="facultyCount" class="text-muted"></span>
           <button class="btn btn-primary" onclick="openModal()">+ Add Faculty</button>
           <button class="btn btn-outline" onclick="openLabAssignmentModal()" id="labAssignBtn" style="display:none;">🔬 Lab Batch Assignment</button>
+          <button class="btn btn-outline" onclick="openConstraintsListModal()" id="constraintsListBtn" style="display:none;border-color:#7b1fa2;color:#7b1fa2;">🔒 Faculty Constraints</button>
         </div>
         <div class="table-wrapper">
           <table>
@@ -178,6 +179,7 @@
 
       // Show Lab Batch Assignment button for all users
       document.getElementById('labAssignBtn').style.display = 'inline-block';
+      document.getElementById('constraintsListBtn').style.display = 'inline-block';
 
       // Allow ?dept=X for super admin to view other departments
       const urlDept = new URLSearchParams(location.search).get('dept');
@@ -240,6 +242,7 @@
             </td>
             <td>
               <button class="btn btn-outline btn-sm" onclick="editFaculty(${f.id})">Edit</button>
+              <button class="btn btn-outline btn-sm" style="border-color:#7b1fa2;color:#7b1fa2;" onclick="openFacultyConstraintsModal(${f.id}, '${f.name.replace(/'/g,"\\'")}')">🔒 Constraints</button>
               <button class="btn btn-danger btn-sm" data-id="${f.id}" onclick="confirmDelete(this)">Delete</button>
             </td>
           </tr>`;
@@ -573,6 +576,401 @@
         saveBtn.textContent = 'Save Assignments';
       }
     }
+
+    // ==========================================================================
+    // ==================== FACULTY CONSTRAINTS =================================
+    // ==========================================================================
+
+    const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    let constraintAllSlots   = [];  // time_slots rows for this dept
+    let currentConstraintFacId  = null;
+    let currentConstraintFacName = '';
+    let existingConstraints  = [];  // constraints loaded for current faculty
+
+    // ── Open per-faculty constraints modal ───────────────────────────────────
+    async function openFacultyConstraintsModal(facultyId, facultyName) {
+      currentConstraintFacId   = facultyId;
+      currentConstraintFacName = facultyName;
+      document.getElementById('constraintFacName').textContent = facultyName;
+      document.getElementById('constraintAlert').innerHTML = '';
+      document.getElementById('constraintSubjectLockArea').innerHTML = '<p class="text-muted" style="font-size:0.85rem;">Loading…</p>';
+      document.getElementById('facultyConstraintsModal').classList.add('active');
+
+      try {
+        // Load slots if not yet loaded
+        if (!constraintAllSlots.length) {
+          const sRes = await fetch(`/api/timeslots?department_id=${deptId}`);
+          constraintAllSlots = (await sRes.json()).filter(s => !s.is_break);
+        }
+        // Load existing constraints for this faculty
+        const cRes = await fetch(`/api/admin/constraints/faculty/${facultyId}`);
+        existingConstraints = cRes.ok ? await cRes.json() : [];
+
+        renderUnavailabilityGrid();
+        renderSubjectLocks();
+      } catch (err) {
+        document.getElementById('constraintAlert').innerHTML =
+          `<div class="alert alert-error">Error loading constraints: ${err.message}</div>`;
+      }
+    }
+
+    function closeFacultyConstraintsModal() {
+      document.getElementById('facultyConstraintsModal').classList.remove('active');
+      currentConstraintFacId = null;
+    }
+
+    // ── Unavailability grid (days × slots) ───────────────────────────────────
+    function renderUnavailabilityGrid() {
+      const unavailSet = new Set(
+        existingConstraints
+          .filter(c => c.constraint_type === 'faculty_unavailable')
+          .map(c => `${c.day}|${c.slot_id}`)
+      );
+
+      // Build header row
+      let html = `<div style="overflow-x:auto;">
+        <table style="border-collapse:collapse;font-size:0.82rem;min-width:100%;">
+          <thead>
+            <tr>
+              <th style="padding:6px 10px;background:#f5f5f5;border:1px solid #ddd;white-space:nowrap;">Slot / Day</th>`;
+      for (const d of DAYS) {
+        html += `<th style="padding:6px 10px;background:#f5f5f5;border:1px solid #ddd;white-space:nowrap;text-align:center;">${d.slice(0,3)}</th>`;
+      }
+      html += `</tr></thead><tbody>`;
+
+      for (const sl of constraintAllSlots) {
+        html += `<tr>
+          <td style="padding:5px 10px;border:1px solid #ddd;white-space:nowrap;font-weight:600;color:#555;">
+            P${sl.slot_number}<br><span style="font-weight:400;font-size:0.75rem;">${sl.start_time}–${sl.end_time}</span>
+          </td>`;
+        for (const d of DAYS) {
+          const key  = `${d}|${sl.id}`;
+          const isBlocked = unavailSet.has(key);
+          // find constraint id if it exists (for deletion)
+          const existing = existingConstraints.find(
+            c => c.constraint_type === 'faculty_unavailable' && c.day === d && parseInt(c.slot_id) === sl.id
+          );
+          html += `<td style="padding:4px;border:1px solid #ddd;text-align:center;">
+            <button
+              class="constraint-cell ${isBlocked ? 'blocked' : ''}"
+              data-day="${d}" data-slot="${sl.id}"
+              data-cid="${existing ? existing.id : ''}"
+              onclick="toggleUnavailability(this)"
+              title="${isBlocked ? 'Click to remove block' : 'Click to block this slot'}"
+              style="width:32px;height:28px;border-radius:4px;border:1px solid ${isBlocked ? '#c62828' : '#ccc'};
+                     background:${isBlocked ? '#ffebee' : '#fff'};cursor:pointer;font-size:0.85rem;
+                     transition:all .15s;">
+              ${isBlocked ? '🚫' : ''}
+            </button>
+          </td>`;
+        }
+        html += `</tr>`;
+      }
+      html += `</tbody></table></div>
+      <p style="font-size:0.75rem;color:#888;margin-top:8px;">🚫 = faculty unavailable at that slot. Click a cell to toggle.</p>`;
+
+      document.getElementById('constraintGridArea').innerHTML = html;
+    }
+
+    async function toggleUnavailability(btn) {
+      const day    = btn.dataset.day;
+      const slotId = parseInt(btn.dataset.slot);
+      const cid    = btn.dataset.cid;
+      const isBlocked = btn.classList.contains('blocked');
+
+      btn.disabled = true;
+      try {
+        if (isBlocked && cid) {
+          // Remove constraint
+          const res = await fetch(`/api/admin/constraints/${cid}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error((await res.json()).error || 'Delete failed');
+          btn.classList.remove('blocked');
+          btn.style.background = '#fff';
+          btn.style.borderColor = '#ccc';
+          btn.innerHTML = '';
+          btn.dataset.cid = '';
+          btn.title = 'Click to block this slot';
+          existingConstraints = existingConstraints.filter(c => c.id != cid);
+        } else {
+          // Add constraint
+          const res = await fetch('/api/admin/constraints', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              constraint_type: 'faculty_unavailable',
+              faculty_id: currentConstraintFacId,
+              day, slot_id: slotId
+            })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Save failed');
+          btn.classList.add('blocked');
+          btn.style.background = '#ffebee';
+          btn.style.borderColor = '#c62828';
+          btn.innerHTML = '🚫';
+          btn.dataset.cid = data.id;
+          btn.title = 'Click to remove block';
+          existingConstraints.push({
+            id: data.id, constraint_type: 'faculty_unavailable',
+            faculty_id: currentConstraintFacId, day, slot_id: slotId
+          });
+        }
+      } catch (err) {
+        document.getElementById('constraintAlert').innerHTML =
+          `<div class="alert alert-error">${err.message}</div>`;
+        setTimeout(() => document.getElementById('constraintAlert').innerHTML = '', 3000);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // ── Subject-lock section ─────────────────────────────────────────────────
+    function renderSubjectLocks() {
+      const locks = existingConstraints.filter(c => c.constraint_type === 'faculty_subject_lock');
+
+      // Build a list of current locks
+      let locksHtml = '';
+      if (locks.length) {
+        locksHtml = locks.map(c => `
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#f3e5f5;border-radius:4px;margin-bottom:4px;">
+            <span style="flex:1;font-size:0.85rem;">
+              📌 <strong>${c.subject_name || 'Subject #' + c.subject_id}</strong>
+              ${c.section_name ? `<span style="font-size:0.75rem;color:#666;"> (Section ${c.section_name})</span>` : '<span style="font-size:0.75rem;color:#666;"> (All sections)</span>'}
+            </span>
+            <button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:0.75rem;"
+              onclick="deleteSubjectLock(${c.id}, this)">Remove</button>
+          </div>`).join('');
+      } else {
+        locksHtml = '<p class="text-muted" style="font-size:0.83rem;">No subject locks set.</p>';
+      }
+
+      // Build the "add new lock" form
+      const subjectOptions = allSubjects.map(s =>
+        `<option value="${s.id}">${s.name}${s.type === 'lab' ? ' 🔬' : ''}</option>`
+      ).join('');
+
+      document.getElementById('constraintSubjectLockArea').innerHTML = `
+        <div style="margin-bottom:10px;">${locksHtml}</div>
+        <div style="border-top:1px solid #e0e0e0;padding-top:12px;">
+          <div style="font-size:0.82rem;font-weight:600;color:#555;margin-bottom:8px;">Add subject lock:</div>
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+            <div class="form-group" style="flex:2;min-width:160px;margin-bottom:0;">
+              <label style="font-size:0.78rem;">Subject</label>
+              <select id="lockSubjectSel" class="form-control form-control-sm">
+                <option value="">Select subject…</option>
+                ${subjectOptions}
+              </select>
+            </div>
+            <div style="flex:0 0 auto;padding-bottom:2px;">
+              <button class="btn btn-primary btn-sm" onclick="addSubjectLock()">+ Lock</button>
+            </div>
+          </div>
+          <p style="font-size:0.73rem;color:#888;margin-top:6px;">
+            A lock means the generator will always assign this faculty to that subject.
+          </p>
+        </div>`;
+    }
+
+    async function addSubjectLock() {
+      const subjectId = parseInt(document.getElementById('lockSubjectSel').value);
+      if (!subjectId) return showConstraintAlert('Select a subject first', 'error');
+
+      // Check duplicate
+      const dup = existingConstraints.find(c =>
+        c.constraint_type === 'faculty_subject_lock' && parseInt(c.subject_id) === subjectId && !c.section_id
+      );
+      if (dup) return showConstraintAlert('Lock already exists for this subject', 'warning');
+
+      try {
+        const res = await fetch('/api/admin/constraints', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            constraint_type: 'faculty_subject_lock',
+            faculty_id: currentConstraintFacId,
+            subject_id: subjectId
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Save failed');
+        const subj = allSubjects.find(s => s.id === subjectId);
+        existingConstraints.push({
+          id: data.id, constraint_type: 'faculty_subject_lock',
+          faculty_id: currentConstraintFacId, subject_id: subjectId,
+          subject_name: subj ? subj.name : 'Subject #' + subjectId,
+          section_id: null, section_name: null
+        });
+        renderSubjectLocks();
+        showConstraintAlert('Subject lock added', 'success');
+      } catch (err) {
+        showConstraintAlert(err.message, 'error');
+      }
+    }
+
+    async function deleteSubjectLock(cid, btn) {
+      btn.disabled = true;
+      try {
+        const res = await fetch(`/api/admin/constraints/${cid}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error((await res.json()).error || 'Delete failed');
+        existingConstraints = existingConstraints.filter(c => c.id != cid);
+        renderSubjectLocks();
+        showConstraintAlert('Lock removed', 'success');
+      } catch (err) {
+        showConstraintAlert(err.message, 'error');
+        btn.disabled = false;
+      }
+    }
+
+    function showConstraintAlert(msg, type) {
+      const box = document.getElementById('constraintAlert');
+      box.innerHTML = `<div class="alert alert-${type}" style="margin-bottom:8px;">${msg}</div>`;
+      setTimeout(() => box.innerHTML = '', 3000);
+    }
+
+    // ── All-faculty constraints overview modal ────────────────────────────────
+    async function openConstraintsListModal() {
+      document.getElementById('constraintsOverviewAlert').innerHTML = '';
+      document.getElementById('constraintsOverviewBody').innerHTML =
+        '<tr><td colspan="4" class="text-center text-muted">Loading…</td></tr>';
+      document.getElementById('constraintsOverviewModal').classList.add('active');
+      await refreshConstraintsOverview();
+    }
+
+    function closeConstraintsOverviewModal() {
+      document.getElementById('constraintsOverviewModal').classList.remove('active');
+    }
+
+    async function refreshConstraintsOverview() {
+      try {
+        const res = await fetch('/api/admin/constraints');
+        const all = res.ok ? await res.json() : [];
+        const tbody = document.getElementById('constraintsOverviewBody');
+        if (!all.length) {
+          tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No constraints set yet.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = all.map(c => {
+          const typeLabel = c.constraint_type === 'faculty_unavailable'
+            ? `🚫 Unavailable`
+            : `📌 Subject Lock`;
+          const detail = c.constraint_type === 'faculty_unavailable'
+            ? `${c.day} P${c.slot_number || ''} (${c.slot_start || ''}–${c.slot_end || ''})`
+            : `${c.subject_name || '—'}${c.section_name ? ' / Sec ' + c.section_name : ''}`;
+          return `<tr>
+            <td>${c.faculty_name || '—'}</td>
+            <td>${typeLabel}</td>
+            <td style="font-size:0.83rem;">${detail}</td>
+            <td>
+              <button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:0.75rem;"
+                onclick="deleteConstraintFromOverview(${c.id}, this)">Remove</button>
+            </td>
+          </tr>`;
+        }).join('');
+      } catch (err) {
+        document.getElementById('constraintsOverviewAlert').innerHTML =
+          `<div class="alert alert-error">${err.message}</div>`;
+      }
+    }
+
+    async function clearAllConstraints() {
+      if (!confirm('Remove ALL faculty constraints for this department? This cannot be undone.')) return;
+      try {
+        const res = await fetch('/api/admin/constraints', { method: 'DELETE' });
+        if (!res.ok) throw new Error((await res.json()).error);
+        showAlert('All constraints cleared', 'success');
+        await refreshConstraintsOverview();
+      } catch (err) {
+        document.getElementById('constraintsOverviewAlert').innerHTML =
+          `<div class="alert alert-error">${err.message}</div>`;
+      }
+    }
+
+    async function deleteConstraintFromOverview(cid, btn) {
+      btn.disabled = true;
+      try {
+        const res = await fetch(`/api/admin/constraints/${cid}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error((await res.json()).error || 'Delete failed');
+        await refreshConstraintsOverview();
+      } catch (err) {
+        document.getElementById('constraintsOverviewAlert').innerHTML =
+          `<div class="alert alert-error">${err.message}</div>`;
+        btn.disabled = false;
+      }
+    }
   </script>
+  <!-- Faculty Constraints Modal (per-faculty) -->
+  <div class="modal-overlay" id="facultyConstraintsModal">
+    <div class="modal" style="max-width:780px;max-height:92vh;overflow-y:auto;">
+      <div class="modal-header" style="background:linear-gradient(135deg,#6a1b9a,#4a148c);color:#fff;">
+        <div class="modal-title" style="color:#fff;">🔒 Constraints — <span id="constraintFacName"></span></div>
+        <button class="modal-close" onclick="closeFacultyConstraintsModal()" style="color:#fff;">×</button>
+      </div>
+      <div style="padding:20px;">
+        <div id="constraintAlert"></div>
+
+        <!-- Unavailability grid -->
+        <div style="margin-bottom:20px;">
+          <div style="font-size:0.95rem;font-weight:700;color:#4a148c;margin-bottom:10px;">
+            🚫 Mark Unavailable Slots
+            <span style="font-size:0.75rem;font-weight:400;color:#888;margin-left:8px;">Click a cell to toggle. Red = blocked during generation.</span>
+          </div>
+          <div id="constraintGridArea">
+            <p class="text-muted" style="font-size:0.85rem;">Loading…</p>
+          </div>
+        </div>
+
+        <!-- Subject lock section -->
+        <div>
+          <div style="font-size:0.95rem;font-weight:700;color:#4a148c;margin-bottom:10px;">
+            📌 Subject Locks
+            <span style="font-size:0.75rem;font-weight:400;color:#888;margin-left:8px;">Force the generator to always assign this faculty to a subject.</span>
+          </div>
+          <div id="constraintSubjectLockArea">
+            <p class="text-muted" style="font-size:0.85rem;">Loading…</p>
+          </div>
+        </div>
+
+        <div class="modal-footer" style="margin-top:20px;">
+          <button type="button" class="btn btn-secondary" onclick="closeFacultyConstraintsModal()">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- All Constraints Overview Modal -->
+  <div class="modal-overlay" id="constraintsOverviewModal">
+    <div class="modal" style="max-width:820px;max-height:92vh;overflow-y:auto;">
+      <div class="modal-header" style="background:linear-gradient(135deg,#6a1b9a,#4a148c);color:#fff;">
+        <div class="modal-title" style="color:#fff;">🔒 Faculty Constraints Overview</div>
+        <button class="modal-close" onclick="closeConstraintsOverviewModal()" style="color:#fff;">×</button>
+      </div>
+      <div style="padding:20px;">
+        <div id="constraintsOverviewAlert"></div>
+        <p style="font-size:0.83rem;color:#555;margin-bottom:12px;">
+          All constraints active for this department. Click a faculty's 🔒 Constraints button to add or edit per-faculty constraints.
+        </p>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Faculty</th>
+                <th>Type</th>
+                <th>Detail</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="constraintsOverviewBody">
+              <tr><td colspan="4" class="text-center text-muted">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="modal-footer" style="margin-top:16px;justify-content:space-between;">
+          <button type="button" class="btn btn-danger btn-sm" onclick="clearAllConstraints()">🗑️ Clear All Constraints</button>
+          <button type="button" class="btn btn-secondary" onclick="closeConstraintsOverviewModal()">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

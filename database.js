@@ -343,6 +343,46 @@ async function initializeDatabase() {
     )
   `);
 
+  // Generation constraints: pre-assign faculty to theory subjects, block days/slots, etc.
+  await run(`
+    CREATE TABLE IF NOT EXISTS generation_constraints (
+      id SERIAL PRIMARY KEY,
+      department_id INTEGER NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
+      section_id    INTEGER REFERENCES sections(id) ON DELETE CASCADE,
+      subject_id    INTEGER REFERENCES subjects(id) ON DELETE CASCADE,
+      faculty_id    INTEGER REFERENCES faculty(id) ON DELETE CASCADE,
+      constraint_type TEXT NOT NULL,
+      value         TEXT,
+      day           TEXT,
+      slot_id       INTEGER REFERENCES time_slots(id) ON DELETE CASCADE,
+      created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Migrate generation_constraints: add day column if missing
+  const gcDayExists = await queryOne(`
+    SELECT EXISTS (
+      SELECT FROM information_schema.columns
+      WHERE table_name = 'generation_constraints' AND column_name = 'day'
+    ) as exists
+  `);
+  if (!gcDayExists.exists) {
+    await run(`ALTER TABLE generation_constraints ADD COLUMN day TEXT`);
+    console.log('✅ Migrated generation_constraints: added day column');
+  }
+
+  // Migrate generation_constraints: add slot_id column if missing
+  const gcSlotExists = await queryOne(`
+    SELECT EXISTS (
+      SELECT FROM information_schema.columns
+      WHERE table_name = 'generation_constraints' AND column_name = 'slot_id'
+    ) as exists
+  `);
+  if (!gcSlotExists.exists) {
+    await run(`ALTER TABLE generation_constraints ADD COLUMN slot_id INTEGER REFERENCES time_slots(id) ON DELETE CASCADE`);
+    console.log('✅ Migrated generation_constraints: added slot_id column');
+  }
+
   // Password reset tokens for super admin forgot-password flow
   await run(`
     CREATE TABLE IF NOT EXISTS password_reset_tokens (

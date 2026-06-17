@@ -182,6 +182,22 @@
           <li>Use <a href="/admin/editor.html" style="color:#1a237e;">the Editor</a> to make manual adjustments after generation</li>
         </ul>
       </div>
+
+      <!-- Faculty Constraints info card -->
+      <div class="card" style="border-left:4px solid #7b1fa2;">
+        <div class="card-title" style="color:#6a1b9a;">🔒 Faculty Constraints</div>
+        <p style="font-size:0.88rem;color:#555;margin-bottom:14px;">
+          Set per-faculty rules that the generator will respect:
+        </p>
+        <ul style="padding-left:20px;line-height:2;color:#555;font-size:0.88rem;margin-bottom:16px;">
+          <li><strong>Unavailable slots</strong> — block specific day + period combinations so a faculty is never scheduled there</li>
+          <li><strong>Subject locks</strong> — force the generator to always assign a particular faculty to a subject</li>
+        </ul>
+        <div id="constraintsSummary" style="margin-bottom:14px;font-size:0.85rem;color:#666;">Loading constraints…</div>
+        <a href="/admin/faculty.html" class="btn btn-outline" style="border-color:#7b1fa2;color:#7b1fa2;">
+          🔒 Manage Faculty Constraints
+        </a>
+      </div>
     </main>
   </div>
 
@@ -201,6 +217,27 @@
       const sel = document.getElementById('yearSelect');
       sel.innerHTML = '<option value="">Select Year</option>' +
         years.map(y => `<option value="${y.id}">${y.display_name}</option>`).join('');
+      loadConstraintsSummary();
+    }
+
+    async function loadConstraintsSummary() {
+      try {
+        const res = await fetch('/api/admin/constraints');
+        if (!res.ok) throw new Error('Could not load');
+        const all = await res.json();
+        const unavail = all.filter(c => c.constraint_type === 'faculty_unavailable').length;
+        const locks   = all.filter(c => c.constraint_type === 'faculty_subject_lock').length;
+        const el = document.getElementById('constraintsSummary');
+        if (!unavail && !locks) {
+          el.innerHTML = '<span style="color:#aaa;">No constraints set — generator will run freely.</span>';
+        } else {
+          el.innerHTML =
+            `<strong style="color:#6a1b9a;">${unavail}</strong> unavailable slot${unavail !== 1 ? 's' : ''} &nbsp;|&nbsp; ` +
+            `<strong style="color:#6a1b9a;">${locks}</strong> subject lock${locks !== 1 ? 's' : ''} active`;
+        }
+      } catch {
+        document.getElementById('constraintsSummary').innerHTML = '';
+      }
     }
 
     function selectScope(scope) {
