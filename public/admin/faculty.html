@@ -176,10 +176,8 @@
           `Faculty — ${d.user.dept_name || 'Your Department'}`;
       }
 
-      // Show Lab Batch Assignment button for incharges
-      if (!d.user.isSuperAdmin) {
-        document.getElementById('labAssignBtn').style.display = 'inline-block';
-      }
+      // Show Lab Batch Assignment button for all users
+      document.getElementById('labAssignBtn').style.display = 'inline-block';
 
       // Allow ?dept=X for super admin to view other departments
       const urlDept = new URLSearchParams(location.search).get('dept');
@@ -223,7 +221,7 @@
         let canTeach = [];
         try { canTeach = JSON.parse(f.subjects_can_teach || '[]'); } catch {}
         const subjectNames = canTeach.map(id => {
-          const s = allSubjects.find(s => s.id === id);
+          const s = allSubjects.find(s => String(s.id) === String(id));
           return s ? (s.name + (s.type === 'lab' ? ' 🔬' : '')) : null;
         }).filter(Boolean);
         const roleLabel = f.role === 'hod_mentor' ? 'HOD (Mentor)' : f.role === 'hod_admin' ? 'HOD (Admin)' : 'Faculty';

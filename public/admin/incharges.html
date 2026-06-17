@@ -87,13 +87,13 @@
   </div>
 
   <!-- Add Incharge Modal -->
-  <div id="addModal" class="modal" style="display:none;">
-    <div class="modal-content">
+  <div id="addModal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="max-width:520px;">
       <div class="modal-header">
-        <h3>Add Timetable Incharge</h3>
+        <h3 class="modal-title">Add Timetable Incharge</h3>
         <button onclick="closeModal('addModal')" class="modal-close">✕</button>
       </div>
-      <div class="modal-body">
+      <div>
         <div id="addAlert"></div>
         <div class="form-group">
           <label>Google Email Address *</label>
@@ -119,13 +119,13 @@
   </div>
 
   <!-- Add Department Modal -->
-  <div id="addDeptModal" class="modal" style="display:none;">
-    <div class="modal-content">
+  <div id="addDeptModal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="max-width:520px;">
       <div class="modal-header">
-        <h3>Add Department</h3>
+        <h3 class="modal-title">Add Department</h3>
         <button onclick="closeModal('addDeptModal')" class="modal-close">✕</button>
       </div>
-      <div class="modal-body">
+      <div>
         <div id="addDeptAlert"></div>
         <div class="form-group">
           <label>Department Name *</label>
@@ -256,6 +256,16 @@
     }
 
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+    function showAlert(msg, type) {
+      // Create a temporary floating alert
+      const div = document.createElement('div');
+      div.className = `alert alert-${type}`;
+      div.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;min-width:300px;box-shadow:0 4px 12px rgba(0,0,0,0.2);';
+      div.textContent = msg;
+      document.body.appendChild(div);
+      setTimeout(() => div.remove(), 4000);
+    }
 
     async function saveIncharge() {
       const email = document.getElementById('addEmail').value.trim();
