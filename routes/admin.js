@@ -1056,7 +1056,9 @@ router.post('/generate', requireAuth, async (req, res) => {
     const allFaculty  = await query("SELECT * FROM faculty WHERE role='faculty' AND department_id=$1", [deptId]);
     const allRooms    = await query('SELECT * FROM rooms WHERE department_id=$1', [deptId]);
     const classrooms  = allRooms.filter(r => r.type === 'classroom');
-    const labs        = allRooms.filter(r => r.type === 'lab');
+    // Use dedicated lab rooms; fall back to classrooms if none configured
+    const labRoomsRaw = allRooms.filter(r => r.type === 'lab');
+    const labs        = labRoomsRaw.length > 0 ? labRoomsRaw : classrooms;
 
     const facultyBusy = {};
     const roomBusy    = {};
@@ -1066,6 +1068,14 @@ router.post('/generate', requireAuth, async (req, res) => {
     const markFaculty   = (d,s,f) => { const k=`${d}_${s}`; if(!facultyBusy[k]) facultyBusy[k]=new Set(); facultyBusy[k].add(f); };
     const markRoom      = (d,s,r) => { const k=`${d}_${s}`; if(!roomBusy[k]) roomBusy[k]=new Set(); roomBusy[k].add(r); };
     const shuffle = a => { const b=[...a]; for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];} return b; };
+
+    // Normalize subjects_can_teach to string IDs for reliable matching
+    const canTeach = (f, subjId) => {
+      try {
+        const arr = JSON.parse(f.subjects_can_teach || '[]');
+        return arr.some(id => String(id) === String(subjId));
+      } catch { return false; }
+    };
 
     const shuffledClassrooms = shuffle([...classrooms]);
     const sectionRoomMap = {};
@@ -1145,9 +1155,7 @@ router.post('/generate', requireAuth, async (req, res) => {
         const hoursNeeded = subj.hours_per_week || 2;
         const preAssigned = assignedFaculty[subj.id] || {};
 
-        const qualifiedFac = allFaculty.filter(f => {
-          try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
-        });
+        const qualifiedFac = allFaculty.filter(f => canTeach(f, subj.id));
         const facPool = qualifiedFac.length >= numSubsections ? qualifiedFac : allFaculty;
 
         // Pre-resolve faculty per batch
@@ -1160,10 +1168,12 @@ router.post('/generate', requireAuth, async (req, res) => {
             const pre = allFaculty.find(f => f.id === preId);
             if (pre) batchFaculty = pre;
           }
-          if (!batchFaculty) {
+          if (!batchFaculty && facPool.length > 0) {
             // Pick a faculty not already used for another batch of this lab
             const usedFacIds = batchFacultyList.map(bf => bf && bf.id);
-            batchFaculty = shuffle(facPool).find(f => !usedFacIds.includes(f.id)) || shuffle(facPool)[0] || null;
+            batchFaculty = shuffle(facPool).find(f => !usedFacIds.includes(f.id))
+                        || shuffle(facPool)[0]
+                        || null;
           }
           batchFacultyList.push(batchFaculty);
         }
@@ -1198,7 +1208,7 @@ router.post('/generate', requireAuth, async (req, res) => {
             for (let start = 0; start <= group.length - hoursNeeded; start++) {
               const candidate = group.slice(start, start + hoursNeeded);
 
-              // Check ALL batch faculty are free in these slots
+              // Check only batches that HAVE faculty assigned are free — null faculty batches don't block placement
               const allFacultyFree = batchFacultyList.every(bf =>
                 bf ? candidate.every(sl => isFacultyFree(day, sl.id, bf.id)) : true
               );
@@ -1221,18 +1231,18 @@ router.post('/generate', requireAuth, async (req, res) => {
               if (!roomsOk) continue;
 
               // Place all batches in the SAME slots, different rooms
+              // Even if batchFaculty is null, still create the entry (faculty = unassigned)
               for (let bi = 0; bi < numSubsections; bi++) {
                 const batchName = batchNames[bi];
                 const batchFaculty = batchFacultyList[bi];
-                if (!batchFaculty) continue;
                 const labRoom = batchRooms[bi];
 
                 for (const sl of candidate) {
                   await run(
                     'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-                    [section.id, sl.id, day, subj.id, batchFaculty.id, labRoom.id, batchName]
+                    [section.id, sl.id, day, subj.id, batchFaculty ? batchFaculty.id : null, labRoom.id, batchName]
                   );
-                  markFaculty(day, sl.id, batchFaculty.id);
+                  if (batchFaculty) markFaculty(day, sl.id, batchFaculty.id);
                   markRoom(day, sl.id, labRoom.id);
                 }
                 roomUsageCount[labRoom.id]++;
@@ -1252,7 +1262,7 @@ router.post('/generate', requireAuth, async (req, res) => {
         }
 
         if (!labPlaced) {
-          console.warn(`Warning: Could not place ${subj.name} for section ${section.name}`);
+          console.warn(`Warning: Could not place ${subj.name} for section ${section.name} — no free consecutive slots with available rooms`);
         }
       }
 
@@ -1306,9 +1316,7 @@ router.post('/generate', requireAuth, async (req, res) => {
             const key = `${day}_${slot.id}`;
 
             // Find eligible faculty
-            const eligible = allFaculty.filter(f => {
-              try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
-            });
+            const eligible = allFaculty.filter(f => canTeach(f, subj.id));
             const candidateFaculty = shuffle(eligible.length ? eligible : allFaculty)
               .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id]);
             const chosenF = candidateFaculty.find(f => isFacultyFree(day, slot.id, f.id));
@@ -1343,9 +1351,7 @@ router.post('/generate', requireAuth, async (req, res) => {
             if (forcePlaced) break;
             const freeSlots = shuffle(allSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`)));
             for (const slot of freeSlots) {
-              const eligible = allFaculty.filter(f => {
-                try { return JSON.parse(f.subjects_can_teach || '[]').includes(subj.id); } catch { return false; }
-              });
+              const eligible = allFaculty.filter(f => canTeach(f, subj.id));
               const chosenF = shuffle(eligible.length ? eligible : allFaculty)
                 .find(f => isFacultyFree(day, slot.id, f.id));
               if (!chosenF) continue;
@@ -1453,7 +1459,7 @@ router.post('/generate', requireAuth, async (req, res) => {
         for (const subj of labSubjs2) {
           const hrs = subj.hours_per_week || 2;
           const pre2 = aFac2[subj.id] || {};
-          const qFac2 = allFaculty.filter(f => { try { return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id); } catch { return false; } });
+          const qFac2 = allFaculty.filter(f => canTeach(f, subj.id));
           const fPool2 = qFac2.length >= numSubs2 ? qFac2 : allFaculty;
 
           // Pre-resolve faculty per batch (same as main scheduling)
@@ -1462,7 +1468,7 @@ router.post('/generate', requireAuth, async (req, res) => {
             const bn = bNames2[bi];
             let bFac2 = null;
             if (pre2[bn]) { const p = allFaculty.find(f=>f.id===pre2[bn]); if(p) bFac2=p; }
-            if (!bFac2) {
+            if (!bFac2 && fPool2.length > 0) {
               const usedFacIds2 = bFacList2.map(bf => bf && bf.id);
               bFac2 = shuffle(fPool2).find(f=>!usedFacIds2.includes(f.id)) || shuffle(fPool2)[0] || null;
             }
@@ -1500,12 +1506,13 @@ router.post('/generate', requireAuth, async (req, res) => {
                 if (!roomsOk2) continue;
                 // Place all batches in SAME slots, different rooms
                 for (let bi=0;bi<numSubs2;bi++) {
-                  const bn=bNames2[bi]; const bf=bFacList2[bi]; if(!bf) continue;
+                  const bn=bNames2[bi]; const bf=bFacList2[bi];
                   const lr=bRooms2[bi];
                   for (const sl of cand2) {
                     await run('INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-                      [section.id,sl.id,day,subj.id,bf.id,lr.id,bn]);
-                    markFaculty(day,sl.id,bf.id); markRoom(day,sl.id,lr.id);
+                      [section.id,sl.id,day,subj.id,bf ? bf.id : null,lr.id,bn]);
+                    if (bf) markFaculty(day,sl.id,bf.id);
+                    markRoom(day,sl.id,lr.id);
                   }
                   roomUsageCount[lr.id]++;
                 }
@@ -1536,7 +1543,7 @@ router.post('/generate', requireAuth, async (req, res) => {
             if (dLoad2[day]>=tgt2+1 && sDays2.some(d=>dLoad2[d]<tgt2)) continue;
             const fSlots2 = shuffle(allSlots.filter(sl=>!used2.has(`${day}_${sl.id}`)));
             for (const slot of fSlots2) {
-              const elig2 = allFaculty.filter(f=>{try{return JSON.parse(f.subjects_can_teach||'[]').includes(subj.id);}catch{return false;}});
+              const elig2 = allFaculty.filter(f => canTeach(f, subj.id));
               const cF2 = shuffle(elig2.length?elig2:allFaculty).sort((a,b)=>fThCnt2[a.id]-fThCnt2[b.id]).find(f=>isFacultyFree(day,slot.id,f.id));
               if (!cF2) continue;
               const pref2 = classrooms.find(r=>r.id===prefR2);
