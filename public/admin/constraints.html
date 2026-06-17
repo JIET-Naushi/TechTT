@@ -13,12 +13,14 @@
     .tab-panel { display:none; }
     .tab-panel.active { display:block; }
     .field-label { font-size:0.75rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:4px; }
-    .constraints-table th, .constraints-table td { padding:8px 12px;font-size:0.83rem; }
+    .constraints-table th,.constraints-table td { padding:8px 12px;font-size:0.83rem; }
     .badge-pin   { background:#e8eaf6;color:#283593; }
     .badge-lock  { background:#f3e5f5;color:#6a1b9a; }
     .badge-block { background:#ffebee;color:#c62828; }
-    .batch-row { display:flex;align-items:center;gap:10px;padding:8px 10px;background:#f9f9f9;border:1px solid #e8e8e8;border-radius:5px;margin-bottom:6px; }
-    .batch-tag { display:inline-block;background:#e3f2fd;color:#1565c0;font-size:0.75rem;font-weight:700;padding:2px 10px;border-radius:10px;min-width:52px;text-align:center; }
+    .batch-row { display:grid;grid-template-columns:80px 1fr 1fr;gap:10px;align-items:center;padding:8px 10px;background:#f9f9f9;border:1px solid #e8e8e8;border-radius:5px;margin-bottom:6px; }
+    .batch-tag { display:inline-block;background:#e3f2fd;color:#1565c0;font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:10px;text-align:center; }
+    .group-row td { background:#f5f0ff;font-weight:600;font-size:0.82rem; }
+    .group-row td:first-child { border-left:3px solid #7b1fa2; }
   </style>
 </head>
 <body>
@@ -53,9 +55,11 @@
       <a href="/views/faculty-timetable.html"><span class="icon">👤</span> Faculty View</a>
       <a href="/views/location-timetable.html"><span class="icon">📍</span> Location View</a>
     </nav>
+
     <main class="admin-content">
       <div class="page-title" id="pageTitle">📌 Generation Constraints</div>
       <div id="alertBox"></div>
+
       <div class="constraint-type-tabs">
         <div class="constraint-tab active" onclick="switchTab('batch')">📌 Theory Batch Slots</div>
         <div class="constraint-tab" onclick="switchTab('faculty')">🔒 Faculty Constraints</div>
@@ -66,28 +70,23 @@
         <div class="card">
           <div class="card-title">Add Theory Batch Slot Pin</div>
           <p style="font-size:0.85rem;color:#555;margin-bottom:16px;">
-            Pin a theory subject to a fixed <strong>day + period</strong> for the <strong>batches of one section</strong>.
-            Each batch gets its own faculty and room at that slot — exactly like labs but for theory subjects.
+            Fix a <strong>day + period</strong> for all batches of a section simultaneously —
+            each batch gets its own <strong>subject</strong>, <strong>faculty</strong>, and room.
+            This mirrors how labs are scheduled but for theory subjects.
           </p>
 
-          <!-- Step 1: Year → Section → Subject → Day → Slot -->
-          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+          <!-- Step 1: Year / Section / Day / Slot -->
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
             <div class="form-group" style="flex:1;min-width:140px;margin:0;">
               <label class="field-label">Year</label>
-              <select id="pinYear" class="form-control" onchange="onPinYearChange()">
+              <select id="pinYear" class="form-control" onchange="onYearChange()">
                 <option value="">Select Year…</option>
               </select>
             </div>
             <div class="form-group" style="flex:1;min-width:140px;margin:0;">
               <label class="field-label">Section</label>
-              <select id="pinSection" class="form-control" onchange="onPinSectionChange()">
+              <select id="pinSection" class="form-control" onchange="onSectionChange()">
                 <option value="">Select Section…</option>
-              </select>
-            </div>
-            <div class="form-group" style="flex:1.5;min-width:160px;margin:0;">
-              <label class="field-label">Subject (Theory)</label>
-              <select id="pinSubject" class="form-control">
-                <option value="">Select Subject…</option>
               </select>
             </div>
             <div class="form-group" style="flex:0.8;min-width:120px;margin:0;">
@@ -106,29 +105,37 @@
             </div>
           </div>
 
-          <!-- Step 2: Batch rows with faculty selects — rendered after section chosen -->
-          <div id="batchFacultyArea" style="display:none;">
-            <label class="field-label" style="margin-bottom:8px;">Faculty per Batch (optional — leave blank to auto-assign)</label>
-            <div id="batchFacultyRows"></div>
+          <!-- Step 2: Per-batch rows (Subject + Faculty) — loaded after section chosen -->
+          <div id="batchArea" style="display:none;">
+            <div style="display:grid;grid-template-columns:80px 1fr 1fr;gap:10px;margin-bottom:4px;padding:0 10px;">
+              <span class="field-label">Batch</span>
+              <span class="field-label">Subject (Theory)</span>
+              <span class="field-label">Faculty (optional)</span>
+            </div>
+            <div id="batchRows"></div>
+          </div>
+
+          <div id="batchPlaceholder" style="padding:10px;color:#aaa;font-size:0.85rem;">
+            Select a section to see its batches…
           </div>
 
           <div style="margin-top:14px;display:flex;gap:10px;align-items:center;">
-            <button class="btn btn-primary" id="addPinBtn" onclick="addBatchPins()">📌 Pin Batches</button>
+            <button class="btn btn-primary" id="addPinBtn" onclick="addBatchPins()" disabled>📌 Pin These Batches</button>
             <span id="pinStatus" style="font-size:0.83rem;color:#666;"></span>
           </div>
         </div>
 
-        <!-- Pins table -->
+        <!-- Pins table — grouped by section+day+slot -->
         <div class="card">
           <div class="card-title">
             Current Theory Batch Slot Pins
             <button class="btn btn-danger btn-sm" style="float:right;font-size:0.75rem;" onclick="clearAllPins()">🗑️ Clear All</button>
           </div>
           <div class="table-wrapper">
-            <table class="constraints-table">
+            <table class="constraints-table" style="width:100%;">
               <thead>
                 <tr>
-                  <th>Section</th><th>Subject</th><th>Batch</th>
+                  <th>Section</th><th>Batch</th><th>Subject</th>
                   <th>Day</th><th>Period</th><th>Faculty</th><th>Remove</th>
                 </tr>
               </thead>
@@ -145,15 +152,12 @@
         <div class="card">
           <div class="card-title">Faculty Constraints Overview</div>
           <p style="font-size:0.85rem;color:#555;margin-bottom:14px;">
-            Manage per-faculty unavailable slots and subject locks. Use the
-            <a href="/admin/faculty.html" style="color:#4a148c;">🔒 Constraints button on the Faculty page</a>
-            to edit a specific faculty member.
+            Manage per-faculty unavailable slots and subject locks.
+            Use the <a href="/admin/faculty.html" style="color:#4a148c;">🔒 Constraints button on the Faculty page</a> to edit a specific faculty member.
           </p>
           <div class="table-wrapper">
             <table class="constraints-table">
-              <thead>
-                <tr><th>Faculty</th><th>Type</th><th>Detail</th><th>Remove</th></tr>
-              </thead>
+              <thead><tr><th>Faculty</th><th>Type</th><th>Detail</th><th>Remove</th></tr></thead>
               <tbody id="facultyConstraintsBody">
                 <tr><td colspan="4" class="text-center text-muted">Loading…</td></tr>
               </tbody>
@@ -171,16 +175,17 @@
 
   <script>
     let deptId = 1;
-    let allYears=[], allSectionsForYear=[], allSlots=[], allFaculty=[], allSubjects=[];
-    let currentSectionBatches = []; // ["A","B","C"] for selected section
+    let allYears=[], allSlots=[], allFaculty=[], allSubjects=[];
+    let currentBatches = [];   // actual batch names from DB for selected section
+    let currentYearSubjects = []; // theory subjects for selected year
 
+    // ── Auth ──────────────────────────────────────────────────────────────────
     fetch('/api/auth/status').then(r=>r.json()).then(d=>{
       if (!d.loggedIn) { location.href='/login.html'; return; }
       const badge = document.getElementById('userBadge');
-      if (d.user.loginType==='google') {
-        badge.innerHTML=(d.user.picture?`<img src="${d.user.picture}" style="width:24px;height:24px;border-radius:50%;">`:'')
-          +`<span>${d.user.name||d.user.username}</span>`;
-      } else { badge.innerHTML=`<span>👤 ${d.user.username}</span>`; }
+      if (d.user.loginType==='google')
+        badge.innerHTML=(d.user.picture?`<img src="${d.user.picture}" style="width:24px;height:24px;border-radius:50%;">`:'')+`<span>${d.user.name||d.user.username}</span>`;
+      else badge.innerHTML=`<span>👤 ${d.user.username}</span>`;
       if (d.user.isSuperAdmin) { document.getElementById('superAdminMenu').style.display='block'; deptId=1; }
       else { deptId=d.user.department_id; document.getElementById('pageTitle').textContent=`📌 Generation Constraints — ${d.user.dept_name||''}`; }
       const urlDept=new URLSearchParams(location.search).get('dept');
@@ -195,17 +200,17 @@
         fetch(`/api/faculty?department_id=${deptId}`),
         fetch(`/api/subjects?department_id=${deptId}`)
       ]);
-      allYears    = await yRes.json();
-      allSlots    = (await slotRes.json()).filter(s=>!s.is_break);
-      allFaculty  = await fRes.json();
-      allSubjects = await sRes.json();
+      allYears   = await yRes.json();
+      allSlots   = (await slotRes.json()).filter(s=>!s.is_break);
+      allFaculty = await fRes.json();
+      allSubjects= await sRes.json();
 
-      const yearSel = document.getElementById('pinYear');
-      yearSel.innerHTML='<option value="">Select Year…</option>'+
+      document.getElementById('pinYear').innerHTML=
+        '<option value="">Select Year…</option>'+
         allYears.map(y=>`<option value="${y.id}">${y.display_name}</option>`).join('');
 
-      const slotSel = document.getElementById('pinSlot');
-      slotSel.innerHTML='<option value="">Slot…</option>'+
+      document.getElementById('pinSlot').innerHTML=
+        '<option value="">Slot…</option>'+
         allSlots.map(s=>`<option value="${s.id}">P${s.slot_number} (${s.start_time}–${s.end_time})</option>`).join('');
 
       await refreshPinsTable();
@@ -213,106 +218,129 @@
     }
 
     function switchTab(name) {
-      document.querySelectorAll('.constraint-tab').forEach((t,i)=>
-        t.classList.toggle('active',['batch','faculty'][i]===name));
+      document.querySelectorAll('.constraint-tab').forEach((t,i)=>t.classList.toggle('active',['batch','faculty'][i]===name));
       document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
       document.getElementById(`tab-${name}`).classList.add('active');
     }
 
     // ── Year change: load sections ────────────────────────────────────────────
-    async function onPinYearChange() {
+    async function onYearChange() {
       const yearId = document.getElementById('pinYear').value;
       document.getElementById('pinSection').innerHTML='<option value="">Select Section…</option>';
-      document.getElementById('pinSubject').innerHTML='<option value="">Select Subject…</option>';
       resetBatchArea();
-      allSectionsForYear=[];
+      currentYearSubjects=[];
       if (!yearId) return;
 
-      const sRes = await fetch(`/api/sections?year_id=${yearId}`);
-      allSectionsForYear = await sRes.json();
+      const [secRes] = await Promise.all([fetch(`/api/sections?year_id=${yearId}`)]);
+      const sections = await secRes.json();
       document.getElementById('pinSection').innerHTML=
         '<option value="">Select Section…</option>'+
-        allSectionsForYear.map(s=>`<option value="${s.id}" data-lab-subsections="${s.lab_subsections||2}" data-subsection-names="${s.subsection_names||''}">Sec ${s.name}</option>`).join('');
+        sections.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
 
-      // Load theory subjects for this year
-      const yearSubjects = allSubjects.filter(s=>String(s.year_id)===String(yearId) && s.type!=='lab');
-      document.getElementById('pinSubject').innerHTML=
-        '<option value="">Select Subject…</option>'+
-        yearSubjects.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+      // Theory subjects for this year (used in per-batch Subject dropdowns)
+      currentYearSubjects = allSubjects.filter(s=>String(s.year_id)===String(yearId) && s.type!=='lab');
     }
 
-    // ── Section change: derive batches → render faculty-per-batch rows ────────
-    function onPinSectionChange() {
-      const sel = document.getElementById('pinSection');
-      const opt = sel.options[sel.selectedIndex];
+    // ── Section change: fetch real batch names from DB → render batch rows ────
+    async function onSectionChange() {
+      const sectionId = document.getElementById('pinSection').value;
       resetBatchArea();
-      if (!opt || !opt.value) return;
+      if (!sectionId) return;
 
-      const numBatches = parseInt(opt.dataset.labSubsections) || 2;
+      // Fetch the actual section record to get lab_subsections + subsection_names
+      const res = await fetch(`/api/sections?year_id=0`); // fallback — fetch all sections for year
+      // Better: fetch the specific section via the sections endpoint with department filter
+      // then find in result. Since there's no /api/sections/:id we search from a dept-wide fetch.
+      const allRes = await fetch(`/api/sections?department_id=${deptId}`);
+      const allSecs = await allRes.json();
+      const sec = allSecs.find(s=>String(s.id)===String(sectionId));
+      if (!sec) return;
+
+      // Derive batch names exactly as the generator does
+      const numBatches = sec.lab_subsections || 2;
       let batchNames;
-      try { batchNames = JSON.parse(opt.dataset.subsectionNames || 'null'); } catch { batchNames=null; }
+      try { batchNames = JSON.parse(sec.subsection_names || 'null'); } catch { batchNames=null; }
       if (!Array.isArray(batchNames) || batchNames.length !== numBatches) {
         batchNames = Array.from({length:numBatches},(_,i)=>String.fromCharCode(65+i));
       }
-      currentSectionBatches = batchNames;
+      currentBatches = batchNames;
 
-      const facOptions = '<option value="">Auto-assign…</option>'+
-        allFaculty.map(f=>`<option value="${f.id}">${f.name}</option>`).join('');
-
-      document.getElementById('batchFacultyRows').innerHTML = batchNames.map(b=>`
-        <div class="batch-row">
-          <span class="batch-tag">Batch ${b}</span>
-          <select class="form-control" style="flex:1;font-size:0.85rem;" id="facBatch_${b}" data-batch="${b}">
-            ${facOptions}
-          </select>
-        </div>`).join('');
-      document.getElementById('batchFacultyArea').style.display='block';
+      renderBatchRows();
+      document.getElementById('addPinBtn').disabled = false;
     }
 
     function resetBatchArea() {
-      currentSectionBatches=[];
-      document.getElementById('batchFacultyArea').style.display='none';
-      document.getElementById('batchFacultyRows').innerHTML='';
+      currentBatches=[];
+      document.getElementById('batchArea').style.display='none';
+      document.getElementById('batchPlaceholder').style.display='block';
+      document.getElementById('batchRows').innerHTML='';
+      document.getElementById('addPinBtn').disabled=true;
     }
 
-    // ── Add one constraint row per batch ──────────────────────────────────────
+    function renderBatchRows() {
+      if (!currentBatches.length) return;
+      const subjOptions = '<option value="">Select subject…</option>'+
+        currentYearSubjects.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+      const facOptions = '<option value="">Auto-assign…</option>'+
+        allFaculty.map(f=>`<option value="${f.id}">${f.name}</option>`).join('');
+
+      document.getElementById('batchRows').innerHTML = currentBatches.map(b=>`
+        <div class="batch-row">
+          <span class="batch-tag">${b}</span>
+          <select class="form-control" id="subj_${b}" data-batch="${b}" style="font-size:0.85rem;">
+            ${subjOptions}
+          </select>
+          <select class="form-control" id="fac_${b}" data-batch="${b}" style="font-size:0.85rem;">
+            ${facOptions}
+          </select>
+        </div>`).join('');
+
+      document.getElementById('batchPlaceholder').style.display='none';
+      document.getElementById('batchArea').style.display='block';
+    }
+
+    // ── Save pins — one row per batch, each with its own subject ─────────────
     async function addBatchPins() {
       const sectionId = document.getElementById('pinSection').value;
-      const subjectId = document.getElementById('pinSubject').value;
       const day       = document.getElementById('pinDay').value;
       const slotId    = document.getElementById('pinSlot').value;
 
-      if (!sectionId)                      return showAlert('Select a section','error');
-      if (!subjectId)                      return showAlert('Select a subject','error');
-      if (!day)                            return showAlert('Select a day','error');
-      if (!slotId)                         return showAlert('Select a time slot','error');
-      if (!currentSectionBatches.length)   return showAlert('No batches found for this section','error');
+      if (!sectionId)             return showAlert('Select a section','error');
+      if (!day)                   return showAlert('Select a day','error');
+      if (!slotId)                return showAlert('Select a time slot','error');
+      if (!currentBatches.length) return showAlert('No batches found','error');
 
-      const btn = document.getElementById('addPinBtn');
+      // Validate each batch has a subject
+      for (const b of currentBatches) {
+        if (!document.getElementById(`subj_${b}`)?.value)
+          return showAlert(`Select a subject for Batch ${b}`,'error');
+      }
+
+      const btn=document.getElementById('addPinBtn');
       btn.disabled=true;
       document.getElementById('pinStatus').textContent='Saving…';
 
       let saved=0, skipped=0, errors=[];
-
-      for (const batchName of currentSectionBatches) {
-        const facSel = document.getElementById(`facBatch_${batchName}`);
-        const facultyId = facSel?.value ? parseInt(facSel.value) : null;
+      for (const b of currentBatches) {
+        const subjectId = parseInt(document.getElementById(`subj_${b}`).value);
+        const facultyId = document.getElementById(`fac_${b}`)?.value
+          ? parseInt(document.getElementById(`fac_${b}`).value) : null;
 
         const res = await fetch('/api/admin/constraints',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
-            constraint_type: 'theory_batch_slot',
+            constraint_type:'theory_batch_slot',
             section_id: parseInt(sectionId),
-            subject_id: parseInt(subjectId),
+            subject_id: subjectId,
             day,
             slot_id: parseInt(slotId),
-            value: batchName,        // batch name stored in value column
+            value: b,             // batch name
             faculty_id: facultyId
           })
         });
         const data = await res.json();
-        if (!res.ok)                              errors.push(`Batch ${batchName}: ${data.error}`);
+        if (!res.ok)                               errors.push(`Batch ${b}: ${data.error}`);
         else if (data.message==='Constraint already exists') skipped++;
         else saved++;
       }
@@ -324,71 +352,92 @@
       await refreshPinsTable();
     }
 
-    // ── Pins table ────────────────────────────────────────────────────────────
+    // ── Pins table — grouped by section+day+slot, showing per-batch subject ──
     async function refreshPinsTable() {
       const res = await fetch('/api/admin/constraints');
       const all = res.ok ? await res.json() : [];
-      const pins = all.filter(c=>c.constraint_type==='theory_batch_slot')
-        .sort((a,b)=>{
-          const secCmp=(a.section_name||'').localeCompare(b.section_name||'');
-          if (secCmp) return secCmp;
-          const subjCmp=(a.subject_name||'').localeCompare(b.subject_name||'');
-          if (subjCmp) return subjCmp;
-          if (a.day!==b.day) return (a.day||'').localeCompare(b.day||'');
-          if (a.slot_number!==b.slot_number) return (a.slot_number||0)-(b.slot_number||0);
-          return (a.value||'').localeCompare(b.value||'');
-        });
-
+      const pins = all.filter(c=>c.constraint_type==='theory_batch_slot');
       const tbody = document.getElementById('pinsTableBody');
+
       if (!pins.length) {
         tbody.innerHTML='<tr><td colspan="7" class="text-center text-muted">No theory batch slot pins set.</td></tr>';
         return;
       }
-      tbody.innerHTML = pins.map(c=>`
-        <tr>
-          <td><strong>Sec ${c.section_name||'—'}</strong> <span style="font-size:0.75rem;color:#888;">${c.year_name||''}</span></td>
+
+      // Sort: section name → day order → slot_number → batch name
+      const DAY_ORDER = {Monday:1,Tuesday:2,Wednesday:3,Thursday:4,Friday:5,Saturday:6};
+      pins.sort((a,b)=>{
+        const sc=(a.section_name||'').localeCompare(b.section_name||'');
+        if(sc) return sc;
+        const dc=(DAY_ORDER[a.day]||9)-(DAY_ORDER[b.day]||9);
+        if(dc) return dc;
+        if(a.slot_number!==b.slot_number) return (a.slot_number||0)-(b.slot_number||0);
+        return (a.value||'').localeCompare(b.value||'');
+      });
+
+      // Group by section+day+slot for visual grouping
+      const rows = [];
+      let lastGroup = null;
+      for (const c of pins) {
+        const groupKey = `${c.section_id}|${c.day}|${c.slot_id}`;
+        if (groupKey !== lastGroup) {
+          // Group header row
+          rows.push(`<tr class="group-row">
+            <td colspan="7" style="padding:6px 12px;">
+              📌 <strong>Sec ${c.section_name||'—'}</strong>
+              <span style="color:#888;font-weight:400;font-size:0.78rem;margin-left:6px;">${c.year_name||''}</span>
+              &nbsp;·&nbsp; ${c.day} &nbsp;·&nbsp;
+              P${c.slot_number||'?'} (${c.slot_start||''}–${c.slot_end||''})
+            </td>
+          </tr>`);
+          lastGroup = groupKey;
+        }
+        rows.push(`<tr>
+          <td style="padding-left:24px;color:#888;font-size:0.8rem;">└</td>
+          <td><span class="batch-tag">${c.value||'—'}</span></td>
           <td>${c.subject_name||'—'}</td>
-          <td><span class="batch-tag">Batch ${c.value||'—'}</span></td>
-          <td>${c.day||'—'}</td>
-          <td>P${c.slot_number||'?'} <span style="font-size:0.75rem;color:#888;">(${c.slot_start||''}–${c.slot_end||''})</span></td>
-          <td style="font-size:0.82rem;">${c.faculty_name||'<span class="text-muted">Auto</span>'}</td>
-          <td><button class="btn btn-danger btn-sm" style="padding:2px 10px;font-size:0.75rem;"
-            onclick="deletePin(${c.id},this)">Remove</button></td>
-        </tr>`).join('');
+          <td style="color:#888;">${c.day||'—'}</td>
+          <td style="color:#888;">P${c.slot_number||'?'}</td>
+          <td style="font-size:0.82rem;">${c.faculty_name||'<span style="color:#aaa;">Auto</span>'}</td>
+          <td><button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:0.75rem;"
+            onclick="deletePin(${c.id},this)">✕</button></td>
+        </tr>`);
+      }
+      tbody.innerHTML = rows.join('');
     }
 
     async function deletePin(id,btn) {
       btn.disabled=true;
-      const res = await fetch(`/api/admin/constraints/${id}`,{method:'DELETE'});
-      if (res.ok) { await refreshPinsTable(); showAlert('Pin removed','success'); }
-      else { showAlert('Failed to remove pin','error'); btn.disabled=false; }
+      const res=await fetch(`/api/admin/constraints/${id}`,{method:'DELETE'});
+      if(res.ok){await refreshPinsTable();showAlert('Pin removed','success');}
+      else{showAlert('Failed to remove pin','error');btn.disabled=false;}
     }
 
     async function clearAllPins() {
-      if (!confirm('Remove ALL theory batch slot pins for this department?')) return;
-      const res = await fetch('/api/admin/constraints');
-      const all = res.ok ? await res.json() : [];
-      const ids = all.filter(c=>c.constraint_type==='theory_batch_slot').map(c=>c.id);
+      if(!confirm('Remove ALL theory batch slot pins for this department?')) return;
+      const res=await fetch('/api/admin/constraints');
+      const all=res.ok?await res.json():[];
+      const ids=all.filter(c=>c.constraint_type==='theory_batch_slot').map(c=>c.id);
       let deleted=0;
-      for (const id of ids) { const r=await fetch(`/api/admin/constraints/${id}`,{method:'DELETE'}); if(r.ok) deleted++; }
+      for(const id of ids){const r=await fetch(`/api/admin/constraints/${id}`,{method:'DELETE'});if(r.ok)deleted++;}
       showAlert(`${deleted} pin(s) removed.`,'success');
       await refreshPinsTable();
     }
 
     // ── Faculty constraints tab ───────────────────────────────────────────────
     async function refreshFacultyConstraintsTable() {
-      const res = await fetch('/api/admin/constraints');
-      const all = res.ok ? await res.json() : [];
-      const rows = all.filter(c=>c.constraint_type==='faculty_unavailable'||c.constraint_type==='faculty_subject_lock');
-      const tbody = document.getElementById('facultyConstraintsBody');
-      if (!rows.length) { tbody.innerHTML='<tr><td colspan="4" class="text-center text-muted">No faculty constraints set.</td></tr>'; return; }
-      tbody.innerHTML = rows.map(c=>{
-        const badge = c.constraint_type==='faculty_unavailable'
-          ? `<span class="badge badge-block">🚫 Unavailable</span>`
-          : `<span class="badge badge-lock">📌 Subject Lock</span>`;
-        const detail = c.constraint_type==='faculty_unavailable'
-          ? `${c.day} — P${c.slot_number||'?'} (${c.slot_start||''}–${c.slot_end||''})`
-          : `${c.subject_name||'—'}${c.section_name?' / Sec '+c.section_name:' (all sections)'}`;
+      const res=await fetch('/api/admin/constraints');
+      const all=res.ok?await res.json():[];
+      const rows=all.filter(c=>c.constraint_type==='faculty_unavailable'||c.constraint_type==='faculty_subject_lock');
+      const tbody=document.getElementById('facultyConstraintsBody');
+      if(!rows.length){tbody.innerHTML='<tr><td colspan="4" class="text-center text-muted">No faculty constraints set.</td></tr>';return;}
+      tbody.innerHTML=rows.map(c=>{
+        const badge=c.constraint_type==='faculty_unavailable'
+          ?`<span class="badge badge-block">🚫 Unavailable</span>`
+          :`<span class="badge badge-lock">📌 Subject Lock</span>`;
+        const detail=c.constraint_type==='faculty_unavailable'
+          ?`${c.day} — P${c.slot_number||'?'} (${c.slot_start||''}–${c.slot_end||''})`
+          :`${c.subject_name||'—'}${c.section_name?' / Sec '+c.section_name:' (all sections)'}`;
         return `<tr>
           <td><strong>${c.faculty_name||'—'}</strong></td>
           <td>${badge}</td>
@@ -399,30 +448,30 @@
       }).join('');
     }
 
-    async function deleteFacConstraint(id,btn) {
+    async function deleteFacConstraint(id,btn){
       btn.disabled=true;
-      const res = await fetch(`/api/admin/constraints/${id}`,{method:'DELETE'});
-      if (res.ok) { await refreshFacultyConstraintsTable(); showAlert('Constraint removed','success'); }
-      else { showAlert('Failed to remove','error'); btn.disabled=false; }
+      const res=await fetch(`/api/admin/constraints/${id}`,{method:'DELETE'});
+      if(res.ok){await refreshFacultyConstraintsTable();showAlert('Constraint removed','success');}
+      else{showAlert('Failed to remove','error');btn.disabled=false;}
     }
 
-    async function clearFacultyConstraints() {
-      if (!confirm('Remove ALL faculty unavailable + subject lock constraints for this department?')) return;
-      const res = await fetch('/api/admin/constraints');
-      const all = res.ok ? await res.json() : [];
-      const ids = all.filter(c=>c.constraint_type==='faculty_unavailable'||c.constraint_type==='faculty_subject_lock').map(c=>c.id);
+    async function clearFacultyConstraints(){
+      if(!confirm('Remove ALL faculty unavailable + subject lock constraints?')) return;
+      const res=await fetch('/api/admin/constraints');
+      const all=res.ok?await res.json():[];
+      const ids=all.filter(c=>c.constraint_type==='faculty_unavailable'||c.constraint_type==='faculty_subject_lock').map(c=>c.id);
       let deleted=0;
-      for (const id of ids) { const r=await fetch(`/api/admin/constraints/${id}`,{method:'DELETE'}); if(r.ok) deleted++; }
+      for(const id of ids){const r=await fetch(`/api/admin/constraints/${id}`,{method:'DELETE'});if(r.ok)deleted++;}
       showAlert(`${deleted} faculty constraint(s) removed.`,'success');
       await refreshFacultyConstraintsTable();
     }
 
-    function showAlert(msg,type) {
+    function showAlert(msg,type){
       const box=document.getElementById('alertBox');
       box.innerHTML=`<div class="alert alert-${type}">${msg}</div>`;
       setTimeout(()=>box.innerHTML='',4000);
     }
-    async function logout() { await fetch('/api/auth/logout',{method:'POST'}); location.href='/login.html'; }
+    async function logout(){await fetch('/api/auth/logout',{method:'POST'});location.href='/login.html';}
   </script>
 </body>
 </html>
