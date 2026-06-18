@@ -123,6 +123,9 @@
     fetch('/api/auth/status').then(r => r.json()).then(d => {
       if (!d.loggedIn) location.href = '/login.html';
       deptId = d.user.isSuperAdmin ? 1 : (d.user.department_id || 1);
+      // Allow ?dept=X for super admin
+      const urlDept = new URLSearchParams(location.search).get('dept');
+      if (urlDept && d.user.isSuperAdmin) deptId = parseInt(urlDept);
       init();
     });
 
@@ -247,8 +250,6 @@
     }
 
     async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
-
-    init();
   </script>
 </body>
 </html>
