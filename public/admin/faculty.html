@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Faculty — JIET Universe Admin</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/dept-switcher.js"></script>
 </head>
 <body>
   <header class="header">
@@ -153,40 +154,17 @@
   </div>
 
   <script>
-    let faculty    = [];
-    let allSubjects = [];
-    let deptId     = null;  // resolved after auth check
+    let faculty = [], allSubjects = [], deptId = null;
 
     // ── Auth check & resolve department ──────────────────────────────────────
-    fetch('/api/auth/status').then(r => r.json()).then(d => {
-      if (!d.loggedIn) { location.href = '/login.html'; return; }
-
-      const badge = document.getElementById('userBadge');
-      if (d.user.loginType === 'google') {
-        badge.innerHTML = (d.user.picture
-          ? `<img src="${d.user.picture}" style="width:24px;height:24px;border-radius:50%;">`
-          : '') + `<span>${d.user.name || d.user.username}</span>`;
-      } else {
-        badge.innerHTML = `<span>👤 ${d.user.username}</span>`;
-      }
-
-      if (d.user.isSuperAdmin) {
-        document.getElementById('superAdminMenu').style.display = 'block';
-        deptId = 1; // Super admin defaults to dept 1, could be changed via URL param
-      } else {
-        deptId = d.user.department_id;
+    initAdminPage((resolvedDeptId, user) => {
+      deptId = resolvedDeptId;
+      if (!user.isSuperAdmin) {
         document.getElementById('pageTitle').textContent =
-          `Faculty — ${d.user.dept_name || 'Your Department'}`;
+          `Faculty — ${user.dept_name || 'Your Department'}`;
       }
-
-      // Show Lab Batch Assignment button for all users
       document.getElementById('labAssignBtn').style.display = 'inline-block';
       document.getElementById('constraintsListBtn').style.display = 'inline-block';
-
-      // Allow ?dept=X for super admin to view other departments
-      const urlDept = new URLSearchParams(location.search).get('dept');
-      if (urlDept && d.user.isSuperAdmin) deptId = parseInt(urlDept);
-
       init();
     });
 

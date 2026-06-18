@@ -5,21 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Years & Sections — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
-</head>
-<body>
-  <header class="header">
-    <div class="logo">🎓 <span>JIET</span> Timetable — Admin</div>
-    <nav>
-      <a href="/index.html">Home</a>
-      <button class="btn-logout" onclick="logout()">Logout</button>
-    </nav>
-  </header>
-  <div class="admin-layout">
-    <nav class="sidebar">
-      <div class="sidebar-title">Main</div>
-      <a href="/admin/dashboard.html"><span class="icon">📊</span> Dashboard</a>
-      <div class="sidebar-title">Manage</div>
-      <a href="/admin/sections.html" class="active"><span class="icon">🏛️</span> Years &amp; Sections</a>
+  <script src="/js/dept-switcher.js"></script>
       <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
       <a href="/admin/faculty.html"><span class="icon">👨‍🏫</span> Faculty</a>
       <a href="/admin/rooms.html"><span class="icon">🏫</span> Rooms</a>
@@ -94,13 +80,9 @@
   </div>
 
   <script>
-    fetch('/api/auth/status').then(r => r.json()).then(d => {
-      if (!d.loggedIn) { location.href = '/login.html'; return; }
-      deptId = d.user.isSuperAdmin ? 1 : d.user.department_id;
-      init();
-    });
-
     let years = [], sections = [], deptId = 1;
+
+    initAdminPage((resolvedDeptId) => { deptId = resolvedDeptId; init(); });
 
     async function init() {
       const [yRes, sRes] = await Promise.all([

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Manage Incharges — JIET Universe Admin</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/dept-switcher.js"></script>
 </head>
 <body>
   <header class="header">
@@ -165,16 +166,10 @@
     let departments = [];
 
     // Auth check — super admin only
-    fetch('/api/auth/status').then(r => r.json()).then(d => {
-      if (!d.loggedIn) { location.href = '/login.html'; return; }
-      if (!d.user.isSuperAdmin) {
-        alert('Super Admin access required');
-        location.href = '/admin/dashboard.html';
-        return;
-      }
-      const badge = document.getElementById('userBadge');
-      badge.innerHTML = `<span>👤 ${d.user.username}</span>`;
-    });
+    initAdminPage((_deptId, _user) => {
+      loadDepartments();
+      loadIncharges();
+    }, { superAdminOnly: true });
 
     async function loadDepartments() {
       const res = await fetch('/api/admin/departments');

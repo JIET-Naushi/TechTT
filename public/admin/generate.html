@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Generate Timetable — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/dept-switcher.js"></script>
   <style>
     .action-group {
       display: flex; flex-direction: column; gap: 16px;
@@ -204,14 +205,9 @@
   </div>
 
   <script>
-    fetch('/api/auth/status').then(r => r.json()).then(d => {
-      if (!d.loggedIn) { location.href = '/login.html'; return; }
-      deptId = d.user.isSuperAdmin ? 1 : (d.user.department_id || 1);
-      init();
-    });
+    let selectedScope = 'all', years = [], deptId = 1;
 
-    let selectedScope = 'all';
-    let years = [], deptId = 1;
+    initAdminPage((resolvedDeptId) => { deptId = resolvedDeptId; init(); });
 
     async function init() {
       const res = await fetch(`/api/years?department_id=${deptId}`);

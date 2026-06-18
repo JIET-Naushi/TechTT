@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Subjects — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/dept-switcher.js"></script>
 </head>
 <body>
   <header class="header">
@@ -121,16 +122,9 @@
   </div>
 
   <script>
-    fetch('/api/auth/status').then(r => r.json()).then(d => {
-      if (!d.loggedIn) location.href = '/login.html';
-      deptId = d.user.isSuperAdmin ? 1 : (d.user.department_id || 1);
-      // Allow ?dept=X for super admin
-      const urlDept = new URLSearchParams(location.search).get('dept');
-      if (urlDept && d.user.isSuperAdmin) deptId = parseInt(urlDept);
-      init();
-    });
-
     let years = [], subjects = [], deptId = 1;
+
+    initAdminPage((resolvedDeptId) => { deptId = resolvedDeptId; init(); });
 
     async function init() {
       const res = await fetch(`/api/years?department_id=${deptId}`);
@@ -229,7 +223,8 @@
         type: document.getElementById('subjectType').value,
         category: document.getElementById('subjectCategory').value,
         credits: parseInt(document.getElementById('subjectCredits').value),
-        hours_per_week: parseInt(document.getElementById('subjectHours').value)
+        hours_per_week: parseInt(document.getElementById('subjectHours').value),
+        department_id: deptId
       };
       const url = id ? `/api/admin/subjects/${id}` : '/api/admin/subjects';
       const method = id ? 'PUT' : 'POST';

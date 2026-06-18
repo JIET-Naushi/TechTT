@@ -6,6 +6,7 @@
   <title>Dashboard — JIET Universe Timetable</title>
   <link rel="stylesheet" href="/css/style.css">
   <script src="https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <script src="/js/dept-switcher.js"></script>
 </head>
 <body>
   <header class="header">
@@ -153,33 +154,23 @@
   </div>
 
   <script>
-    let currentSettings = {};
-    let isSuperAdmin = false;
-    let currentUsername = '';
+    let currentSettings = {}, isSuperAdmin = false, currentUsername = '';
 
     // Auth check + show user badge
-    fetch('/api/auth/status').then(r => r.json()).then(d => {
-      if (!d.loggedIn) { location.href = '/login.html'; return; }
-      const badge = document.getElementById('userBadge');
-      if (d.user.loginType === 'google') {
-        badge.innerHTML = (d.user.picture
-          ? `<img src="${d.user.picture}" style="width:24px;height:24px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);">`
-          : '') + `<span>${d.user.name || d.user.username}</span>`;
-      } else {
-        badge.innerHTML = `<span>👤 ${d.user.username}</span>`;
-      }
-      if (d.user.isSuperAdmin) {
-        document.getElementById('superAdminMenu').style.display = 'block';
+    initAdminPage((resolvedDeptId, user) => {
+      if (user.isSuperAdmin) {
         document.getElementById('credentialsCard').style.display = 'block';
         isSuperAdmin = true;
-        currentUsername = d.user.username;
+        currentUsername = user.username;
         document.getElementById('currentUsernameDisplay').textContent = currentUsername;
-      }
-      if (!d.user.isSuperAdmin && d.user.dept_name) {
-        document.getElementById('deptDisplay').textContent = d.user.dept_name;
+      } else if (user.dept_name) {
+        document.getElementById('deptDisplay').textContent = user.dept_name;
         document.getElementById('collegeDisplay').textContent = 'JIET Universe';
-        document.querySelector('.page-title').textContent = `Dashboard — ${d.user.dept_name}`;
+        document.querySelector('.page-title').textContent = `Dashboard — ${user.dept_name}`;
       }
+      loadStats();
+      loadConflicts();
+      loadSettings();
     });
 
     async function loadStats() {
@@ -326,10 +317,6 @@
         btn.textContent = '🔐 Update Credentials';
       }
     }
-
-    loadStats();
-    loadConflicts();
-    loadSettings();
 
     // ── Excel Export Functions ────────────────────────────────────────────────
     const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];

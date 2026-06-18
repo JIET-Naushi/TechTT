@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Time Slots — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/dept-switcher.js"></script>
   <style>
     .slot-row { display:grid; grid-template-columns:48px 110px 110px 90px 1fr 110px; gap:10px; align-items:center; padding:10px 14px; border-radius:6px; margin-bottom:6px; background:#fff; border:1px solid #e0e0e0; }
     .slot-row.is-break { background:#fff8e1; border-color:#ffe082; }
@@ -129,16 +130,9 @@
   <script>
     let deptId = 1, slots = [];
 
-    fetch('/api/auth/status').then(r => r.json()).then(d => {
-      if (!d.loggedIn) { location.href = '/login.html'; return; }
-      const badge = document.getElementById('userBadge');
-      if (d.user.loginType === 'google')
-        badge.innerHTML = (d.user.picture ? `<img src="${d.user.picture}" style="width:24px;height:24px;border-radius:50%;">` : '') + `<span>${d.user.name || d.user.username}</span>`;
-      else badge.innerHTML = `<span>👤 ${d.user.username}</span>`;
-      if (d.user.isSuperAdmin) { document.getElementById('superAdminMenu').style.display = 'block'; deptId = 1; }
-      else { deptId = d.user.department_id; document.getElementById('pageTitle').textContent = `🕐 Time Slots — ${d.user.dept_name || ''}`; }
-      const urlDept = new URLSearchParams(location.search).get('dept');
-      if (urlDept && d.user.isSuperAdmin) deptId = parseInt(urlDept);
+    initAdminPage((resolvedDeptId, user) => {
+      deptId = resolvedDeptId;
+      if (!user.isSuperAdmin) document.getElementById('pageTitle').textContent = `🕐 Time Slots — ${user.dept_name || ''}`;
       loadSlots();
     });
 

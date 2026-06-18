@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Rooms — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
-</head>
+  <script src="/js/dept-switcher.js"></script>
 <body>
   <header class="header">
     <div class="logo">🎓 <span>JIET</span> Timetable — Admin</div>
@@ -90,12 +90,15 @@
   </div>
 
   <script>
-    fetch('/api/auth/status').then(r => r.json()).then(d => { if (!d.loggedIn) location.href = '/login.html'; });
+    let rooms = [], deptId = 1;
 
-    let rooms = [];
+    initAdminPage((resolvedDeptId, user) => {
+      deptId = resolvedDeptId;
+      loadRooms();
+    });
 
     async function loadRooms() {
-      const res = await fetch('/api/rooms');
+      const res = await fetch(`/api/rooms?department_id=${deptId}`);
       rooms = await res.json();
       renderTable();
     }
@@ -160,7 +163,8 @@
       const body = {
         name: document.getElementById('roomName').value,
         type: document.getElementById('roomType').value,
-        capacity: parseInt(document.getElementById('roomCapacity').value)
+        capacity: parseInt(document.getElementById('roomCapacity').value),
+        department_id: deptId
       };
       const url = id ? `/api/admin/rooms/${id}` : '/api/admin/rooms';
       const method = id ? 'PUT' : 'POST';
@@ -182,8 +186,6 @@
     }
 
     async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
-
-    loadRooms();
   </script>
 </body>
 </html>

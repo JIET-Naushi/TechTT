@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Timetable Editor — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/dept-switcher.js"></script>
   <style>
     /* ── Editor-specific overrides ─────────────────────────────────── */
     .editor-wrap { overflow-x: auto; }
@@ -395,11 +396,7 @@
   <script>
     /* ── Auth check ─────────────────────────────────────────────────── */
     let deptId = 1;
-    fetch('/api/auth/status').then(r => r.json()).then(d => {
-      if (!d.loggedIn) { location.href = '/login.html'; return; }
-      deptId = d.user.isSuperAdmin ? 1 : (d.user.department_id || 1);
-      init();
-    });
+    initAdminPage((resolvedDeptId) => { deptId = resolvedDeptId; init(); });
 
     const DAYS   = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     const COLORS = ['color-0','color-1','color-2','color-3','color-4','color-5',
