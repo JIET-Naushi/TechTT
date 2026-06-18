@@ -212,7 +212,7 @@
     }
 
     async function deleteSubject(id, name) {
-      if (!confirm(`Delete subject "${name}"? This will also remove related timetable entries.`)) return;
+      if (!confirm(`Delete subject "${name}"?\n\nThis will also remove all timetable entries for this subject.`)) return;
       const res = await fetch(`/api/admin/subjects/${id}`, { method: 'DELETE' });
       const data = await res.json();
       showAlert(data.message || 'Deleted', 'success');

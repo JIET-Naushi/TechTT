@@ -442,6 +442,8 @@ router.delete('/subjects/:id', requireAuth, async (req, res) => {
     const deptId = getDeptId(req);
     if (!(await verifyDeptOwnership('subjects', req.params.id, deptId)))
       return res.status(403).json({ error: 'Subject does not belong to your department' });
+    // Remove timetable entries referencing this subject first (no CASCADE on that FK)
+    await run('DELETE FROM timetable_entries WHERE subject_id=$1', [req.params.id]);
     await run('DELETE FROM subjects WHERE id=$1', [req.params.id]);
     res.json({ message: 'Subject deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -555,6 +557,8 @@ router.delete('/rooms/:id', requireAuth, async (req, res) => {
     const deptId = getDeptId(req);
     if (!(await verifyDeptOwnership('rooms', req.params.id, deptId)))
       return res.status(403).json({ error: 'Room does not belong to your department' });
+    // Null-out room_id in timetable entries (no CASCADE on that FK)
+    await run('UPDATE timetable_entries SET room_id = NULL WHERE room_id = $1', [req.params.id]);
     await run('DELETE FROM rooms WHERE id=$1', [req.params.id]);
     res.json({ message: 'Room deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
