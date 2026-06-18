@@ -23,6 +23,7 @@
       <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
       <a href="/admin/faculty.html"><span class="icon">👨‍🏫</span> Faculty</a>
       <a href="/admin/rooms.html"><span class="icon">🏫</span> Rooms</a>
+      <a href="/admin/timeslots.html"><span class="icon">🕐</span> Time Slots</a>
       <div class="sidebar-title">Timetable</div>
       <a href="/admin/generate.html"><span class="icon">⚡</span> Generate</a>
       <a href="/admin/constraints.html"><span class="icon">📌</span> Constraints</a>
@@ -37,6 +38,21 @@
       <div class="page-title">Years &amp; Sections</div>
       <div id="alertBox"></div>
       <div id="yearsContainer"></div>
+
+      <div class="card">
+        <div class="card-title">Add Year</div>
+        <form id="addYearForm" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+          <div class="form-group" style="margin:0;min-width:150px;">
+            <label>Internal Name</label>
+            <input type="text" id="yearName" class="form-control" placeholder="e.g. year4" required maxlength="20">
+          </div>
+          <div class="form-group" style="margin:0;min-width:200px;">
+            <label>Display Name</label>
+            <input type="text" id="yearDisplayName" class="form-control" placeholder="e.g. B.Tech IV Year" required maxlength="60">
+          </div>
+          <button type="submit" class="btn btn-primary">+ Add Year</button>
+        </form>
+      </div>
 
       <div class="card">
         <div class="card-title">Add Section</div>
@@ -105,13 +121,56 @@
         const ySections = sections.filter(s => s.year_id === y.id);
         return `
           <div class="card">
-            <div class="card-title">${y.display_name} <small style="font-weight:400;color:#666;">(${y.name})</small></div>
+            <div class="card-title" style="display:flex;align-items:center;gap:10px;">
+              <span>${y.display_name}</span>
+              <small style="font-weight:400;color:#666;">(${y.name})</small>
+              <button class="btn btn-outline btn-sm" style="margin-left:auto;font-size:0.75rem;"
+                onclick="startEditYear(${y.id}, '${y.display_name.replace(/'/g,"\\'")}')">✏️ Rename</button>
+              <button class="btn btn-danger btn-sm" style="font-size:0.75rem;"
+                onclick="deleteYear(${y.id}, '${y.display_name.replace(/'/g,"\\'")}')">🗑️ Delete Year</button>
+            </div>
+            <div id="year-rename-${y.id}" style="display:none;margin-bottom:10px;">
+              <div style="display:flex;gap:8px;align-items:center;">
+                <input type="text" id="year-input-${y.id}" value="${y.display_name}"
+                  class="form-control" style="max-width:280px;"
+                  onkeydown="if(event.key==='Enter')saveYearRename(${y.id});if(event.key==='Escape')cancelYearRename(${y.id})">
+                <button class="btn btn-primary btn-sm" onclick="saveYearRename(${y.id})">Save</button>
+                <button class="btn btn-secondary btn-sm" onclick="cancelYearRename(${y.id})">Cancel</button>
+              </div>
+            </div>
             <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;">
               ${ySections.map(s => renderSectionCard(s, y)).join('')}
               ${ySections.length === 0 ? '<span class="text-muted">No sections yet. Add one below.</span>' : ''}
             </div>
           </div>`;
       }).join('');
+    }
+
+    function startEditYear(id, current) {
+      document.getElementById(`year-rename-${id}`).style.display = 'block';
+      document.getElementById(`year-input-${id}`).focus();
+    }
+    function cancelYearRename(id) {
+      document.getElementById(`year-rename-${id}`).style.display = 'none';
+    }
+    async function saveYearRename(id) {
+      const val = document.getElementById(`year-input-${id}`).value.trim();
+      if (!val) return showAlert('Display name cannot be empty', 'error');
+      const res = await fetch(`/api/admin/years/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: val })
+      });
+      const data = await res.json();
+      if (res.ok) { showAlert(data.message, 'success'); await init(); }
+      else showAlert(data.error || 'Error renaming year', 'error');
+    }
+    async function deleteYear(id, name) {
+      if (!confirm(`Delete "${name}" and ALL its sections, subjects, and timetable entries?\n\nThis cannot be undone.`)) return;
+      const res = await fetch(`/api/admin/years/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) { showAlert(data.message, 'success'); await init(); }
+      else showAlert(data.error || 'Error deleting year', 'error');
     }
 
     function renderSectionCard(s, y) {
@@ -286,6 +345,27 @@
         renderYears();
       } else {
         showAlert(data.error || 'Error adding section', 'error');
+      }
+    });
+
+    document.getElementById('addYearForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name        = document.getElementById('yearName').value.trim();
+      const displayName = document.getElementById('yearDisplayName').value.trim();
+      if (!name || !displayName) return;
+      const res = await fetch('/api/admin/years', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, display_name: displayName })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showAlert(data.message, 'success');
+        document.getElementById('yearName').value = '';
+        document.getElementById('yearDisplayName').value = '';
+        await init();
+      } else {
+        showAlert(data.error || 'Error adding year', 'error');
       }
     });
 

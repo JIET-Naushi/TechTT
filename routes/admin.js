@@ -213,6 +213,117 @@ router.delete('/departments/:id', requireAuth, requireSuperAdmin, async (req, re
 });
 
 // =============================================================================
+// ==================== YEARS CRUD =============================================
+// =============================================================================
+
+// POST — add a new year to the department
+router.post('/years', requireAuth, async (req, res) => {
+  try {
+    const { name, display_name } = req.body;
+    if (!name || !display_name) return res.status(400).json({ error: 'name and display_name required' });
+    const deptId = getDeptId(req);
+    // Check duplicate name within department
+    const existing = await queryOne(
+      'SELECT id FROM years WHERE department_id=$1 AND name=$2', [deptId, name.trim()]
+    );
+    if (existing) return res.status(409).json({ error: `Year "${name}" already exists in this department` });
+    const result = await run(
+      'INSERT INTO years (department_id, name, display_name) VALUES ($1,$2,$3) RETURNING id',
+      [deptId, name.trim(), display_name.trim()]
+    );
+    res.json({ id: result.rows[0].id, message: `Year "${display_name}" added` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE — remove a year and all its sections/subjects/timetable entries (cascade)
+router.delete('/years/:id', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('years', req.params.id, deptId)))
+      return res.status(403).json({ error: 'Year not in your department' });
+    await run('DELETE FROM years WHERE id=$1', [req.params.id]);
+    res.json({ message: 'Year deleted along with all its sections, subjects, and timetable entries' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// =============================================================================
+// ==================== TIME SLOTS CRUD ========================================
+// =============================================================================
+
+// GET — list all time slots for this department (also available via public /api/timeslots)
+router.get('/timeslots', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    const rows = await query(
+      'SELECT * FROM time_slots WHERE department_id=$1 ORDER BY slot_number', [deptId]
+    );
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST — add a new time slot
+router.post('/timeslots', requireAuth, async (req, res) => {
+  try {
+    const { slot_number, start_time, end_time, is_break } = req.body;
+    if (!slot_number || !start_time || !end_time)
+      return res.status(400).json({ error: 'slot_number, start_time, end_time required' });
+    const deptId = getDeptId(req);
+    // Check duplicate slot_number
+    const existing = await queryOne(
+      'SELECT id FROM time_slots WHERE department_id=$1 AND slot_number=$2', [deptId, slot_number]
+    );
+    if (existing) return res.status(409).json({ error: `Slot number ${slot_number} already exists` });
+    const result = await run(
+      'INSERT INTO time_slots (department_id, slot_number, start_time, end_time, is_break) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+      [deptId, parseInt(slot_number), start_time.trim(), end_time.trim(), is_break ? 1 : 0]
+    );
+    res.json({ id: result.rows[0].id, message: 'Time slot added' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT — update a time slot's times / break flag
+router.put('/timeslots/:id', requireAuth, async (req, res) => {
+  try {
+    const { start_time, end_time, is_break, slot_number } = req.body;
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('time_slots', req.params.id, deptId)))
+      return res.status(403).json({ error: 'Slot not in your department' });
+    await run(
+      `UPDATE time_slots SET
+        start_time  = COALESCE($1, start_time),
+        end_time    = COALESCE($2, end_time),
+        is_break    = COALESCE($3, is_break),
+        slot_number = COALESCE($4, slot_number)
+       WHERE id=$5`,
+      [start_time||null, end_time||null,
+       is_break !== undefined ? (is_break ? 1 : 0) : null,
+       slot_number !== undefined ? parseInt(slot_number) : null,
+       req.params.id]
+    );
+    res.json({ message: 'Time slot updated' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE — remove a time slot (will fail gracefully if timetable entries reference it)
+router.delete('/timeslots/:id', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('time_slots', req.params.id, deptId)))
+      return res.status(403).json({ error: 'Slot not in your department' });
+    // Check if any timetable entries use this slot
+    const inUse = await queryOne(
+      'SELECT COUNT(*) as cnt FROM timetable_entries WHERE time_slot_id=$1', [req.params.id]
+    );
+    if (parseInt(inUse.cnt) > 0)
+      return res.status(409).json({
+        error: `Cannot delete: ${inUse.cnt} timetable entries use this slot. Clear or regenerate the timetable first.`
+      });
+    await run('DELETE FROM time_slots WHERE id=$1', [req.params.id]);
+    res.json({ message: 'Time slot deleted' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// =============================================================================
 // ==================== SETTINGS (scoped by department) ========================
 // =============================================================================
 

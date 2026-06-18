@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Time Slots — Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .slot-row { display:grid; grid-template-columns:48px 110px 110px 90px 1fr 110px; gap:10px; align-items:center; padding:10px 14px; border-radius:6px; margin-bottom:6px; background:#fff; border:1px solid #e0e0e0; }
+    .slot-row.is-break { background:#fff8e1; border-color:#ffe082; }
+    .slot-row.editing  { background:#e8eaf6; border-color:#7986cb; }
+    .slot-num  { font-weight:700; color:#1a237e; font-size:0.9rem; text-align:center; }
+    .slot-time { font-size:0.88rem; color:#333; }
+    .slot-badge-break { display:inline-block; background:#fff3e0; color:#e65100; font-size:0.7rem; font-weight:700; padding:2px 8px; border-radius:10px; }
+    .slot-badge-active { display:inline-block; background:#e8f5e9; color:#2e7d32; font-size:0.7rem; font-weight:700; padding:2px 8px; border-radius:10px; }
+    .time-input { width:100%; padding:6px 8px; border:1.5px solid #c5cae9; border-radius:4px; font-size:0.85rem; font-family:monospace; }
+    .time-input:focus { outline:none; border-color:#3f51b5; }
+    .col-header { font-size:0.72rem; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:.4px; padding:0 14px 6px; display:grid; grid-template-columns:48px 110px 110px 90px 1fr 110px; gap:10px; }
+    .add-slot-row { display:grid; grid-template-columns:80px 110px 110px 90px 1fr; gap:10px; align-items:flex-end; padding:12px 14px; background:#f5f5f5; border-radius:6px; border:1.5px dashed #9fa8da; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="logo">🎓 <span>JIET Universe</span> — Admin</div>
+    <nav>
+      <a href="/index.html">Home</a>
+      <span id="userBadge" style="color:rgba(255,255,255,0.8);font-size:0.82rem;margin-left:12px;"></span>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </nav>
+  </header>
+
+  <div class="admin-layout">
+    <nav class="sidebar">
+      <div class="sidebar-title">Main</div>
+      <a href="/admin/dashboard.html"><span class="icon">📊</span> Dashboard</a>
+      <div id="superAdminMenu" style="display:none;">
+        <div class="sidebar-title">Super Admin</div>
+        <a href="/admin/incharges.html"><span class="icon">👥</span> Timetable Incharges</a>
+      </div>
+      <div class="sidebar-title">Manage</div>
+      <a href="/admin/sections.html"><span class="icon">🏛️</span> Years &amp; Sections</a>
+      <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
+      <a href="/admin/faculty.html"><span class="icon">👨‍🏫</span> Faculty</a>
+      <a href="/admin/rooms.html"><span class="icon">🏫</span> Rooms</a>
+      <a href="/admin/timeslots.html" class="active"><span class="icon">🕐</span> Time Slots</a>
+      <div class="sidebar-title">Timetable</div>
+      <a href="/admin/generate.html"><span class="icon">⚡</span> Generate</a>
+      <a href="/admin/constraints.html"><span class="icon">📌</span> Constraints</a>
+      <a href="/admin/editor.html"><span class="icon">✏️</span> Editor</a>
+      <a href="/admin/conflicts.html"><span class="icon">⚠️</span> Conflicts</a>
+      <div class="sidebar-title">Views</div>
+      <a href="/views/class-timetable.html"><span class="icon">📅</span> Class View</a>
+      <a href="/views/faculty-timetable.html"><span class="icon">👤</span> Faculty View</a>
+      <a href="/views/location-timetable.html"><span class="icon">📍</span> Location View</a>
+    </nav>
+
+    <main class="admin-content">
+      <div class="page-title" id="pageTitle">🕐 Time Slots</div>
+      <div id="alertBox"></div>
+
+      <div class="card">
+        <div class="card-title">
+          Manage Time Slots
+          <span id="slotCount" style="font-size:0.8rem;font-weight:400;color:#888;margin-left:8px;"></span>
+        </div>
+        <p style="font-size:0.85rem;color:#555;margin-bottom:16px;">
+          Edit start/end times, mark slots as breaks, reorder by slot number, or add/remove slots.
+          Changes take effect on the next timetable generation.
+        </p>
+
+        <!-- Column headers -->
+        <div class="col-header">
+          <span>P#</span>
+          <span>Start Time</span>
+          <span>End Time</span>
+          <span>Status</span>
+          <span></span>
+          <span>Actions</span>
+        </div>
+
+        <!-- Slot rows -->
+        <div id="slotsContainer">
+          <p class="text-muted text-center">Loading…</p>
+        </div>
+
+        <!-- Add new slot -->
+        <div style="margin-top:18px;">
+          <div style="font-size:0.8rem;font-weight:600;color:#3f51b5;margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px;">+ Add New Slot</div>
+          <div class="add-slot-row">
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:0.72rem;font-weight:600;color:#666;text-transform:uppercase;">Slot #</label>
+              <input type="number" id="newSlotNum" class="form-control" style="font-size:0.85rem;padding:6px 8px;" min="1" max="20" placeholder="e.g. 9">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:0.72rem;font-weight:600;color:#666;text-transform:uppercase;">Start Time</label>
+              <input type="time" id="newSlotStart" class="form-control" style="font-size:0.85rem;padding:6px 8px;">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:0.72rem;font-weight:600;color:#666;text-transform:uppercase;">End Time</label>
+              <input type="time" id="newSlotEnd" class="form-control" style="font-size:0.85rem;padding:6px 8px;">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:0.72rem;font-weight:600;color:#666;text-transform:uppercase;">Break?</label>
+              <select id="newSlotBreak" class="form-control" style="font-size:0.85rem;padding:6px 8px;">
+                <option value="0">No (Active)</option>
+                <option value="1">Yes (Break)</option>
+              </select>
+            </div>
+            <div style="padding-bottom:2px;">
+              <button class="btn btn-primary" onclick="addSlot()">+ Add Slot</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="card" style="border-left:4px solid #ff9800;">
+        <div class="card-title" style="color:#e65100;">⚠️ Notes</div>
+        <ul style="padding-left:20px;line-height:2;color:#555;font-size:0.85rem;margin:0;">
+          <li>Break slots are automatically skipped during timetable generation.</li>
+          <li>Deleting a slot that is used by existing timetable entries is blocked — clear the timetable first.</li>
+          <li>Slot numbers determine the order shown in all timetable views.</li>
+          <li>After editing slots, regenerate the timetable for changes to take effect.</li>
+        </ul>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    let deptId = 1, slots = [];
+
+    fetch('/api/auth/status').then(r => r.json()).then(d => {
+      if (!d.loggedIn) { location.href = '/login.html'; return; }
+      const badge = document.getElementById('userBadge');
+      if (d.user.loginType === 'google')
+        badge.innerHTML = (d.user.picture ? `<img src="${d.user.picture}" style="width:24px;height:24px;border-radius:50%;">` : '') + `<span>${d.user.name || d.user.username}</span>`;
+      else badge.innerHTML = `<span>👤 ${d.user.username}</span>`;
+      if (d.user.isSuperAdmin) { document.getElementById('superAdminMenu').style.display = 'block'; deptId = 1; }
+      else { deptId = d.user.department_id; document.getElementById('pageTitle').textContent = `🕐 Time Slots — ${d.user.dept_name || ''}`; }
+      const urlDept = new URLSearchParams(location.search).get('dept');
+      if (urlDept && d.user.isSuperAdmin) deptId = parseInt(urlDept);
+      loadSlots();
+    });
+
+    async function loadSlots() {
+      const res = await fetch(`/api/admin/timeslots?department_id=${deptId}`);
+      slots = res.ok ? await res.json() : [];
+      renderSlots();
+    }
+
+    function renderSlots() {
+      document.getElementById('slotCount').textContent = `${slots.length} slot${slots.length !== 1 ? 's' : ''}`;
+      const container = document.getElementById('slotsContainer');
+      if (!slots.length) {
+        container.innerHTML = '<p class="text-muted text-center" style="padding:20px;">No time slots configured. Add one below.</p>';
+        return;
+      }
+      container.innerHTML = slots.map(s => slotRowHTML(s)).join('');
+    }
+
+    function slotRowHTML(s) {
+      const isBreak = s.is_break == 1;
+      return `
+        <div class="slot-row ${isBreak ? 'is-break' : ''}" id="slot-row-${s.id}">
+          <div class="slot-num">P${s.slot_number}</div>
+
+          <!-- View mode -->
+          <div class="slot-time" id="view-start-${s.id}">${s.start_time}</div>
+          <div class="slot-time" id="view-end-${s.id}">${s.end_time}</div>
+
+          <!-- Edit mode (hidden by default) -->
+          <input type="time" class="time-input" id="edit-start-${s.id}" value="${s.start_time}" style="display:none;">
+          <input type="time" class="time-input" id="edit-end-${s.id}"   value="${s.end_time}"   style="display:none;">
+
+          <div>
+            <span class="${isBreak ? 'slot-badge-break' : 'slot-badge-active'}">
+              ${isBreak ? '☕ Break' : '✅ Active'}
+            </span>
+          </div>
+
+          <div style="font-size:0.78rem;color:#888;" id="slot-note-${s.id}">
+            ${s.start_time} – ${s.end_time}
+          </div>
+
+          <!-- Action buttons -->
+          <div style="display:flex;gap:6px;justify-content:flex-end;" id="slot-actions-${s.id}">
+            <button class="btn btn-outline btn-sm" onclick="startEdit(${s.id})"
+              id="btn-edit-${s.id}" title="Edit times">✏️</button>
+            <button class="btn btn-sm" onclick="toggleBreak(${s.id})"
+              style="background:${isBreak?'#e8f5e9':'#fff3e0'};color:${isBreak?'#2e7d32':'#e65100'};border:1px solid ${isBreak?'#a5d6a7':'#ffcc80'};"
+              title="${isBreak?'Mark as Active':'Mark as Break'}">
+              ${isBreak ? '▶ Activate' : '☕ Break'}
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="deleteSlot(${s.id})" title="Delete slot">🗑️</button>
+          </div>
+
+          <!-- Save/Cancel buttons (hidden by default) -->
+          <div style="display:none;gap:6px;justify-content:flex-end;" id="slot-save-${s.id}">
+            <button class="btn btn-primary btn-sm" onclick="saveEdit(${s.id})">✔ Save</button>
+            <button class="btn btn-secondary btn-sm" onclick="cancelEdit(${s.id})">✖</button>
+          </div>
+        </div>`;
+    }
+
+    function startEdit(id) {
+      const row = document.getElementById(`slot-row-${id}`);
+      row.classList.add('editing');
+      ['view-start-', 'view-end-'].forEach(p => document.getElementById(p + id).style.display = 'none');
+      ['edit-start-', 'edit-end-'].forEach(p => document.getElementById(p + id).style.display = 'block');
+      document.getElementById(`slot-actions-${id}`).style.display = 'none';
+      document.getElementById(`slot-save-${id}`).style.display    = 'flex';
+    }
+
+    function cancelEdit(id) {
+      const s = slots.find(s => s.id === id);
+      document.getElementById(`edit-start-${id}`).value = s.start_time;
+      document.getElementById(`edit-end-${id}`).value   = s.end_time;
+      const row = document.getElementById(`slot-row-${id}`);
+      row.classList.remove('editing');
+      ['view-start-', 'view-end-'].forEach(p => document.getElementById(p + id).style.display = '');
+      ['edit-start-', 'edit-end-'].forEach(p => document.getElementById(p + id).style.display = 'none');
+      document.getElementById(`slot-actions-${id}`).style.display = 'flex';
+      document.getElementById(`slot-save-${id}`).style.display    = 'none';
+    }
+
+    async function saveEdit(id) {
+      const start = document.getElementById(`edit-start-${id}`).value;
+      const end   = document.getElementById(`edit-end-${id}`).value;
+      if (!start || !end) return showAlert('Start and end time are required', 'error');
+      if (start >= end)   return showAlert('End time must be after start time', 'error');
+      const res = await fetch(`/api/admin/timeslots/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ start_time: start, end_time: end })
+      });
+      const data = await res.json();
+      if (res.ok) { showAlert('Slot updated', 'success'); await loadSlots(); }
+      else showAlert(data.error || 'Error updating slot', 'error');
+    }
+
+    async function toggleBreak(id) {
+      const s = slots.find(s => s.id === id);
+      const newBreak = s.is_break == 1 ? 0 : 1;
+      const res = await fetch(`/api/admin/timeslots/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_break: newBreak })
+      });
+      const data = await res.json();
+      if (res.ok) { showAlert(newBreak ? 'Marked as break' : 'Marked as active', 'success'); await loadSlots(); }
+      else showAlert(data.error || 'Error', 'error');
+    }
+
+    async function deleteSlot(id) {
+      const s = slots.find(s => s.id === id);
+      if (!confirm(`Delete P${s.slot_number} (${s.start_time}–${s.end_time})?`)) return;
+      const res = await fetch(`/api/admin/timeslots/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) { showAlert(data.message, 'success'); await loadSlots(); }
+      else showAlert(data.error, 'error');
+    }
+
+    async function addSlot() {
+      const num   = document.getElementById('newSlotNum').value;
+      const start = document.getElementById('newSlotStart').value;
+      const end   = document.getElementById('newSlotEnd').value;
+      const brk   = document.getElementById('newSlotBreak').value;
+      if (!num)   return showAlert('Slot number is required', 'error');
+      if (!start) return showAlert('Start time is required', 'error');
+      if (!end)   return showAlert('End time is required', 'error');
+      if (start >= end) return showAlert('End time must be after start time', 'error');
+      const res = await fetch('/api/admin/timeslots', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slot_number: parseInt(num), start_time: start, end_time: end, is_break: parseInt(brk) })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showAlert(data.message, 'success');
+        document.getElementById('newSlotNum').value   = '';
+        document.getElementById('newSlotStart').value = '';
+        document.getElementById('newSlotEnd').value   = '';
+        document.getElementById('newSlotBreak').value = '0';
+        await loadSlots();
+      } else showAlert(data.error || 'Error adding slot', 'error');
+    }
+
+    function showAlert(msg, type) {
+      const box = document.getElementById('alertBox');
+      box.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+      setTimeout(() => box.innerHTML = '', 4000);
+    }
+    async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
+  </script>
+</body>
+</html>
