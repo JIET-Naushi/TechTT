@@ -396,7 +396,12 @@
   <script>
     /* ── Auth check ─────────────────────────────────────────────────── */
     let deptId = 1;
-    initAdminPage((resolvedDeptId) => { deptId = resolvedDeptId; init(); });
+    fetch('/api/auth/status').then(r => r.json()).then(async d => {
+      if (!d.loggedIn) { location.href = '/login.html'; return; }
+      await DeptSwitcher.init(d.user, () => { deptId = DeptSwitcher.deptId; init(); });
+      deptId = DeptSwitcher.deptId;
+      init();
+    });
 
     const DAYS   = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     const COLORS = ['color-0','color-1','color-2','color-3','color-4','color-5',

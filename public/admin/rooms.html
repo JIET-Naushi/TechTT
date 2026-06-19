@@ -6,6 +6,7 @@
   <title>Rooms — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
   <script src="/js/dept-switcher.js"></script>
+</head>
 <body>
   <header class="header">
     <div class="logo">🎓 <span>JIET</span> Timetable — Admin</div>
@@ -90,12 +91,14 @@
   </div>
 
   <script>
-    let rooms = [], deptId = 1;
-
-    initAdminPage((resolvedDeptId, user) => {
-      deptId = resolvedDeptId;
+    fetch('/api/auth/status').then(r => r.json()).then(async d => {
+      if (!d.loggedIn) { location.href = '/login.html'; return; }
+      await DeptSwitcher.init(d.user, () => { deptId = DeptSwitcher.deptId; loadRooms(); });
+      deptId = DeptSwitcher.deptId;
       loadRooms();
     });
+
+    let rooms = [], deptId = 1;
 
     async function loadRooms() {
       const res = await fetch(`/api/rooms?department_id=${deptId}`);
@@ -186,6 +189,8 @@
     }
 
     async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
+
+    loadRooms();
   </script>
 </body>
 </html>

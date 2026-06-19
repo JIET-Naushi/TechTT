@@ -154,17 +154,36 @@
   </div>
 
   <script>
-    let faculty = [], allSubjects = [], deptId = null;
+    let faculty    = [];
+    let allSubjects = [];
+    let deptId     = null;  // resolved after auth check
 
     // ── Auth check & resolve department ──────────────────────────────────────
-    initAdminPage((resolvedDeptId, user) => {
-      deptId = resolvedDeptId;
-      if (!user.isSuperAdmin) {
-        document.getElementById('pageTitle').textContent =
-          `Faculty — ${user.dept_name || 'Your Department'}`;
+    fetch('/api/auth/status').then(r => r.json()).then(async d => {
+      if (!d.loggedIn) { location.href = '/login.html'; return; }
+
+      const badge = document.getElementById('userBadge');
+      if (d.user.loginType === 'google') {
+        badge.innerHTML = (d.user.picture
+          ? `<img src="${d.user.picture}" style="width:24px;height:24px;border-radius:50%;">`
+          : '') + `<span>${d.user.name || d.user.username}</span>`;
+      } else {
+        badge.innerHTML = `<span>👤 ${d.user.username}</span>`;
       }
+
+      if (d.user.isSuperAdmin) {
+        document.getElementById('superAdminMenu').style.display = 'block';
+      } else {
+        document.getElementById('pageTitle').textContent =
+          `Faculty — ${d.user.dept_name || 'Your Department'}`;
+      }
+
+      // Show Lab Batch Assignment button for all users
       document.getElementById('labAssignBtn').style.display = 'inline-block';
       document.getElementById('constraintsListBtn').style.display = 'inline-block';
+
+      await DeptSwitcher.init(d.user, () => { deptId = DeptSwitcher.deptId; init(); });
+      deptId = DeptSwitcher.deptId;
       init();
     });
 

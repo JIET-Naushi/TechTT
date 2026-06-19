@@ -6,6 +6,21 @@
   <title>Years & Sections — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
   <script src="/js/dept-switcher.js"></script>
+</head>
+<body>
+  <header class="header">
+    <div class="logo">🎓 <span>JIET</span> Timetable — Admin</div>
+    <nav>
+      <a href="/index.html">Home</a>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </nav>
+  </header>
+  <div class="admin-layout">
+    <nav class="sidebar">
+      <div class="sidebar-title">Main</div>
+      <a href="/admin/dashboard.html"><span class="icon">📊</span> Dashboard</a>
+      <div class="sidebar-title">Manage</div>
+      <a href="/admin/sections.html" class="active"><span class="icon">🏛️</span> Years &amp; Sections</a>
       <a href="/admin/subjects.html"><span class="icon">📚</span> Subjects</a>
       <a href="/admin/faculty.html"><span class="icon">👨‍🏫</span> Faculty</a>
       <a href="/admin/rooms.html"><span class="icon">🏫</span> Rooms</a>
@@ -80,9 +95,14 @@
   </div>
 
   <script>
-    let years = [], sections = [], deptId = 1;
+    fetch('/api/auth/status').then(r => r.json()).then(async d => {
+      if (!d.loggedIn) { location.href = '/login.html'; return; }
+      await DeptSwitcher.init(d.user, () => { deptId = DeptSwitcher.deptId; init(); });
+      deptId = DeptSwitcher.deptId;
+      init();
+    });
 
-    initAdminPage((resolvedDeptId) => { deptId = resolvedDeptId; init(); });
+    let years = [], sections = [], deptId = 1;
 
     async function init() {
       const [yRes, sRes] = await Promise.all([

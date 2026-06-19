@@ -205,9 +205,15 @@
   </div>
 
   <script>
-    let selectedScope = 'all', years = [], deptId = 1;
+    fetch('/api/auth/status').then(r => r.json()).then(async d => {
+      if (!d.loggedIn) { location.href = '/login.html'; return; }
+      await DeptSwitcher.init(d.user, () => { deptId = DeptSwitcher.deptId; init(); loadConstraintsSummary(); });
+      deptId = DeptSwitcher.deptId;
+      init();
+    });
 
-    initAdminPage((resolvedDeptId) => { deptId = resolvedDeptId; init(); });
+    let selectedScope = 'all';
+    let years = [], deptId = 1;
 
     async function init() {
       const res = await fetch(`/api/years?department_id=${deptId}`);

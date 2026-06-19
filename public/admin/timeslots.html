@@ -130,9 +130,16 @@
   <script>
     let deptId = 1, slots = [];
 
-    initAdminPage((resolvedDeptId, user) => {
-      deptId = resolvedDeptId;
-      if (!user.isSuperAdmin) document.getElementById('pageTitle').textContent = `🕐 Time Slots — ${user.dept_name || ''}`;
+    fetch('/api/auth/status').then(r => r.json()).then(async d => {
+      if (!d.loggedIn) { location.href = '/login.html'; return; }
+      const badge = document.getElementById('userBadge');
+      if (d.user.loginType === 'google')
+        badge.innerHTML = (d.user.picture ? `<img src="${d.user.picture}" style="width:24px;height:24px;border-radius:50%;">` : '') + `<span>${d.user.name || d.user.username}</span>`;
+      else badge.innerHTML = `<span>👤 ${d.user.username}</span>`;
+      if (d.user.isSuperAdmin) { document.getElementById('superAdminMenu').style.display = 'block'; }
+      else { document.getElementById('pageTitle').textContent = `🕐 Time Slots — ${d.user.dept_name || ''}`; }
+      await DeptSwitcher.init(d.user, () => { deptId = DeptSwitcher.deptId; loadSlots(); });
+      deptId = DeptSwitcher.deptId;
       loadSlots();
     });
 

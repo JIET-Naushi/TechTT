@@ -1504,7 +1504,7 @@ router.post('/generate', requireAuth, async (req, res) => {
         const preAssigned = assignedFaculty[subj.id] || {};
 
         const qualifiedFac = allFaculty.filter(f => canTeach(f, subj.id));
-        const facPool = qualifiedFac.length >= numSubsections ? qualifiedFac : allFaculty;
+        const facPool = qualifiedFac; // only assign faculty who can teach this subject
 
         // Pre-resolve faculty per batch
         const batchFacultyList = [];
@@ -1705,7 +1705,7 @@ router.post('/generate', requireAuth, async (req, res) => {
           }
           if (!chosenF) {
             const eligible = allFaculty.filter(f => canTeach(f, pinSubj.id));
-            chosenF = shuffle(eligible.length ? eligible : allFaculty)
+            chosenF = shuffle(eligible)
               .find(f =>
                 isFacultyFree(pinDay, pinSlotId, f.id) &&
                 !isFacultyUnavailable(pinDay, pinSlotId, f.id) &&
@@ -1795,7 +1795,7 @@ router.post('/generate', requireAuth, async (req, res) => {
                 ? lockedF : null;
             } else {
               const eligible = allFaculty.filter(f => canTeach(f, subj.id));
-              const candidateFaculty = shuffle(eligible.length ? eligible : allFaculty)
+              const candidateFaculty = shuffle(eligible)
                 .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id]);
               chosenF = candidateFaculty.find(f =>
                 isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id)
@@ -1840,7 +1840,7 @@ router.post('/generate', requireAuth, async (req, res) => {
                   ? lockedF2 : null;
               } else {
                 const eligible = allFaculty.filter(f => canTeach(f, subj.id));
-                chosenF = shuffle(eligible.length ? eligible : allFaculty)
+                chosenF = shuffle(eligible)
                   .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
               }
               if (!chosenF) continue;

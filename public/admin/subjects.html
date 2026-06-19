@@ -122,9 +122,14 @@
   </div>
 
   <script>
-    let years = [], subjects = [], deptId = 1;
+    fetch('/api/auth/status').then(r => r.json()).then(async d => {
+      if (!d.loggedIn) { location.href = '/login.html'; return; }
+      await DeptSwitcher.init(d.user, () => { deptId = DeptSwitcher.deptId; init(); });
+      deptId = DeptSwitcher.deptId;
+      init();
+    });
 
-    initAdminPage((resolvedDeptId) => { deptId = resolvedDeptId; init(); });
+    let years = [], subjects = [], deptId = 1;
 
     async function init() {
       const res = await fetch(`/api/years?department_id=${deptId}`);
@@ -223,8 +228,7 @@
         type: document.getElementById('subjectType').value,
         category: document.getElementById('subjectCategory').value,
         credits: parseInt(document.getElementById('subjectCredits').value),
-        hours_per_week: parseInt(document.getElementById('subjectHours').value),
-        department_id: deptId
+        hours_per_week: parseInt(document.getElementById('subjectHours').value)
       };
       const url = id ? `/api/admin/subjects/${id}` : '/api/admin/subjects';
       const method = id ? 'PUT' : 'POST';
