@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Generation Constraints — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
-  <script src="/js/dept-switcher.js"></script>
   <style>
     .constraint-type-tabs { display:flex;gap:0;border-bottom:2px solid #e0e0e0;margin-bottom:20px; }
     .constraint-tab { padding:10px 22px;cursor:pointer;font-size:0.88rem;font-weight:600;color:#666;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .15s; }
@@ -182,16 +181,16 @@
     let currentYearSubjects = []; // theory subjects for selected year
 
     // ── Auth ──────────────────────────────────────────────────────────────────
-    fetch('/api/auth/status').then(r=>r.json()).then(async d=>{
+    fetch('/api/auth/status').then(r=>r.json()).then(d=>{
       if (!d.loggedIn) { location.href='/login.html'; return; }
       const badge = document.getElementById('userBadge');
       if (d.user.loginType==='google')
         badge.innerHTML=(d.user.picture?`<img src="${d.user.picture}" style="width:24px;height:24px;border-radius:50%;">`:'')+`<span>${d.user.name||d.user.username}</span>`;
       else badge.innerHTML=`<span>👤 ${d.user.username}</span>`;
-      if (d.user.isSuperAdmin) { document.getElementById('superAdminMenu').style.display='block'; }
-      else { document.getElementById('pageTitle').textContent=`📌 Generation Constraints — ${d.user.dept_name||''}`; }
-      await DeptSwitcher.init(d.user, () => { deptId=DeptSwitcher.deptId; init(); });
-      deptId=DeptSwitcher.deptId;
+      if (d.user.isSuperAdmin) { document.getElementById('superAdminMenu').style.display='block'; deptId=1; }
+      else { deptId=d.user.department_id; document.getElementById('pageTitle').textContent=`📌 Generation Constraints — ${d.user.dept_name||''}`; }
+      const urlDept=new URLSearchParams(location.search).get('dept');
+      if (urlDept && d.user.isSuperAdmin) deptId=parseInt(urlDept);
       init();
     });
 

@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Timetable Conflicts — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
-  <script src="/js/dept-switcher.js"></script>
   <style>
     .conflict-card {
       background: #fff3f3;
@@ -222,10 +221,9 @@
   </div>
 
   <script>
-    fetch('/api/auth/status').then(r => r.json()).then(async d => {
+    fetch('/api/auth/status').then(r => r.json()).then(d => {
       if (!d.loggedIn) { location.href = '/login.html'; return; }
-      await DeptSwitcher.init(d.user, () => { deptId = DeptSwitcher.deptId; loadConflicts(); });
-      deptId = DeptSwitcher.deptId;
+      deptId = d.user.isSuperAdmin ? 1 : (d.user.department_id || 1);
       loadConflicts();
     });
 

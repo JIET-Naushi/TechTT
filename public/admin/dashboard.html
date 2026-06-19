@@ -6,7 +6,6 @@
   <title>Dashboard — JIET Universe Timetable</title>
   <link rel="stylesheet" href="/css/style.css">
   <script src="https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-  <script src="/js/dept-switcher.js"></script>
 </head>
 <body>
   <header class="header">
@@ -156,10 +155,10 @@
   <script>
     let currentSettings = {};
     let isSuperAdmin = false;
-    let currentUsername = '', deptId = 1;
+    let currentUsername = '';
 
     // Auth check + show user badge
-    fetch('/api/auth/status').then(r => r.json()).then(async d => {
+    fetch('/api/auth/status').then(r => r.json()).then(d => {
       if (!d.loggedIn) { location.href = '/login.html'; return; }
       const badge = document.getElementById('userBadge');
       if (d.user.loginType === 'google') {
@@ -181,15 +180,10 @@
         document.getElementById('collegeDisplay').textContent = 'JIET Universe';
         document.querySelector('.page-title').textContent = `Dashboard — ${d.user.dept_name}`;
       }
-      await DeptSwitcher.init(d.user, () => { deptId = DeptSwitcher.deptId; loadStats(); loadConflicts(); loadSettings(); });
-      deptId = DeptSwitcher.deptId;
-      loadStats();
-      loadConflicts();
-      loadSettings();
     });
 
     async function loadStats() {
-      const res = await fetch(`/api/admin/stats?department_id=${deptId}`);
+      const res = await fetch('/api/admin/stats');
       const s = await res.json();
       const vals = [s.years, s.sections, s.subjects, s.faculty, s.rooms, s.timetable_entries];
       document.querySelectorAll('.stat-card .stat-value').forEach((c, i) => c.textContent = vals[i]);
@@ -198,7 +192,7 @@
     async function loadConflicts() {
       const box = document.getElementById('conflictBox');
       box.innerHTML = '<p class="text-muted">Checking...</p>';
-      const res = await fetch(`/api/admin/conflicts?department_id=${deptId}`);
+      const res = await fetch('/api/admin/conflicts');
       const conflicts = await res.json();
       if (conflicts.length === 0) {
         box.innerHTML = '<div class="alert alert-success">✅ No conflicts detected!</div>';
@@ -333,6 +327,10 @@
       }
     }
 
+    loadStats();
+    loadConflicts();
+    loadSettings();
+
     // ── Excel Export Functions ────────────────────────────────────────────────
     const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     const COLORS = ['color-0','color-1','color-2','color-3','color-4','color-5',
@@ -380,7 +378,7 @@
       document.body.appendChild(loadingMsg);
 
       try {
-        const deptId = DeptSwitcher.deptId || 1;
+        const deptId = localStorage.getItem('selectedDepartmentId') || '1';
         const [yRes, slRes, settingsRes] = await Promise.all([
           fetch(`/api/years?department_id=${deptId}`),
           fetch(`/api/timeslots?department_id=${deptId}`),
@@ -503,7 +501,7 @@
       document.body.appendChild(loadingMsg);
 
       try {
-        const deptId = DeptSwitcher.deptId || 1;
+        const deptId = localStorage.getItem('selectedDepartmentId') || '1';
         const [facRes, slRes, settingsRes] = await Promise.all([
           fetch(`/api/faculty?department_id=${deptId}`),
           fetch(`/api/timeslots?department_id=${deptId}`),

@@ -1503,10 +1503,10 @@ router.post('/generate', requireAuth, async (req, res) => {
         const hoursNeeded = subj.hours_per_week || 2;
         const preAssigned = assignedFaculty[subj.id] || {};
 
-        const qualifiedFac = allFaculty.filter(f => canTeach(f, subj.id));
-        const facPool = qualifiedFac; // only assign faculty who can teach this subject
-
         // Pre-resolve faculty per batch
+        // Only use explicitly pre-assigned faculty (from lab_assignments table)
+        // or a subject-lock constraint. Do NOT auto-pick from the qualified pool —
+        // if a batch has no assignment it stays unassigned (null).
         const batchFacultyList = [];
         for (let bi = 0; bi < numSubsections; bi++) {
           const batchName = batchNames[bi];
@@ -1516,18 +1516,12 @@ router.post('/generate', requireAuth, async (req, res) => {
             const pre = allFaculty.find(f => f.id === preId);
             if (pre) batchFaculty = pre;
           }
-          // If not pre-assigned, check subject-lock constraint for this lab+section
+          // If not pre-assigned via lab_assignments, check subject-lock constraint
           if (!batchFaculty) {
             const locked = getLockedFaculty(subj.id, section.id);
             if (locked) batchFaculty = locked;
           }
-          if (!batchFaculty && facPool.length > 0) {
-            // Pick a faculty not already used for another batch of this lab, and not unavailable
-            const usedFacIds = batchFacultyList.map(bf => bf && bf.id);
-            batchFaculty = shuffle(facPool).find(f => !usedFacIds.includes(f.id))
-                        || shuffle(facPool)[0]
-                        || null;
-          }
+          // No further fallback — unassigned batches stay null
           batchFacultyList.push(batchFaculty);
         }
 
