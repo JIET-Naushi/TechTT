@@ -487,10 +487,14 @@
           return;
         }
 
-        // Get lab_subsections from the fetched section list
+        // Get lab_subsections and subsection_names from the fetched section — must match generator logic exactly
         const currentSection = allSections.find(s => String(s.id) === String(sectionId));
         const numSubsections = (currentSection && currentSection.lab_subsections) ? currentSection.lab_subsections : 2;
-        const batchNames = Array.from({length: numSubsections}, (_, i) => String.fromCharCode(65 + i));
+        let batchNames;
+        try { batchNames = JSON.parse((currentSection && currentSection.subsection_names) || 'null'); } catch { batchNames = null; }
+        if (!Array.isArray(batchNames) || batchNames.length !== numSubsections) {
+          batchNames = Array.from({length: numSubsections}, (_, i) => String.fromCharCode(65 + i));
+        }
         
         let html = '';
         for (const subj of labSubjects) {
