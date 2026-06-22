@@ -1971,19 +1971,18 @@ router.post('/generate', requireAuth, async (req, res) => {
         for (const subj of labSubjs2) {
           const hrs = subj.hours_per_week || 2;
           const pre2 = aFac2[subj.id] || {};
-          const qFac2 = allFaculty.filter(f => canTeach(f, subj.id));
-          const fPool2 = qFac2.length >= numSubs2 ? qFac2 : allFaculty;
 
-          // Pre-resolve faculty per batch (same as main scheduling)
+          // Pre-resolve faculty per batch — only use pre-assigned or subject-lock, no fallback
           const bFacList2 = [];
           for (let bi = 0; bi < numSubs2; bi++) {
             const bn = bNames2[bi];
             let bFac2 = null;
             if (pre2[bn]) { const p = allFaculty.find(f=>f.id===pre2[bn]); if(p) bFac2=p; }
-            if (!bFac2 && fPool2.length > 0) {
-              const usedFacIds2 = bFacList2.map(bf => bf && bf.id);
-              bFac2 = shuffle(fPool2).find(f=>!usedFacIds2.includes(f.id)) || shuffle(fPool2)[0] || null;
+            if (!bFac2) {
+              const locked2 = getLockedFaculty(subj.id, section.id);
+              if (locked2) bFac2 = locked2;
             }
+            // No further fallback — unassigned stays null
             bFacList2.push(bFac2);
           }
 
@@ -2056,7 +2055,7 @@ router.post('/generate', requireAuth, async (req, res) => {
             const fSlots2 = shuffle(allSlots.filter(sl=>!used2.has(`${day}_${sl.id}`)));
             for (const slot of fSlots2) {
               const elig2 = allFaculty.filter(f => canTeach(f, subj.id));
-              const cF2 = shuffle(elig2.length?elig2:allFaculty).sort((a,b)=>fThCnt2[a.id]-fThCnt2[b.id]).find(f=>isFacultyFree(day,slot.id,f.id));
+              const cF2 = shuffle(elig2).sort((a,b)=>fThCnt2[a.id]-fThCnt2[b.id]).find(f=>isFacultyFree(day,slot.id,f.id));
               if (!cF2) continue;
               const pref2 = classrooms.find(r=>r.id===prefR2);
               const cR2 = (pref2&&isRoomFree(day,slot.id,pref2.id)) ? pref2 : shuffle([...classrooms]).find(r=>isRoomFree(day,slot.id,r.id));
