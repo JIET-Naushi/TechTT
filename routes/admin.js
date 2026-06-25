@@ -1507,11 +1507,15 @@ router.post('/generate', requireAuth, async (req, res) => {
       //   - In each session, assign one DISTINCT lab subject per batch (round-robin from remaining tokens)
       //   - Each batch gets its pre-assigned faculty for that subject + a separate room
 
-      // Build lab tokens: one entry per required session-hour for each lab subject
-      // Each token = { subj, sessionIndex } — sessionIndex tracks which occurrence of this subject
+      // Build lab tokens: one entry per OCCURRENCE of each lab subject (respects hours_per_week)
+      // A lab with hours_per_week=4 needs 2 sessions of 2 hours → push it twice
+      // Each token = { subj, hoursNeeded }
       const labTokens = [];
       for (const subj of labSubjects) {
         const hoursNeeded = subj.hours_per_week || 2;
+        // Determine how many separate sessions this subject needs
+        // (assume each session = hoursNeeded consecutive slots, placed once per session)
+        // Push one token per required session so each session gets its own slot group
         labTokens.push({ subj, hoursNeeded });
       }
 
@@ -1967,24 +1971,18 @@ router.post('/generate', requireAuth, async (req, res) => {
         const dLoad2 = Object.fromEntries(days.map(d=>[d,0]));
         const dLab2  = Object.fromEntries(days.map(d=>[d,0]));
 
-        // Re-schedule labs (synchronized: all batches in same slots, different rooms)
+        // Re-schedule labs — same session/rotation logic as the main generation loop
+        const labTokens2 = [];
         for (const subj of labSubjs2) {
-          const hrs = subj.hours_per_week || 2;
-          const pre2 = aFac2[subj.id] || {};
+          labTokens2.push({ subj, hoursNeeded: subj.hours_per_week || 2 });
+        }
+        const sessions2 = [];
+        for (let i = 0; i < labTokens2.length; i += numSubs2) {
+          sessions2.push(labTokens2.slice(i, i + numSubs2));
+        }
 
-          // Pre-resolve faculty per batch — only use pre-assigned or subject-lock, no fallback
-          const bFacList2 = [];
-          for (let bi = 0; bi < numSubs2; bi++) {
-            const bn = bNames2[bi];
-            let bFac2 = null;
-            if (pre2[bn]) { const p = allFaculty.find(f=>f.id===pre2[bn]); if(p) bFac2=p; }
-            if (!bFac2) {
-              const locked2 = getLockedFaculty(subj.id, section.id);
-              if (locked2) bFac2 = locked2;
-            }
-            // No further fallback — unassigned stays null
-            bFacList2.push(bFac2);
-          }
+        for (const sessionSubjects2 of sessions2) {
+          const hrs = Math.max(...sessionSubjects2.map(t => t.hoursNeeded));
 
           let labPlaced2 = false;
           for (const day of [...days].sort((a,b)=>dLab2[a]-dLab2[b])) {
@@ -2002,9 +2000,31 @@ router.post('/generate', requireAuth, async (req, res) => {
               if (labPlaced2) break;
               for (let s2=0;s2<=g2.length-hrs;s2++) {
                 const cand2 = g2.slice(s2,s2+hrs);
-                // Check ALL batch faculty are free
-                const allFacFree2 = bFacList2.every(bf => bf ? cand2.every(sl=>isFacultyFree(day,sl.id,bf.id)) : true);
+
+                // Resolve faculty per batch for this session
+                const bFacList2 = [];
+                for (let bi=0;bi<numSubs2;bi++) {
+                  const token2 = sessionSubjects2[bi];
+                  if (!token2) { bFacList2.push(null); continue; }
+                  const sj2 = token2.subj;
+                  const pre2 = aFac2[sj2.id] || {};
+                  const bn = bNames2[bi];
+                  let bFac2 = null;
+                  if (pre2[bn]) { const p = allFaculty.find(f=>f.id===pre2[bn]); if(p) bFac2=p; }
+                  if (!bFac2) {
+                    const locked2 = getLockedFaculty(sj2.id, section.id);
+                    if (locked2) bFac2 = locked2;
+                  }
+                  bFacList2.push(bFac2);
+                }
+
+                // Check all assigned faculty are free
+                const allFacFree2 = bFacList2.every((bf, bi) => {
+                  if (!bf) return true;
+                  return cand2.every(sl => isFacultyFree(day,sl.id,bf.id) && !isFacultyUnavailable(day,sl.id,bf.id));
+                });
                 if (!allFacFree2) continue;
+
                 // Find separate lab rooms for each batch
                 const usedLabIds2 = new Set();
                 const bRooms2 = [];
@@ -2015,13 +2035,16 @@ router.post('/generate', requireAuth, async (req, res) => {
                   bRooms2.push(aLab2); usedLabIds2.add(aLab2.id);
                 }
                 if (!roomsOk2) continue;
-                // Place all batches in SAME slots, different rooms
+
+                // Place each batch with its own subject, faculty, room
                 for (let bi=0;bi<numSubs2;bi++) {
-                  const bn=bNames2[bi]; const bf=bFacList2[bi];
-                  const lr=bRooms2[bi];
+                  const token2 = sessionSubjects2[bi];
+                  if (!token2) continue;
+                  const sj2 = token2.subj;
+                  const bn=bNames2[bi]; const bf=bFacList2[bi]; const lr=bRooms2[bi];
                   for (const sl of cand2) {
                     await run('INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-                      [section.id,sl.id,day,subj.id,bf ? bf.id : null,lr.id,bn]);
+                      [section.id,sl.id,day,sj2.id,bf ? bf.id : null,lr.id,bn]);
                     if (bf) markFaculty(day,sl.id,bf.id);
                     markRoom(day,sl.id,lr.id);
                   }
@@ -2055,7 +2078,8 @@ router.post('/generate', requireAuth, async (req, res) => {
             const fSlots2 = shuffle(allSlots.filter(sl=>!used2.has(`${day}_${sl.id}`)));
             for (const slot of fSlots2) {
               const elig2 = allFaculty.filter(f => canTeach(f, subj.id));
-              const cF2 = shuffle(elig2).sort((a,b)=>fThCnt2[a.id]-fThCnt2[b.id]).find(f=>isFacultyFree(day,slot.id,f.id));
+              const cF2 = shuffle(elig2).sort((a,b)=>fThCnt2[a.id]-fThCnt2[b.id])
+                .find(f=>isFacultyFree(day,slot.id,f.id) && !isFacultyUnavailable(day,slot.id,f.id));
               if (!cF2) continue;
               const pref2 = classrooms.find(r=>r.id===prefR2);
               const cR2 = (pref2&&isRoomFree(day,slot.id,pref2.id)) ? pref2 : shuffle([...classrooms]).find(r=>isRoomFree(day,slot.id,r.id));
