@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Generate Timetable — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/dept-switcher.js"></script>
   <style>
     .action-group {
       display: flex; flex-direction: column; gap: 16px;
@@ -206,7 +207,8 @@
   <script>
     fetch('/api/auth/status').then(r => r.json()).then(d => {
       if (!d.loggedIn) { location.href = '/login.html'; return; }
-      deptId = d.user.isSuperAdmin ? 1 : (d.user.department_id || 1);
+      deptId = d.user.isSuperAdmin ? getAdminDeptId() : (d.user.department_id || 1);
+      initDeptSwitcher(d.user, () => { deptId = getAdminDeptId(); init(); });
       init();
     });
 
@@ -263,7 +265,7 @@
     }
 
     function getRequestBody(daysMode) {
-      const body = { scope: selectedScope, days_mode: daysMode };
+      const body = { scope: selectedScope, days_mode: daysMode, department_id: deptId };
       if (selectedScope === 'year' || selectedScope === 'section') {
         body.year_id = parseInt(document.getElementById('yearSelect').value) || undefined;
       }

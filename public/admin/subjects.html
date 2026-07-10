@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Subjects — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/dept-switcher.js"></script>
 </head>
 <body>
   <header class="header">
@@ -123,10 +124,8 @@
   <script>
     fetch('/api/auth/status').then(r => r.json()).then(d => {
       if (!d.loggedIn) location.href = '/login.html';
-      deptId = d.user.isSuperAdmin ? 1 : (d.user.department_id || 1);
-      // Allow ?dept=X for super admin
-      const urlDept = new URLSearchParams(location.search).get('dept');
-      if (urlDept && d.user.isSuperAdmin) deptId = parseInt(urlDept);
+      deptId = d.user.isSuperAdmin ? getAdminDeptId() : (d.user.department_id || 1);
+      initDeptSwitcher(d.user, () => { deptId = getAdminDeptId(); init(); });
       init();
     });
 

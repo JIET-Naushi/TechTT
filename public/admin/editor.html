@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Timetable Editor — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/dept-switcher.js"></script>
   <style>
     /* ── Editor-specific overrides ─────────────────────────────────── */
     .editor-wrap { overflow-x: auto; }
@@ -397,7 +398,8 @@
     let deptId = 1;
     fetch('/api/auth/status').then(r => r.json()).then(d => {
       if (!d.loggedIn) { location.href = '/login.html'; return; }
-      deptId = d.user.isSuperAdmin ? 1 : (d.user.department_id || 1);
+      deptId = d.user.isSuperAdmin ? getAdminDeptId() : (d.user.department_id || 1);
+      initDeptSwitcher(d.user, () => { deptId = getAdminDeptId(); init(); });
       init();
     });
 

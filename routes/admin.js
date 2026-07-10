@@ -54,6 +54,18 @@ async function verifyDeptOwnership(table, id, deptId) {
 }
 
 // =============================================================================
+// ==================== DEPARTMENTS LIST (accessible to all logged-in users) ===
+// =============================================================================
+
+// GET all departments — used by the dept-switcher dropdown for super admin
+router.get('/departments-list', requireAuth, async (req, res) => {
+  try {
+    const rows = await query('SELECT id, name, code FROM departments ORDER BY id');
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// =============================================================================
 // ==================== SUPER ADMIN: INCHARGE MANAGEMENT ======================
 // =============================================================================
 

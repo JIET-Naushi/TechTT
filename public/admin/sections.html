@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Years & Sections — Admin</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/dept-switcher.js"></script>
 </head>
 <body>
   <header class="header">
@@ -96,7 +97,8 @@
   <script>
     fetch('/api/auth/status').then(r => r.json()).then(d => {
       if (!d.loggedIn) { location.href = '/login.html'; return; }
-      deptId = d.user.isSuperAdmin ? 1 : d.user.department_id;
+      deptId = d.user.isSuperAdmin ? getAdminDeptId() : d.user.department_id;
+      initDeptSwitcher(d.user, () => { deptId = getAdminDeptId(); init(); });
       init();
     });
 

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard — JIET Universe Timetable</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/dept-switcher.js"></script>
   <script src="https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 </head>
 <body>
@@ -180,10 +181,11 @@
         document.getElementById('collegeDisplay').textContent = 'JIET Universe';
         document.querySelector('.page-title').textContent = `Dashboard — ${d.user.dept_name}`;
       }
+      initDeptSwitcher(d.user, () => { loadStats(); loadSettings(); loadConflicts(); });
     });
 
     async function loadStats() {
-      const res = await fetch('/api/admin/stats');
+      const res = await fetch(`/api/admin/stats?department_id=${getAdminDeptId()}`);
       const s = await res.json();
       const vals = [s.years, s.sections, s.subjects, s.faculty, s.rooms, s.timetable_entries];
       document.querySelectorAll('.stat-card .stat-value').forEach((c, i) => c.textContent = vals[i]);
@@ -192,7 +194,7 @@
     async function loadConflicts() {
       const box = document.getElementById('conflictBox');
       box.innerHTML = '<p class="text-muted">Checking...</p>';
-      const res = await fetch('/api/admin/conflicts');
+      const res = await fetch(`/api/admin/conflicts?department_id=${getAdminDeptId()}`);
       const conflicts = await res.json();
       if (conflicts.length === 0) {
         box.innerHTML = '<div class="alert alert-success">✅ No conflicts detected!</div>';
