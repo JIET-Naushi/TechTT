@@ -182,6 +182,7 @@
         document.querySelector('.page-title').textContent = `Dashboard — ${d.user.dept_name}`;
       }
       initDeptSwitcher(d.user, () => { loadStats(); loadSettings(); loadConflicts(); });
+      loadStats(); loadSettings(); loadConflicts();
     });
 
     async function loadStats() {
