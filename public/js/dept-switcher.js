@@ -48,13 +48,13 @@
         sel.id = 'deptSwitcher';
         sel.title = 'Switch department';
         sel.style.cssText = [
-          'background:rgba(255,255,255,0.18)',
-          'color:#fff',
-          'border:1px solid rgba(255,255,255,0.4)',
+          'background:#ffffff',
+          'color:#1a237e',
+          'border:2px solid #90caf9',
           'border-radius:6px',
           'padding:5px 10px',
           'font-size:0.82rem',
-          'font-weight:600',
+          'font-weight:700',
           'cursor:pointer',
           'margin-left:12px',
           'outline:none',
