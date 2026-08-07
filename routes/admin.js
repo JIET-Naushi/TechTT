@@ -663,29 +663,49 @@ router.post('/timetable/entry', requireAuth, async (req, res) => {
         [section_id, time_slot_id, day_of_week]
       );
       if (existingLab) {
-        // Delete ALL batch entries for this slot (all subsections)
         await run(
           'DELETE FROM timetable_entries WHERE section_id=$1 AND time_slot_id=$2 AND day_of_week=$3',
           [section_id, time_slot_id, day_of_week]
         );
       }
+      // Theory: upsert the single entry (subsection IS NULL)
+      const existing = await queryOne(
+        'SELECT id FROM timetable_entries WHERE section_id=$1 AND time_slot_id=$2 AND day_of_week=$3 AND subsection IS NULL',
+        [section_id, time_slot_id, day_of_week]
+      );
+      if (existing) {
+        await run('UPDATE timetable_entries SET subject_id=$1,faculty_id=$2,room_id=$3 WHERE id=$4',
+          [subject_id||null, faculty_id||null, room_id||null, existing.id]);
+        return res.json({ id: existing.id, message: 'Entry updated' });
+      } else {
+        const result = await run(
+          'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL) RETURNING id',
+          [section_id, time_slot_id, day_of_week, subject_id||null, faculty_id||null, room_id||null]
+        );
+        return res.json({ id: result.rows[0].id, message: 'Entry created' });
+      }
     }
 
-    // For theory (no subsection): find existing by section+slot+day where subsection IS NULL
-    const existing = await queryOne(
-      'SELECT id FROM timetable_entries WHERE section_id=$1 AND time_slot_id=$2 AND day_of_week=$3 AND subsection IS NULL',
+    // Lab batch (subsection is set): upsert by section+slot+day+subsection
+    // First delete any existing theory entry for this slot if switching from theory to lab
+    await run(
+      'DELETE FROM timetable_entries WHERE section_id=$1 AND time_slot_id=$2 AND day_of_week=$3 AND subsection IS NULL',
       [section_id, time_slot_id, day_of_week]
     );
-    if (existing) {
+    const existingBatch = await queryOne(
+      'SELECT id FROM timetable_entries WHERE section_id=$1 AND time_slot_id=$2 AND day_of_week=$3 AND subsection=$4',
+      [section_id, time_slot_id, day_of_week, subsection]
+    );
+    if (existingBatch) {
       await run('UPDATE timetable_entries SET subject_id=$1,faculty_id=$2,room_id=$3 WHERE id=$4',
-        [subject_id||null, faculty_id||null, room_id||null, existing.id]);
-      res.json({ id: existing.id, message: 'Entry updated' });
+        [subject_id||null, faculty_id||null, room_id||null, existingBatch.id]);
+      res.json({ id: existingBatch.id, message: 'Lab batch entry updated' });
     } else {
       const result = await run(
         'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
-        [section_id, time_slot_id, day_of_week, subject_id||null, faculty_id||null, room_id||null, subsection||null]
+        [section_id, time_slot_id, day_of_week, subject_id||null, faculty_id||null, room_id||null, subsection]
       );
-      res.json({ id: result.rows[0].id, message: 'Entry created' });
+      res.json({ id: result.rows[0].id, message: 'Lab batch entry created' });
     }
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

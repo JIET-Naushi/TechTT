@@ -341,7 +341,7 @@
 
         <div class="form-group" id="subjectGroup">
           <label>Subject</label>
-          <select id="mSubject" class="form-control" onchange="onSubjectChange(document.getElementById('batchFacultyGroup').style.display==='block')">
+          <select id="mSubject" class="form-control" onchange="onSubjectChange()">
             <option value="">— Free Period —</option>
           </select>
         </div>
@@ -888,6 +888,8 @@
       const opt  = document.getElementById('mSubject').selectedOptions[0];
       const type = opt?.dataset?.type || '';
       const isEmptySlot = !document.getElementById('mEntryId').value && !document.getElementById('mSubsection').value;
+      // Detect if we were already in multi-batch mode (batch controls visible)
+      const wasBatchMode = document.getElementById('batchFacultyGroup').style.display === 'block' || inMultiBatchMode;
 
       if (type === 'lab') {
         // Lab subject selected — always switch to batch mode
@@ -897,7 +899,7 @@
         document.getElementById('batchRoomGroup').style.display = 'block';
         document.getElementById('emInfoRow').innerHTML = `🔬 Lab subject — assign faculty and room for each batch below`;
 
-        if (isEmptySlot || inMultiBatchMode) {
+        if (isEmptySlot || wasBatchMode) {
           // Build fresh batch rows from the section's batch config
           renderNewBatchRows();
         }
@@ -917,7 +919,7 @@
           filterRooms('');
         }
 
-        if (inMultiBatchMode) {
+        if (wasBatchMode) {
           document.getElementById('emInfoRow').innerHTML = `⚠️ Changing to a non-lab subject will <strong>replace all lab batches</strong> with a single theory entry`;
         }
       }
