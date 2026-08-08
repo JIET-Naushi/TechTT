@@ -710,6 +710,25 @@ router.post('/timetable/entry', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Delete a single timetable entry by ID
+router.delete('/timetable/entry/:id', requireAuth, async (req, res) => {
+  try {
+    const deptId  = getDeptId(req);
+    const entryId = parseInt(req.params.id);
+    // Verify the entry belongs to a section in this department
+    const entry = await queryOne(
+      `SELECT te.id FROM timetable_entries te
+       JOIN sections s ON te.section_id = s.id
+       JOIN years y ON s.year_id = y.id
+       WHERE te.id = $1 AND y.department_id = $2`,
+      [entryId, deptId]
+    );
+    if (!entry) return res.status(404).json({ error: 'Entry not found or not in your department' });
+    await run('DELETE FROM timetable_entries WHERE id=$1', [entryId]);
+    res.json({ message: 'Entry cleared' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Delete ALL entries for a specific section+slot+day (used to clear an entire slot including all lab batches)
 router.delete('/timetable/slot', requireAuth, async (req, res) => {
   try {
