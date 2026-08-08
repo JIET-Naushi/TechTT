@@ -671,16 +671,19 @@
           subjectGroup.style.display = '';
           batchGroup.style.display = 'none';
           document.getElementById('mSubject').disabled = false;
-          // Wire subject change to show/hide batch controls
           onSubjectChange(true /* inMultiBatchMode */);
         }
         filterRooms('lab');
       } else {
-        // Theory or empty slot — subject change will auto-detect lab and switch mode
+        // Theory or empty slot — don't call onSubjectChange here (subject is blank for empty slot).
+        // onSubjectChange fires when user picks a subject via the onchange handler.
         subjectGroup.style.display = '';
         batchGroup.style.display = 'none';
         document.getElementById('mSubject').disabled = false;
-        onSubjectChange();
+        // Only trigger subject-change logic if there is already a subject selected (theory slot)
+        if (document.getElementById('mSubject').value) {
+          onSubjectChange();
+        }
       }
 
       // Clear buttons
@@ -888,39 +891,33 @@
       const opt  = document.getElementById('mSubject').selectedOptions[0];
       const type = opt?.dataset?.type || '';
       const isEmptySlot = !document.getElementById('mEntryId').value && !document.getElementById('mSubsection').value;
-      // Detect if we were already in multi-batch mode (batch controls visible)
       const wasBatchMode = document.getElementById('batchFacultyGroup').style.display === 'block' || inMultiBatchMode;
 
       if (type === 'lab') {
-        // Lab subject selected — always switch to batch mode
+        // Lab subject selected — switch to per-batch mode
         document.getElementById('mFaculty').parentElement.style.display = 'none';
         document.getElementById('mRoom').parentElement.style.display = 'none';
         document.getElementById('batchFacultyGroup').style.display = 'block';
         document.getElementById('batchRoomGroup').style.display = 'block';
         document.getElementById('emInfoRow').innerHTML = `🔬 Lab subject — assign faculty and room for each batch below`;
-
-        if (isEmptySlot || wasBatchMode) {
-          // Build fresh batch rows from the section's batch config
-          renderNewBatchRows();
-        }
+        // Always rebuild batch rows when a lab subject is picked on an empty slot or batch mode
+        renderNewBatchRows();
         filterRooms('lab');
       } else {
-        // Theory / free subject selected — switch to single mode
+        // Theory / free subject — switch to single mode
         document.getElementById('mFaculty').parentElement.style.display = '';
         document.getElementById('mRoom').parentElement.style.display = '';
         document.getElementById('batchFacultyGroup').style.display = 'none';
         document.getElementById('batchRoomGroup').style.display = 'none';
 
         if (type) {
-          document.getElementById('emInfoRow').innerHTML = `📖 Theory slot — assign faculty and room`;
+          document.getElementById('emInfoRow').innerHTML = wasBatchMode
+            ? `⚠️ Changing to a non-lab subject will <strong>replace all lab batches</strong> with a single theory entry`
+            : `📖 Theory slot — assign faculty and room`;
           filterRooms('classroom');
         } else {
           document.getElementById('emInfoRow').innerHTML = `📖 Select a subject, faculty, and room`;
           filterRooms('');
-        }
-
-        if (wasBatchMode) {
-          document.getElementById('emInfoRow').innerHTML = `⚠️ Changing to a non-lab subject will <strong>replace all lab batches</strong> with a single theory entry`;
         }
       }
     }
