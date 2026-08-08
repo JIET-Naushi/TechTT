@@ -362,9 +362,15 @@
           </select>
         </div>
         
-        <!-- Per-batch faculty assignment (shown when editing existing lab with multiple batches) -->
+        <!-- Per-batch subject, faculty, and room assignment -->
         <div id="batchFacultyGroup" style="display:none;margin-top:12px;">
-          <label style="font-size:0.85rem;font-weight:600;color:#555;margin-bottom:8px;display:block;">Faculty per Batch</label>
+          <label style="font-size:0.85rem;font-weight:600;color:#555;margin-bottom:8px;display:block;">Per-Batch Assignment</label>
+          <div style="display:grid;grid-template-columns:60px 1fr 1fr 1fr;gap:6px;margin-bottom:4px;padding:0 4px;">
+            <span style="font-size:0.72rem;font-weight:700;color:#888;text-transform:uppercase;">Batch</span>
+            <span style="font-size:0.72rem;font-weight:700;color:#888;text-transform:uppercase;">Subject</span>
+            <span style="font-size:0.72rem;font-weight:700;color:#888;text-transform:uppercase;">Faculty</span>
+            <span style="font-size:0.72rem;font-weight:700;color:#888;text-transform:uppercase;">Room</span>
+          </div>
           <div id="batchFacultyList"></div>
         </div>
 
@@ -375,11 +381,8 @@
           </select>
         </div>
         
-        <!-- Per-batch room assignment (shown when editing existing lab with multiple batches) -->
-        <div id="batchRoomGroup" style="display:none;margin-top:12px;">
-          <label style="font-size:0.85rem;font-weight:600;color:#555;margin-bottom:8px;display:block;">Room per Batch</label>
-          <div id="batchRoomList"></div>
-        </div>
+        <!-- batchRoomGroup merged into batchFacultyGroup above -->
+        <div id="batchRoomGroup" style="display:none;"></div>
       </div>
 
       <!-- Footer -->
@@ -526,13 +529,15 @@
           <span>＋ Add</span></div></td>`;
       }
 
-      // Lab slot
+      // Lab slot — each batch may have a different subject
       if (slotEntries.some(e => e.subsection)) {
-        const color  = getColor(slotEntries[0].subject_id);
-        const isBtu  = slotEntries[0].subject_category === 'btu';
-        let html = `<td><div class="cell-lab ${color}">`;
+        // Group by distinct subjects for the header
+        const subjectNames = [...new Set(slotEntries.map(e => e.subject_name).filter(Boolean))];
+        const headerLabel  = subjectNames.length === 1 ? subjectNames[0] : 'Lab (Multi-Subject)';
+        const isBtu = slotEntries[0].subject_category === 'btu';
+        let html = `<td><div class="cell-lab ${getColor(slotEntries[0].subject_id)}">`;
         html += `<div class="lab-header" style="cursor:pointer;" onclick="openModal('${day}',${slot.id},null,null)">
-          <span>${slotEntries[0].subject_name || '?'}</span>
+          <span>${headerLabel}</span>
           <span style="display:flex;gap:3px;">
             <span class="lab-tag">LAB</span>
             ${isBtu ? '<span class="lab-tag" style="background:rgba(230,81,0,0.35);">B.T.U.</span>' : ''}
@@ -544,6 +549,7 @@
             onclick="event.stopPropagation(); openModal('${day}',${slot.id},${e.id},'${e.subsection}')">
             <div class="batch-letter">${e.subsection}</div>
             <div class="batch-info">
+              <div class="bi-fac" style="font-size:0.72rem;opacity:.8;">${e.subject_name || '—'}</div>
               ${e.faculty_name
                 ? `<div class="bi-fac">${e.faculty_name}</div>
                    <div class="bi-room">${e.room_name || '—'}</div>`
@@ -627,21 +633,17 @@
 
       // Pre-fill for single entry or single batch
       if (isMultiBatchLab && !subsection) {
-        // Multi-batch lab: show all batches
-        const e0 = slotEntries[0];
-        document.getElementById('mSubject').value = e0?.subject_id || '';
-        document.getElementById('mSubject').disabled = false;  // allow changing subject to convert to theory
-        document.getElementById('subjectGroup').style.display = '';
+        // Multi-batch lab: hide shared subject — each batch has its own subject dropdown
+        document.getElementById('subjectGroup').style.display = 'none';
         
         // Hide single faculty/room selectors
         document.getElementById('mFaculty').parentElement.style.display = 'none';
         document.getElementById('mRoom').parentElement.style.display = 'none';
         
-        // Show per-batch faculty and room selectors
+        // Show per-batch subject, faculty, and room selectors
         document.getElementById('batchFacultyGroup').style.display = 'block';
         document.getElementById('batchRoomGroup').style.display = 'block';
         renderBatchFacultyRooms(slotEntries);
-        
         filterRooms('lab');
       } else {
         const e = entryId ? entries.find(x => x.id === entryId) : null;
@@ -662,16 +664,17 @@
       
       if (isLab) {
         if (subsection) {
-          // Single batch edit — hide subject, show single fac/room
-          subjectGroup.style.display = 'none';
-          batchGroup.style.display = 'none';
-          document.getElementById('mSubject').disabled = false;
-        } else {
-          // Multi-batch edit — show subject (user can switch to theory), batch controls visible
+          // Single batch edit — show subject for this batch, single fac/room
           subjectGroup.style.display = '';
           batchGroup.style.display = 'none';
           document.getElementById('mSubject').disabled = false;
-          onSubjectChange(true /* inMultiBatchMode */);
+          // pre-fill the shared subject field with this batch's subject
+          const batchEntry = entries.find(x => x.id === parseInt(document.getElementById('mEntryId').value));
+          if (batchEntry) document.getElementById('mSubject').value = batchEntry.subject_id || '';
+        } else {
+          // Multi-batch edit — subject is per-batch, no shared subject field needed
+          subjectGroup.style.display = 'none';
+          batchGroup.style.display = 'none';
         }
         filterRooms('lab');
       } else {
@@ -693,40 +696,46 @@
       document.getElementById('editModal').classList.add('active');
     }
     
-    /* ── Render per-batch faculty and room selectors ─────────────────── */
+    /* ── Render per-batch subject, faculty and room selectors ─────────── */
     function renderBatchFacultyRooms(batchEntries) {
-      const facList = document.getElementById('batchFacultyList');
-      const roomList = document.getElementById('batchRoomList');
-      
-      facList.innerHTML = '';
-      roomList.innerHTML = '';
-      
+      const list = document.getElementById('batchFacultyList');
+      list.innerHTML = '';
       batchEntries.sort((a, b) => (a.subsection || '').localeCompare(b.subsection || ''));
-      
+
+      // Filter lab subjects for subject dropdown
+      const labSubjects = subjects.filter(s => s.type === 'lab');
+      const labRooms    = rooms.filter(r => r.type === 'lab').length
+                          ? rooms.filter(r => r.type === 'lab') : rooms;
+
       batchEntries.forEach(e => {
-        // Faculty selector
-        const facRow = document.createElement('div');
-        facRow.className = 'batch-faculty-row';
-        facRow.innerHTML = `
-          <span class="batch-label">Batch ${e.subsection}</span>
-          <select class="form-control" data-batch="${e.subsection}" data-entry-id="${e.id}">
-            <option value="">— No Faculty —</option>
-            ${faculty.map(f => `<option value="${f.id}" ${f.id === e.faculty_id ? 'selected' : ''}>${f.name}${f.designation ? ' — ' + f.designation : ''}</option>`).join('')}
+        const row = document.createElement('div');
+        row.className = 'batch-faculty-row';
+        row.style.cssText = 'display:grid;grid-template-columns:60px 1fr 1fr 1fr;gap:6px;align-items:center;padding:6px 4px;background:#f5f7ff;border-radius:6px;margin-bottom:6px;';
+        row.dataset.batch   = e.subsection;
+        row.dataset.entryId = e.id;
+
+        const subjOpts = labSubjects.map(s =>
+          `<option value="${s.id}" ${String(s.id) === String(e.subject_id) ? 'selected' : ''}>${s.name}</option>`
+        ).join('');
+        const facOpts = `<option value="">— None —</option>` + faculty.map(f =>
+          `<option value="${f.id}" ${String(f.id) === String(e.faculty_id) ? 'selected' : ''}>${f.name}</option>`
+        ).join('');
+        const roomOpts = `<option value="">— None —</option>` + labRooms.map(r =>
+          `<option value="${r.id}" ${String(r.id) === String(e.room_id) ? 'selected' : ''}>${r.name}</option>`
+        ).join('');
+
+        row.innerHTML = `
+          <span class="batch-label" style="font-weight:700;color:#1a237e;font-size:0.82rem;">Batch ${e.subsection}</span>
+          <select class="form-control" style="font-size:0.8rem;" data-role="subject">
+            <option value="">— Subject —</option>${subjOpts}
           </select>
-        `;
-        facList.appendChild(facRow);
-        
-        // Room selector
-        const roomRow = document.createElement('div');
-        roomRow.className = 'batch-room-row';
-        roomRow.innerHTML = `
-          <span class="batch-label">Batch ${e.subsection}</span>
-          <select class="form-control" data-batch="${e.subsection}" data-entry-id="${e.id}">
-            <option value="">— No Room —</option>
-            ${rooms.filter(r => r.type === 'lab').map(r => `<option value="${r.id}" ${r.id === e.room_id ? 'selected' : ''}>${r.name} (${r.type})</option>`).join('')}
+          <select class="form-control" style="font-size:0.8rem;" data-role="faculty">
+            ${facOpts}
           </select>
-        `;
-        roomList.appendChild(roomRow);
+          <select class="form-control" style="font-size:0.8rem;" data-role="room">
+            ${roomOpts}
+          </select>`;
+        list.appendChild(row);
       });
     }
 
@@ -759,36 +768,32 @@
 
       try {
         if (isMultiBatchEdit) {
-          // Multi-batch lab: update existing entries OR create new ones
-          const facSelects = batchFacultyGroup.querySelectorAll('select');
-          const roomSelects = document.getElementById('batchRoomGroup').querySelectorAll('select');
-          const subjId = document.getElementById('mSubject').value || null;
-          
-          for (let i = 0; i < facSelects.length; i++) {
-            const facSelect  = facSelects[i];
-            const roomSelect = roomSelects[i];
-            const batchEntryId = facSelect.dataset.entryId; // empty string = new entry
-            const batch = facSelect.dataset.batch;
-            
+          // Multi-batch lab: each row has subject + faculty + room selects
+          const batchRows = batchFacultyGroup.querySelectorAll('.batch-faculty-row');
+
+          for (const row of batchRows) {
+            const batch      = row.dataset.batch;
+            const batchEntryId = row.dataset.entryId;
+            const subjSel  = row.querySelector('[data-role="subject"]');
+            const facSel   = row.querySelector('[data-role="faculty"]');
+            const roomSel  = row.querySelector('[data-role="room"]');
+
             const body = {
               section_id:   parseInt(document.getElementById('mSectionId').value),
               time_slot_id: parseInt(document.getElementById('mSlotId').value),
               day_of_week:  document.getElementById('mDay').value,
-              subject_id:   subjId,
-              faculty_id:   facSelect.value  || null,
-              room_id:      roomSelect.value || null,
+              subject_id:   subjSel?.value  || null,
+              faculty_id:   facSel?.value   || null,
+              room_id:      roomSel?.value  || null,
               subsection:   batch
             };
-
-            // Only pass entry_id if we're updating an existing entry
             if (batchEntryId) body.entry_id = parseInt(batchEntryId);
-            
+
             const res = await fetch('/api/admin/timetable/entry', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body)
             });
-            
             if (!res.ok) {
               const data = await res.json();
               throw new Error(data.error || `Failed to save batch ${batch}`);
@@ -924,38 +929,44 @@
 
     /* ── Build fresh per-batch rows for a NEW lab assignment ─────────── */
     function renderNewBatchRows() {
-      const facList = document.getElementById('batchFacultyList');
-      const roomList = document.getElementById('batchRoomList');
-      facList.innerHTML = '';
-      roomList.innerHTML = '';
+      const list = document.getElementById('batchFacultyList');
+      list.innerHTML = '';
 
-      const batches = currentSectionBatches.length ? currentSectionBatches
-        : ['A', 'B']; // fallback if not loaded yet
+      const batches     = currentSectionBatches.length ? currentSectionBatches : ['A', 'B'];
+      const labSubjects = subjects.filter(s => s.type === 'lab');
+      const labRooms    = rooms.filter(r => r.type === 'lab').length
+                          ? rooms.filter(r => r.type === 'lab') : rooms;
+
+      // Pre-select the subject the user just chose in mSubject (if any)
+      const preSelectedSubjId = document.getElementById('mSubject').value;
 
       batches.forEach(batch => {
-        const facRow = document.createElement('div');
-        facRow.className = 'batch-faculty-row';
-        facRow.innerHTML = `
-          <span class="batch-label">Batch ${batch}</span>
-          <select class="form-control" data-batch="${batch}" data-entry-id="">
-            <option value="">— No Faculty —</option>
-            ${faculty.map(f => `<option value="${f.id}">${f.name}${f.designation ? ' — ' + f.designation : ''}</option>`).join('')}
-          </select>
-        `;
-        facList.appendChild(facRow);
+        const row = document.createElement('div');
+        row.className = 'batch-faculty-row';
+        row.style.cssText = 'display:grid;grid-template-columns:60px 1fr 1fr 1fr;gap:6px;align-items:center;padding:6px 4px;background:#f5f7ff;border-radius:6px;margin-bottom:6px;';
+        row.dataset.batch   = batch;
+        row.dataset.entryId = '';
 
-        const roomRow = document.createElement('div');
-        roomRow.className = 'batch-room-row';
-        roomRow.innerHTML = `
-          <span class="batch-label">Batch ${batch}</span>
-          <select class="form-control" data-batch="${batch}" data-entry-id="">
-            <option value="">— No Room —</option>
-            ${rooms.filter(r => r.type === 'lab').length
-              ? rooms.filter(r => r.type === 'lab').map(r => `<option value="${r.id}">${r.name} (${r.type})</option>`).join('')
-              : rooms.map(r => `<option value="${r.id}">${r.name} (${r.type})</option>`).join('')}
+        const subjOpts = labSubjects.map(s =>
+          `<option value="${s.id}" ${String(s.id) === String(preSelectedSubjId) ? 'selected' : ''}>${s.name}</option>`
+        ).join('');
+        const facOpts  = `<option value="">— None —</option>` + faculty.map(f =>
+          `<option value="${f.id}">${f.name}</option>`).join('');
+        const roomOpts = `<option value="">— None —</option>` + labRooms.map(r =>
+          `<option value="${r.id}">${r.name}</option>`).join('');
+
+        row.innerHTML = `
+          <span class="batch-label" style="font-weight:700;color:#1a237e;font-size:0.82rem;">Batch ${batch}</span>
+          <select class="form-control" style="font-size:0.8rem;" data-role="subject">
+            <option value="">— Subject —</option>${subjOpts}
           </select>
-        `;
-        roomList.appendChild(roomRow);
+          <select class="form-control" style="font-size:0.8rem;" data-role="faculty">
+            ${facOpts}
+          </select>
+          <select class="form-control" style="font-size:0.8rem;" data-role="room">
+            ${roomOpts}
+          </select>`;
+        list.appendChild(row);
       });
     }
 
