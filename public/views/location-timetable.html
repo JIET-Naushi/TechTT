@@ -150,6 +150,8 @@
           if (!se.length) { html += `<td><div class="timetable-cell nlf-cell">NLF</div></td>`; return; }
           if (se.some(e => e.subsection)) {
             const e0 = se[0];
+            const uniqueSubjects = [...new Set(se.map(e => e.subject_id).filter(Boolean))];
+            const headerLabel = uniqueSubjects.length === 1 ? (e0.subject_name || '?') : 'Lab Session';
             const color = getColor(e0.section_id);
             const isBtu = e0.subject_category==='btu';
             const tags  = `<span class="tt-tag">LAB</span>${isBtu ? '<span class="tt-tag btu-tag">B.T.U.</span>' : ''}`;
@@ -157,12 +159,13 @@
               <div class="lab-batch">
                 <span class="lab-batch-label">${e.subsection}</span>
                 <div class="lab-batch-info">
+                  ${uniqueSubjects.length > 1 ? `<div class="subj" style="font-size:0.72rem;font-weight:700;color:#1a237e;">${e.subject_name || '—'}</div>` : ''}
                   <div class="fac">${e.faculty_name||'—'}</div>
                   <div class="room">${e.year_name||''} — Sec ${e.section_name||''}</div>
                 </div>
               </div>`).join('');
             html += `<td><div class="lab-cell ${color}${isBtu?' btu-cell':''}">
-              <div class="lab-subject-name">${e0.subject_name||'?'} ${tags}</div>${rows}</div></td>`;
+              <div class="lab-subject-name">${headerLabel} ${tags}</div>${rows}</div></td>`;
             return;
           }
           const e = se[0];
