@@ -877,19 +877,10 @@
 
     /* ── Room filter helper ─────────────────────────────────────────── */
     function filterRooms(typeFilter) {
+      // Always show all rooms — no filtering by type.
+      // Room type is visible in the option label so admins can choose freely.
       const rSel = document.getElementById('mRoom');
-      Array.from(rSel.options).forEach(o => {
-        if (!o.value) { o.style.display = ''; return; }
-        const rt = o.dataset.type || '';
-        if (!typeFilter)           o.style.display = '';
-        else if (typeFilter === 'lab')       o.style.display = rt === 'lab'       ? '' : 'none';
-        else if (typeFilter === 'classroom') o.style.display = rt === 'classroom'  ? '' : 'none';
-        else                                 o.style.display = '';
-      });
-      // If selected room is now hidden, reset
-      const cur    = rSel.value;
-      const curOpt = Array.from(rSel.options).find(o => o.value == cur);
-      if (curOpt && curOpt.style.display === 'none') rSel.value = '';
+      Array.from(rSel.options).forEach(o => { o.style.display = ''; });
     }
 
     function onSubjectChange(inMultiBatchMode = false) {
