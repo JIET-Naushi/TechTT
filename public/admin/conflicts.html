@@ -247,152 +247,118 @@
 
     function applyFilters() {
       const typeFilter = document.getElementById('filterType').value;
-      const dayFilter = document.getElementById('filterDay').value;
-      
-      filteredConflicts = allConflicts.filter(conflict => {
-        // Day filter
-        if (dayFilter !== 'all' && conflict.day !== dayFilter) return false;
-        
-        // Type filter
-        const hasFacultyConflict = conflict.faculty_duplicate_count > 0;
-        const hasRoomConflict = conflict.room_duplicate_count > 0;
-        
-        if (typeFilter === 'faculty' && !hasFacultyConflict) return false;
-        if (typeFilter === 'room' && !hasRoomConflict) return false;
-        if (typeFilter === 'both' && (!hasFacultyConflict || !hasRoomConflict)) return false;
-        
+      const dayFilter  = document.getElementById('filterDay').value;
+      filteredConflicts = allConflicts.filter(c => {
+        if (dayFilter !== 'all' && c.day !== dayFilter) return false;
+        if (typeFilter === 'faculty' && c.type !== 'faculty') return false;
+        if (typeFilter === 'room'    && c.type !== 'room')    return false;
         return true;
       });
-      
       renderConflicts();
     }
 
     function resetFilters() {
       document.getElementById('filterType').value = 'all';
-      document.getElementById('filterDay').value = 'all';
+      document.getElementById('filterDay').value  = 'all';
       applyFilters();
     }
 
     function updateStats() {
-      const total = allConflicts.length;
-      const facultyConflicts = allConflicts.filter(c => c.faculty_duplicate_count > 0).length;
-      const roomConflicts = allConflicts.filter(c => c.room_duplicate_count > 0).length;
-      
-      // Count unique affected sections
+      const total    = allConflicts.length;
+      const faculty  = allConflicts.filter(c => c.type === 'faculty').length;
+      const room     = allConflicts.filter(c => c.type === 'room').length;
+
+      // Collect unique affected section names from entries arrays
       const sectionSet = new Set();
       allConflicts.forEach(c => {
-        if (c.conflicting_entries) {
-          const sections = c.conflicting_entries.split(';').map(entry => {
-            const match = entry.match(/^(.*?) -/);
-            return match ? match[1].trim() : '';
-          });
-          sections.forEach(s => s && sectionSet.add(s));
-        }
+        const arr = c.faculty_entries || c.room_entries || [];
+        arr.forEach(e => e.section_name && sectionSet.add(e.section_name));
       });
-      
-      document.getElementById('totalConflicts').textContent = total;
-      document.getElementById('facultyConflicts').textContent = facultyConflicts;
-      document.getElementById('roomConflicts').textContent = roomConflicts;
-      document.getElementById('affectedSections').textContent = sectionSet.size;
+
+      document.getElementById('totalConflicts').textContent    = total;
+      document.getElementById('facultyConflicts').textContent  = faculty;
+      document.getElementById('roomConflicts').textContent     = room;
+      document.getElementById('affectedSections').textContent  = sectionSet.size;
     }
 
     function renderConflicts() {
       const container = document.getElementById('conflictsContainer');
-      
-      if (filteredConflicts.length === 0) {
+      if (!filteredConflicts.length) {
         container.innerHTML = `
           <div class="empty-state">
             <div class="icon">✅</div>
             <h3>No conflicts found</h3>
-            <p>No conflicts match the current filters. Try adjusting your filter criteria.</p>
+            <p>No conflicts match the current filters.</p>
             <button class="btn btn-primary" onclick="resetFilters()">Reset Filters</button>
-          </div>
-        `;
+          </div>`;
         return;
       }
-      
-      let html = '';
-      
-      filteredConflicts.forEach(conflict => {
-        const hasFacultyConflict = conflict.faculty_duplicate_count > 0;
-        const hasRoomConflict = conflict.room_duplicate_count > 0;
-        
-        let cardClass = 'conflict-card';
-        if (hasFacultyConflict && hasRoomConflict) {
-          cardClass += ' double-conflict';
-        } else if (hasFacultyConflict) {
-          cardClass += ' faculty-conflict';
-        } else if (hasRoomConflict) {
-          cardClass += ' room-conflict';
-        }
-        
-        const typeText = hasFacultyConflict && hasRoomConflict ? 'Faculty & Room Conflict' :
-                        hasFacultyConflict ? 'Faculty Conflict' :
-                        hasRoomConflict ? 'Room Conflict' : 'Conflict';
-        
-        html += `
-          <div class="${cardClass}">
+
+      container.innerHTML = filteredConflicts.map(c => {
+        const isFaculty = c.type === 'faculty';
+        const cardClass = isFaculty ? 'faculty-conflict' : 'room-conflict';
+        const typeLabel = isFaculty ? '👤 Faculty Conflict' : '🏫 Room Conflict';
+        const entries   = c.faculty_entries || c.room_entries || [];
+
+        // Slot time
+        const timeLabel = c.time || '';
+
+        // Affected entries list
+        const entryItems = entries.map(e =>
+          `<li>Section <strong>${e.section_name || '?'}</strong> — ${e.subject_name || '?'}
+           <a href="/admin/editor.html" onclick="localStorage.setItem('editDay','${c.day}'); return true;"
+              style="margin-left:8px;font-size:0.75rem;color:#1a237e;">✎ edit</a>
+          </li>`
+        ).join('');
+
+        return `
+          <div class="conflict-card ${cardClass}">
             <div class="conflict-header">
               <div class="conflict-time">
-                ${conflict.day} | Slot ${conflict.slot_id}
+                ${c.day} &nbsp;·&nbsp; ${timeLabel}
               </div>
-              <span class="conflict-type">${typeText}</span>
+              <span class="conflict-type">${typeLabel}</span>
             </div>
-            
-            <div class="conflict-details">
-              ${hasFacultyConflict ? `
-              <div class="detail-section">
-                <h4>Faculty Conflict (${conflict.faculty_duplicate_count + 1} assignments)</h4>
-                <ul class="detail-list">
-                  ${conflict.faculty_names ? conflict.faculty_names.split(', ').map(name => `<li>${name}</li>`).join('') : '<li>No faculty info</li>'}
-                </ul>
-              </div>
-              ` : ''}
-              
-              ${hasRoomConflict ? `
-              <div class="detail-section">
-                <h4>Room Conflict (${conflict.room_duplicate_count + 1} assignments)</h4>
-                <ul class="detail-list">
-                  ${conflict.room_names ? conflict.room_names.split(', ').map(name => `<li>${name}</li>`).join('') : '<li>No room info</li>'}
-                </ul>
-              </div>
-              ` : ''}
+
+            <div style="margin-bottom:10px;">
+              <strong style="font-size:0.85rem;color:#555;">
+                ${isFaculty ? '👤 Faculty:' : '🏫 Room:'} ${c.resource_name || '—'}
+              </strong>
+              <span style="font-size:0.8rem;color:#e53935;margin-left:8px;">
+                ${c.conflict_count} assignment${c.conflict_count > 1 ? 's' : ''} at same time
+              </span>
             </div>
-            
+
             <div class="detail-section">
-              <h4>Affected Entries</h4>
-              <ul class="detail-list">
-                ${conflict.conflicting_entries ? conflict.conflicting_entries.split('; ').map(entry => `<li>${entry}</li>`).join('') : '<li>No entry info</li>'}
-              </ul>
+              <h4>Affected Sections</h4>
+              <ul class="detail-list">${entryItems || '<li>No details</li>'}</ul>
             </div>
-            
+
             <div class="actions">
-              <button class="btn-resolve" onclick="autoResolveConflict('${conflict.day}', ${conflict.slot_id})">
-                Auto-Resolve
+              <button class="btn btn-secondary"
+                onclick="manualResolve('${c.day}', ${c.slot_id})">
+                ✏️ Manual Edit
               </button>
-              <button class="btn btn-secondary" onclick="manualResolve('${conflict.day}', ${conflict.slot_id})">
-                Manual Edit
+              <button class="btn-resolve"
+                onclick="autoResolveConflict('${c.day}', ${c.slot_id})">
+                ⚡ Auto-Resolve
               </button>
             </div>
-          </div>
-        `;
-      });
-      
-      container.innerHTML = html;
+          </div>`;
+      }).join('');
     }
 
     async function scanConflicts() {
       showAlert('Scanning for conflicts...', 'info');
-      
       try {
-        const res = await fetch(`/api/admin/scan-conflicts?department_id=${deptId}`, {
-          method: 'POST'
+        const res = await fetch('/api/admin/scan-conflicts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ department_id: deptId })
         });
-        
         if (!res.ok) throw new Error('Scan failed');
-        
         const data = await res.json();
-        showAlert(data.message || 'Scan completed successfully', 'success');
+        showAlert(`Scan complete — ${data.stats.totalConflicts} conflict(s) found.`, 'success');
         loadConflicts();
       } catch (error) {
         showAlert('Scan failed: ' + error.message, 'error');
@@ -400,26 +366,20 @@
     }
 
     async function autoResolveConflict(day, slotId) {
-      if (!confirm(`Auto-resolve conflict for ${day} Slot ${slotId}? This will attempt to find alternative faculty/room assignments.`)) {
-        return;
-      }
-      
-      showAlert('Attempting to auto-resolve...', 'info');
-      
+      if (!confirm(`Auto-resolve the ${day} conflict?\n\nThis removes duplicate entries, keeping only the first occurrence.`)) return;
+      showAlert('Resolving...', 'info');
       try {
-        const res = await fetch(`/api/admin/resolve-conflict`, {
+        const res = await fetch('/api/admin/resolve-conflict', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ day, slot_id: slotId, department_id: deptId })
         });
-        
-        if (!res.ok) throw new Error('Auto-resolve failed');
-        
         const data = await res.json();
-        showAlert(data.message, data.success ? 'success' : 'warning');
-        
-        if (data.success) {
-          setTimeout(() => loadConflicts(), 1000);
+        if (res.ok) {
+          showAlert(data.message || 'Conflict resolved', 'success');
+          loadConflicts();
+        } else {
+          showAlert(data.error || 'Resolve failed', 'error');
         }
       } catch (error) {
         showAlert('Auto-resolve failed: ' + error.message, 'error');
@@ -427,32 +387,22 @@
     }
 
     function manualResolve(day, slotId) {
-      // Redirect to timetable editor with filter for this day/slot
-      localStorage.setItem('editFilter', JSON.stringify({ day, slotId }));
+      // Store context so editor can highlight the conflicting slot
+      localStorage.setItem('conflictDay', day);
+      localStorage.setItem('conflictSlotId', String(slotId));
       window.location.href = '/admin/editor.html';
     }
 
     function showAlert(message, type = 'info') {
       const alertBox = document.getElementById('alertBox');
-      const alertClass = type === 'error' ? 'alert-error' : 
-                        type === 'success' ? 'alert-success' : 'alert-info';
-      
-      alertBox.innerHTML = `
-        <div class="alert ${alertClass}">
-          ${message}
-        </div>
-      `;
-      
-      setTimeout(() => {
-        alertBox.innerHTML = '';
-      }, 5000);
+      const cls = type === 'error' ? 'alert-error' : type === 'success' ? 'alert-success' : 'alert-info';
+      alertBox.innerHTML = `<div class="alert ${cls}">${message}</div>`;
+      setTimeout(() => alertBox.innerHTML = '', 5000);
     }
 
-    function logout() {
-      fetch('/api/auth/logout').then(() => {
-        localStorage.clear();
-        location.href = '/login.html';
-      });
+    async function logout() {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      location.href = '/login.html';
     }
   </script>
 </body>

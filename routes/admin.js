@@ -977,6 +977,76 @@ router.post('/suggest-fix', requireAuth, async (req, res) => {
 // ==================== STATS ==================================================
 // =============================================================================
 
+// Auto-resolve a conflict by removing duplicate entries (keeps first, deletes rest)
+router.post('/resolve-conflict', requireAuth, async (req, res) => {
+  try {
+    const { day, slot_id } = req.body;
+    if (!day || !slot_id) return res.status(400).json({ error: 'day and slot_id required' });
+    const deptId = getDeptId(req);
+
+    // Get all entries for this day/slot in the department
+    const entries = await query(`
+      SELECT te.id, te.faculty_id, te.room_id, te.section_id,
+             sec.name as section_name, subj.name as subject_name
+      FROM timetable_entries te
+      JOIN sections sec ON te.section_id = sec.id
+      JOIN years y ON sec.year_id = y.id
+      LEFT JOIN subjects subj ON te.subject_id = subj.id
+      WHERE te.day_of_week = $1 AND te.time_slot_id = $2 AND y.department_id = $3
+      ORDER BY te.id
+    `, [day, slot_id, deptId]);
+
+    if (entries.length <= 1) return res.json({ message: 'No conflict found for this slot', resolved: 0 });
+
+    // Find duplicates: for each faculty_id or room_id that appears more than once,
+    // keep the first entry (lowest id) and null-out the faculty/room in the rest
+    const facultyMap = {};
+    const roomMap = {};
+    for (const e of entries) {
+      if (e.faculty_id) {
+        if (!facultyMap[e.faculty_id]) facultyMap[e.faculty_id] = [];
+        facultyMap[e.faculty_id].push(e.id);
+      }
+      if (e.room_id) {
+        if (!roomMap[e.room_id]) roomMap[e.room_id].push(e.id);
+        else roomMap[e.room_id].push(e.id);
+      }
+    }
+    // Build map properly
+    const fMap = {}, rMap = {};
+    for (const e of entries) {
+      if (e.faculty_id) { if (!fMap[e.faculty_id]) fMap[e.faculty_id] = []; fMap[e.faculty_id].push(e.id); }
+      if (e.room_id)    { if (!rMap[e.room_id])    rMap[e.room_id]    = []; rMap[e.room_id].push(e.id); }
+    }
+
+    let resolved = 0;
+    // Null-out faculty in duplicate entries (keep first)
+    for (const [, ids] of Object.entries(fMap)) {
+      if (ids.length > 1) {
+        for (const dupId of ids.slice(1)) {
+          await run('UPDATE timetable_entries SET faculty_id = NULL WHERE id=$1', [dupId]);
+          resolved++;
+        }
+      }
+    }
+    // Null-out room in duplicate entries (keep first)
+    for (const [, ids] of Object.entries(rMap)) {
+      if (ids.length > 1) {
+        for (const dupId of ids.slice(1)) {
+          await run('UPDATE timetable_entries SET room_id = NULL WHERE id=$1', [dupId]);
+          resolved++;
+        }
+      }
+    }
+
+    if (resolved > 0) {
+      res.json({ message: `Resolved ${resolved} duplicate assignment(s). Affected entries now show as unassigned — use the Editor to reassign them.` });
+    } else {
+      res.json({ message: 'No duplicates found to resolve for this slot.' });
+    }
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/stats', requireAuth, async (req, res) => {
   try {
     const deptId = getDeptId(req);
