@@ -83,7 +83,7 @@
       loadDepartments(null);
     }).catch(() => loadDepartments(null));
 
-    // Load departments and footer
+    // Load departments
     async function loadDepartments(lockedDeptId) {
       try {
         const res = await fetch('/api/departments');
@@ -106,14 +106,14 @@
           const selected = departments.find(d => d.id == currentDepartmentId);
           if (selected) document.getElementById('heroTitle').textContent = selected.name;
         }
-        // Load footer after departments are populated
-        loadFooter(currentDepartmentId);
       } catch (err) {
         console.error('Failed to load departments:', err);
       }
+      // Load footer after departments are populated
+      loadFooter(currentDepartmentId);
     }
 
-    // Department change: update hero title, selected id, and footer
+    // Re-load footer whenever department changes
     document.getElementById('departmentSelector').addEventListener('change', (e) => {
       currentDepartmentId = e.target.value;
       localStorage.setItem('selectedDepartmentId', currentDepartmentId);
@@ -121,6 +121,40 @@
         e.target.options[e.target.selectedIndex].text;
       loadFooter(currentDepartmentId);
     });
+
+    // Load college name
+    fetch('/api/settings').then(r => r.json()).then(s => {
+      const college = s.college_name || 'JIET Universe';
+      document.querySelector('.logo span').textContent = college;
+    }).catch(() => {});
+
+    // Load footer: shows department name, years, and sections from DB
+    async function loadFooter(deptId) {
+      try {
+        const [yRes, sRes] = await Promise.all([
+          fetch(`/api/years?department_id=${deptId}`),
+          fetch(`/api/sections?department_id=${deptId}`)
+        ]);
+        const years    = await yRes.json();
+        const sections = await sRes.json();
+        if (!years.length) return;
+
+        const sel      = document.getElementById('departmentSelector');
+        const opt      = sel.options[sel.selectedIndex];
+        const deptName = opt ? opt.textContent : '';
+        const yearNames = years.map(y => y.display_name).join(' | ');
+        const sectionsByYear = years.map(y => {
+          const secs = sections.filter(s => s.year_id === y.id).map(s => s.name);
+          return secs.length ? `${y.display_name}: ${secs.join(', ')}` : null;
+        }).filter(Boolean).join('  ·  ');
+
+        document.getElementById('footerInfo').innerHTML =
+          `<strong>${deptName}</strong> &bull; ${yearNames}` +
+          (sectionsByYear ? `<br><span style="font-size:0.8rem;color:#888;">${sectionsByYear}</span>` : '');
+      } catch (e) {
+        console.error('Footer load error:', e);
+      }
+    }
   </script>
 </body>
 </html>
