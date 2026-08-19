@@ -924,8 +924,7 @@
 
       const batches     = currentSectionBatches.length ? currentSectionBatches : ['A', 'B'];
       const labSubjects = subjects.filter(s => s.type === 'lab');
-      const labRooms    = rooms.filter(r => r.type === 'lab').length
-                          ? rooms.filter(r => r.type === 'lab') : rooms;
+      const labRooms    = rooms; // show all room types
 
       // Pre-select the subject the user just chose in mSubject (if any)
       const preSelectedSubjId = document.getElementById('mSubject').value;
