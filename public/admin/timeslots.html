@@ -118,7 +118,8 @@
       <div class="card" style="border-left:4px solid #ff9800;">
         <div class="card-title" style="color:#e65100;">⚠️ Notes</div>
         <ul style="padding-left:20px;line-height:2;color:#555;font-size:0.85rem;margin:0;">
-          <li>Break slots are automatically skipped during timetable generation.</li>
+          <li>Break slots (🍽️ Lunch) <strong>can be edited</strong> — click ✏️ to change their start/end times.</li>
+          <li>Break slots are automatically skipped during timetable generation but still appear in views.</li>
           <li>Deleting a slot that is used by existing timetable entries is blocked — clear the timetable first.</li>
           <li>Slot numbers determine the order shown in all timetable views.</li>
           <li>After editing slots, regenerate the timetable for changes to take effect.</li>
@@ -162,7 +163,7 @@
       const isBreak = s.is_break == 1;
       return `
         <div class="slot-row ${isBreak ? 'is-break' : ''}" id="slot-row-${s.id}">
-          <div class="slot-num">P${s.slot_number}</div>
+          <div class="slot-num">${isBreak ? '🍽️' : `P${s.slot_number}`}</div>
 
           <!-- View mode -->
           <div class="slot-time" id="view-start-${s.id}">${s.start_time}</div>
@@ -174,7 +175,7 @@
 
           <div>
             <span class="${isBreak ? 'slot-badge-break' : 'slot-badge-active'}">
-              ${isBreak ? '☕ Break' : '✅ Active'}
+              ${isBreak ? '☕ Break / Lunch' : '✅ Active'}
             </span>
           </div>
 
@@ -185,7 +186,7 @@
           <!-- Action buttons -->
           <div style="display:flex;gap:6px;justify-content:flex-end;" id="slot-actions-${s.id}">
             <button class="btn btn-outline btn-sm" onclick="startEdit(${s.id})"
-              id="btn-edit-${s.id}" title="Edit times">✏️</button>
+              id="btn-edit-${s.id}" title="Edit times">✏️ Edit</button>
             <button class="btn btn-sm" onclick="toggleBreak(${s.id})"
               style="background:${isBreak?'#e8f5e9':'#fff3e0'};color:${isBreak?'#2e7d32':'#e65100'};border:1px solid ${isBreak?'#a5d6a7':'#ffcc80'};"
               title="${isBreak?'Mark as Active':'Mark as Break'}">
@@ -227,7 +228,6 @@
       const start = document.getElementById(`edit-start-${id}`).value;
       const end   = document.getElementById(`edit-end-${id}`).value;
       if (!start || !end) return showAlert('Start and end time are required', 'error');
-      if (start >= end)   return showAlert('End time must be after start time', 'error');
       const res = await fetch(`/api/admin/timeslots/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
