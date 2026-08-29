@@ -19,17 +19,19 @@
   </header>
 
   <div class="hero">
-    <div style="max-width:800px;margin:0 auto;">
+    <div style="max-width:800px;margin:0 auto;padding:0 8px;">
       <div style="margin-bottom:24px;">
         <label style="display:block;margin-bottom:8px;font-size:0.9rem;color:rgba(255,255,255,0.9);">Select Department:</label>
-        <select id="departmentSelector" style="padding:12px 20px;font-size:1rem;border:2px solid rgba(255,255,255,0.6);border-radius:8px;background:#fff;color:#1a237e;min-width:300px;cursor:pointer;font-weight:600;">
+        <select id="departmentSelector" style="padding:12px 16px;font-size:1rem;border:2px solid rgba(255,255,255,0.6);border-radius:8px;background:#fff;color:#1a237e;width:100%;max-width:360px;cursor:pointer;font-weight:600;">
           <option value="">Loading departments...</option>
         </select>
       </div>
-      <h1 id="heroTitle">Select a Department</h1>
-      <p>B.Tech Timetable Management System — View class schedules, faculty timetables, and room allocations.</p>
-      <a href="/views/class-timetable.html" class="btn btn-primary btn-lg" style="margin-right:12px;">View Timetables</a>
-      <a href="/login.html" class="btn btn-outline btn-lg" style="border-color:rgba(255,255,255,0.8);color:white;background:rgba(255,255,255,0.1);">Admin Panel</a>
+      <h1 id="heroTitle" style="font-size:clamp(1.3rem,5vw,2.4rem);">Select a Department</h1>
+      <p style="font-size:clamp(0.85rem,3vw,1.1rem);">B.Tech Timetable Management System — View class schedules, faculty timetables, and room allocations.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">
+        <a href="/views/class-timetable.html" class="btn btn-primary btn-lg">View Timetables</a>
+        <a href="/login.html" class="btn btn-outline btn-lg" style="border-color:rgba(255,255,255,0.8);color:white;background:rgba(255,255,255,0.1);">Admin Panel</a>
+      </div>
     </div>
   </div>
 

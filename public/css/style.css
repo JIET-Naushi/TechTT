@@ -411,43 +411,99 @@ table tr:last-child td { border-bottom: none; }
 }
 
 /* ===== RESPONSIVE DESIGN ===== */
+
+/* ── Mobile timetable ── */
 @media (max-width: 480px) {
-  .timetable-table { min-width: 640px; }
-  .timetable-table th, .timetable-table td { min-width: 110px; }
-  .timetable-table th.day-header, .timetable-table td.day-cell { min-width: 60px; }
-  .timetable-cell { min-height: 64px; font-size: 0.7rem; padding: 4px 6px; }
-  .timetable-cell .cell-subject { font-size: 0.72rem; }
-  .timetable-cell .cell-faculty { font-size: 0.65rem; }
-  .timetable-cell .cell-room { font-size: 0.62rem; }
-  .lab-cell { min-height: 68px; }
-  .lab-batch { font-size: 0.64rem; }
-  .hero h1 { font-size: 1.4rem; }
+  .timetable-table { min-width: 480px; }
+  .timetable-table th, .timetable-table td { min-width: 90px; }
+  .timetable-table th.day-header, .timetable-table td.day-cell { min-width: 44px; font-size: 0.72rem; padding: 6px 4px; }
+  .timetable-table th.slot-header { font-size: 0.68rem; padding: 8px 4px; }
+  .timetable-cell { min-height: 58px; font-size: 0.68rem; padding: 4px 5px; margin: 2px; }
+  .timetable-cell .cell-subject { font-size: 0.7rem; }
+  .timetable-cell .cell-faculty { font-size: 0.62rem; }
+  .timetable-cell .cell-room    { font-size: 0.6rem; }
+  .lab-cell { min-height: 60px; font-size: 0.67rem; padding: 4px 5px; margin: 2px; }
+  .lab-cell .lab-subject-name { font-size: 0.7rem; }
+  .lab-batch { font-size: 0.62rem; padding: 2px 0; }
+  .lab-batch-label { font-size: 0.6rem; padding: 1px 3px; }
+  .hero h1 { font-size: 1.3rem; }
+  .hero p  { font-size: 0.9rem; }
   .card { padding: 12px; margin-bottom: 12px; }
-  .page-title { font-size: 1.3rem; }
-  .header .logo { font-size: 1rem; }
-  .header nav a { margin-left: 8px; font-size: 0.8rem; padding: 4px 8px; }
+  .page-title { font-size: 1.2rem; margin-bottom: 16px; }
+  .header .logo { font-size: 0.95rem; }
   .filter-bar { flex-direction: column; }
   .filter-bar .form-group { min-width: unset; width: 100%; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-card { padding: 14px 10px; }
+  .stat-card .stat-value { font-size: 1.6rem; }
+  .summary-chip { padding: 8px 12px; font-size: 1.1rem; min-width: 60px; }
 }
 
 @media (max-width: 768px) {
   .form-row, .form-row-3 { grid-template-columns: 1fr; }
   .admin-layout { flex-direction: column; }
-  .sidebar { 
-    width: 100%; height: auto; position: static; 
-    display: flex; flex-wrap: wrap; padding: 8px; 
+  .sidebar {
+    width: 100%; height: auto; position: static;
+    display: flex; flex-wrap: wrap; padding: 6px 8px;
     background: #1a237e; border-radius: 0 0 8px 8px;
+    gap: 4px;
   }
-  .sidebar a { 
-    padding: 8px 12px; font-size: 0.82rem; margin: 2px; 
+  .sidebar .sidebar-title { display: none; }
+  .sidebar a {
+    padding: 7px 10px; font-size: 0.78rem;
     border-radius: 4px; background: rgba(255,255,255,0.1);
-    min-width: auto; flex: 1 1 auto; text-align: center;
+    flex: 0 1 auto; text-align: center; border-left: none;
+    white-space: nowrap;
   }
-  .hero h1 { font-size: 1.6rem; }
+  .sidebar a:hover, .sidebar a.active {
+    background: rgba(255,255,255,0.22); border-left: none;
+  }
+  .sidebar a .icon { font-size: 0.9rem; }
+  .admin-content { padding: 12px; }
+  .hero { padding: 36px 16px; }
+  .hero h1 { font-size: 1.5rem; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
-  .timetable-table { min-width: 700px; }
+  .timetable-table { min-width: 620px; }
+  .timetable-table th, .timetable-table td { min-width: 120px; }
+  .timetable-table th.day-header, .timetable-table td.day-cell { min-width: 56px; }
   .filter-bar { gap: 8px; }
-  .header nav a { margin-left: 6px; font-size: 0.82rem; padding: 4px 8px; }
+  .toolbar { flex-direction: column; align-items: flex-start; }
+  .modal { padding: 20px; width: 96%; }
+}
+
+/* ── Sticky day column on all screens ── */
+@media (max-width: 1024px) {
+  .timetable-table th.day-header { position: sticky; left: 0; z-index: 3; }
+  .timetable-table td.day-cell   { position: sticky; left: 0; z-index: 1; }
+}
+
+/* ── Header nav collapse on very small screens ── */
+@media (max-width: 540px) {
+  .header { padding: 0 12px; height: auto; min-height: 56px; flex-wrap: wrap; gap: 6px; padding-top: 8px; padding-bottom: 8px; }
+  .header .logo { font-size: 0.9rem; }
+  .header nav { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+  .header nav a { margin-left: 0; font-size: 0.75rem; padding: 4px 7px; }
+  .header .btn-logout { padding: 4px 10px; font-size: 0.78rem; margin-left: 4px; }
+}
+
+/* ── Timetable cell touch-friendly ── */
+@media (hover: none) {
+  .timetable-cell { min-height: 64px; }
+  .timetable-cell:hover { transform: none; }
+  .lab-batch { padding: 4px 0; }
+}
+
+/* ── View pages filter section ── */
+@media (max-width: 600px) {
+  .filter-bar { flex-direction: column; }
+  .filter-bar .form-group { width: 100%; min-width: unset; }
+  .filter-bar select, .filter-bar input { width: 100%; }
+  .filter-bar > div { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; }
+  .filter-bar .btn { flex: 1; justify-content: center; }
+  .view-cards { padding: 24px 12px; gap: 16px; }
+  .view-card { padding: 22px 16px; }
+  .view-card .icon { font-size: 2.2rem; margin-bottom: 10px; }
+  .scroll-hint { display: block; }
 }
 
 /* ===== MISC ===== */
