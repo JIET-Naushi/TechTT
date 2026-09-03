@@ -162,6 +162,36 @@
     </div>
   </div>
 
+  <!-- Copy Department Modal -->
+  <div id="copyDeptModal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-header">
+        <h3 class="modal-title">📋 Copy Department</h3>
+        <button onclick="closeModal('copyDeptModal')" class="modal-close">✕</button>
+      </div>
+      <div>
+        <div id="copyDeptAlert"></div>
+        <p style="font-size:0.88rem;color:#555;margin-bottom:16px;background:#e3f2fd;border-radius:6px;padding:10px 14px;">
+          This will create a new department with the same <strong>time slots, years, subjects, sections, faculty,</strong> and <strong>rooms</strong> as
+          <strong id="copySourceName"></strong>. The timetable itself will start empty.
+        </p>
+        <div class="form-group">
+          <label>New Department Name *</label>
+          <input type="text" id="copyDeptName" class="form-control" placeholder="e.g. Department of Civil Engineering">
+        </div>
+        <div class="form-group">
+          <label>Short Code *</label>
+          <input type="text" id="copyDeptCode" class="form-control" placeholder="e.g. CIVIL" maxlength="10">
+          <small class="text-muted">Unique uppercase identifier</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="saveCopyDept()" id="copyDeptBtn">📋 Create Copy</button>
+        <button class="btn btn-secondary" onclick="closeModal('copyDeptModal')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     let departments = [];
 
@@ -195,6 +225,8 @@
                 <td>${d.faculty_count}</td>
                 <td>
                   <button class="btn btn-sm btn-outline" onclick="editDept(${d.id}, '${d.name.replace(/'/g,"\\'")}', '${d.code}')">Edit</button>
+                  <button class="btn btn-sm" onclick="showCopyDeptModal(${d.id}, '${d.name.replace(/'/g,"\\'")}', '${d.code}')"
+                    style="background:#e3f2fd;color:#1565c0;border:1px solid #90caf9;">📋 Copy</button>
                   ${d.id > 1 ? `<button class="btn btn-sm btn-danger" onclick="deleteDept(${d.id}, '${d.name.replace(/'/g,"\\'")}')">Delete</button>` : ''}
                 </td>
               </tr>
@@ -358,6 +390,44 @@
     async function logout() {
       await fetch('/api/auth/logout', { method: 'POST' });
       location.href = '/login.html';
+    }
+
+    let copySourceId = null;
+
+    function showCopyDeptModal(id, name, code) {
+      copySourceId = id;
+      document.getElementById('copySourceName').textContent = name;
+      document.getElementById('copyDeptName').value = name + ' (Copy)';
+      document.getElementById('copyDeptCode').value = code + '2';
+      document.getElementById('copyDeptAlert').innerHTML = '';
+      document.getElementById('copyDeptModal').style.display = 'flex';
+    }
+
+    async function saveCopyDept() {
+      const name = document.getElementById('copyDeptName').value.trim();
+      const code = document.getElementById('copyDeptCode').value.trim().toUpperCase();
+      if (!name || !code) {
+        document.getElementById('copyDeptAlert').innerHTML = '<div class="alert alert-error">Name and Code are required</div>';
+        return;
+      }
+      const btn = document.getElementById('copyDeptBtn');
+      btn.disabled = true;
+      btn.textContent = 'Copying…';
+      const res = await fetch(`/api/admin/departments/copy/${copySourceId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, code })
+      });
+      const data = await res.json();
+      btn.disabled = false;
+      btn.textContent = '📋 Create Copy';
+      if (res.ok) {
+        closeModal('copyDeptModal');
+        loadDepartments();
+        showAlert(data.message, 'success');
+      } else {
+        document.getElementById('copyDeptAlert').innerHTML = `<div class="alert alert-error">${data.error}</div>`;
+      }
     }
 
     loadDepartments().then(() => loadIncharges());

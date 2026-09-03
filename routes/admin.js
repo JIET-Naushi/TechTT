@@ -225,6 +225,113 @@ router.delete('/departments/:id', requireAuth, requireSuperAdmin, async (req, re
 });
 
 // =============================================================================
+// ==================== COPY DEPARTMENT ========================================
+// =============================================================================
+
+// POST /departments/copy/:id — duplicate a department with all its structure
+// Copies: time_slots, rooms, faculty (without timetable data), years, subjects, sections
+// Does NOT copy: timetable_entries, lab_assignments, generation_constraints, dept_incharges
+router.post('/departments/copy/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const srcId = parseInt(req.params.id);
+    const { name, code } = req.body;
+    if (!name || !code) return res.status(400).json({ error: 'name and code are required' });
+
+    // Verify source exists
+    const src = await queryOne('SELECT * FROM departments WHERE id=$1', [srcId]);
+    if (!src) return res.status(404).json({ error: 'Source department not found' });
+
+    // Create the new department
+    const newDept = await run(
+      'INSERT INTO departments (name, code) VALUES ($1, $2) RETURNING id',
+      [name.trim(), code.trim().toUpperCase()]
+    );
+    const newId = newDept.rows[0].id;
+
+    // ── Copy time_slots ───────────────────────────────────────────────────────
+    const srcSlots = await query('SELECT * FROM time_slots WHERE department_id=$1 ORDER BY slot_number', [srcId]);
+    const slotIdMap = {}; // old slot id → new slot id
+    for (const s of srcSlots) {
+      const r = await run(
+        'INSERT INTO time_slots (department_id,slot_number,start_time,end_time,is_break) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+        [newId, s.slot_number, s.start_time, s.end_time, s.is_break]
+      );
+      slotIdMap[s.id] = r.rows[0].id;
+    }
+
+    // ── Copy rooms ────────────────────────────────────────────────────────────
+    const srcRooms = await query('SELECT * FROM rooms WHERE department_id=$1', [srcId]);
+    for (const r of srcRooms) {
+      await run(
+        'INSERT INTO rooms (department_id,name,type,capacity) VALUES ($1,$2,$3,$4)',
+        [newId, r.name, r.type, r.capacity]
+      );
+    }
+
+    // ── Copy years ────────────────────────────────────────────────────────────
+    const srcYears = await query('SELECT * FROM years WHERE department_id=$1 ORDER BY id', [srcId]);
+    const yearIdMap = {}; // old year id → new year id
+    for (const y of srcYears) {
+      const r = await run(
+        'INSERT INTO years (department_id,name,display_name) VALUES ($1,$2,$3) RETURNING id',
+        [newId, y.name, y.display_name]
+      );
+      yearIdMap[y.id] = r.rows[0].id;
+    }
+
+    // ── Copy subjects (per year) ──────────────────────────────────────────────
+    const srcSubjects = await query(
+      'SELECT s.* FROM subjects s JOIN years y ON s.year_id=y.id WHERE y.department_id=$1 ORDER BY s.id',
+      [srcId]
+    );
+    const subjectIdMap = {}; // old subject id → new subject id
+    for (const s of srcSubjects) {
+      const newYearId = yearIdMap[s.year_id];
+      if (!newYearId) continue;
+      const r = await run(
+        'INSERT INTO subjects (year_id,name,code,type,credits,hours_per_week,category) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+        [newYearId, s.name, s.code, s.type, s.credits, s.hours_per_week, s.category || 'regular']
+      );
+      subjectIdMap[s.id] = r.rows[0].id;
+    }
+
+    // ── Copy sections (per year) ──────────────────────────────────────────────
+    const srcSections = await query(
+      'SELECT s.* FROM sections s JOIN years y ON s.year_id=y.id WHERE y.department_id=$1 ORDER BY s.id',
+      [srcId]
+    );
+    for (const s of srcSections) {
+      const newYearId = yearIdMap[s.year_id];
+      if (!newYearId) continue;
+      await run(
+        'INSERT INTO sections (year_id,name,lab_subsections,subsection_names) VALUES ($1,$2,$3,$4)',
+        [newYearId, s.name, s.lab_subsections || 2, s.subsection_names || null]
+      );
+    }
+
+    // ── Copy faculty (re-map subjects_can_teach IDs) ──────────────────────────
+    const srcFaculty = await query('SELECT * FROM faculty WHERE department_id=$1 ORDER BY id', [srcId]);
+    for (const f of srcFaculty) {
+      // Remap subject IDs in subjects_can_teach
+      let canTeach = [];
+      try { canTeach = JSON.parse(f.subjects_can_teach || '[]'); } catch {}
+      const remapped = canTeach
+        .map(oldId => subjectIdMap[oldId])
+        .filter(Boolean);
+      await run(
+        'INSERT INTO faculty (department_id,name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5,$6)',
+        [newId, f.name, f.designation || '', f.role || 'faculty', f.email || '', JSON.stringify(remapped)]
+      );
+    }
+
+    res.json({
+      id: newId,
+      message: `Department "${name}" created as a copy of "${src.name}" — ${srcSlots.length} time slots, ${srcYears.length} years, ${srcSubjects.length} subjects, ${srcSections.length} sections, ${srcFaculty.length} faculty, ${srcRooms.length} rooms copied.`
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// =============================================================================
 // ==================== YEARS CRUD =============================================
 // =============================================================================
 
