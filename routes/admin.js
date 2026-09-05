@@ -1568,7 +1568,7 @@ router.delete('/constraints', requireAuth, async (req, res) => {
 
 router.post('/generate', requireAuth, async (req, res) => {
   try {
-    const { scope, year_id, section_id, days_mode } = req.body;
+    const { scope, year_id, section_id, days_mode, slot_ids } = req.body;
     const deptId = getDeptId(req);
 
     let sections = [];
@@ -1589,6 +1589,13 @@ router.post('/generate', requireAuth, async (req, res) => {
     if (!sections.length) return res.status(400).json({ error: 'No sections found for this department' });
 
     const allSlots = await query('SELECT * FROM time_slots WHERE is_break=0 AND department_id=$1 ORDER BY slot_number', [deptId]);
+    // If specific slot_ids were provided, restrict to only those slots
+    const selectedSlots = (Array.isArray(slot_ids) && slot_ids.length)
+      ? allSlots.filter(s => slot_ids.map(Number).includes(s.id))
+      : allSlots;
+    if (!selectedSlots.length) return res.status(400).json({ error: 'No time slots selected for generation' });
+    // Use selectedSlots everywhere below (aliased back to allSlots for minimal diff)
+    const filteredSlots = selectedSlots;
 
     // days_mode: 'weekdays' = Mon–Fri only; default = Mon–Sat
     const days = days_mode === 'weekdays'
@@ -1796,7 +1803,7 @@ router.post('/generate', requireAuth, async (req, res) => {
         for (const day of sortedDays) {
           if (sessionPlaced) break;
 
-          const freeSlots = allSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`));
+          const freeSlots = filteredSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`));
           if (freeSlots.length < hoursNeeded) continue;
 
           // Build consecutive groups
@@ -1950,7 +1957,7 @@ router.post('/generate', requireAuth, async (req, res) => {
           console.warn(`theory_batch_slot: slot ${pinDay} #${pinSlotId} occupied for section ${section.name} — skipping ${pinSubj.name}`);
           continue;
         }
-        const slotObj = allSlots.find(sl => sl.id === pinSlotId);
+        const slotObj = filteredSlots.find(sl => sl.id === pinSlotId);
         if (!slotObj) continue;
 
         // Resolve faculty + room per batch — mirrors the lab placement logic
@@ -2036,7 +2043,7 @@ router.post('/generate', requireAuth, async (req, res) => {
       const targetPerDay = Math.ceil(theoryTokens.length / days.length);
 
       let pi = 0, attempts = 0;
-      const maxAttempts = theoryTokens.length * days.length * allSlots.length * 2;
+      const maxAttempts = theoryTokens.length * days.length * filteredSlots.length * 2;
 
       while (pi < theoryTokens.length && attempts < maxAttempts) {
         attempts++;
@@ -2061,7 +2068,7 @@ router.post('/generate', requireAuth, async (req, res) => {
           if (dayLoad[day] >= targetPerDay + 1 && sortedDays.some(d => dayLoad[d] < targetPerDay)) continue;
 
           // Try slots on this day that are free
-          const freeSlots = allSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`));
+          const freeSlots = filteredSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`));
           const shuffledFree = shuffle(freeSlots);
 
           for (const slot of shuffledFree) {
@@ -2111,7 +2118,7 @@ router.post('/generate', requireAuth, async (req, res) => {
           let forcePlaced = false;
           for (const day of [...days].sort((a,b) => dayLoad[a]-dayLoad[b])) {
             if (forcePlaced) break;
-            const freeSlots = shuffle(allSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`)));
+            const freeSlots = shuffle(filteredSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`)));
             for (const slot of freeSlots) {
               // Respect subject-lock and unavailability constraints in force-place too
               const lockedF2 = getLockedFaculty(subj.id, section.id);
@@ -2241,7 +2248,7 @@ router.post('/generate', requireAuth, async (req, res) => {
           let labPlaced2 = false;
           for (const day of [...days].sort((a,b)=>dLab2[a]-dLab2[b])) {
             if (labPlaced2) break;
-            const fs2 = allSlots.filter(sl=>!used2.has(`${day}_${sl.id}`));
+            const fs2 = filteredSlots.filter(sl=>!used2.has(`${day}_${sl.id}`));
             if (fs2.length < hrs) continue;
             const grps2 = [];
             let c2 = [fs2[0]];
@@ -2320,7 +2327,7 @@ router.post('/generate', requireAuth, async (req, res) => {
         const tgt2     = Math.ceil(tokens2.length/days.length);
         const prefR2   = sectionRoomMap[section.id];
         let p2=0, att2=0;
-        while (p2<tokens2.length && att2<tokens2.length*days.length*allSlots.length*2) {
+        while (p2<tokens2.length && att2<tokens2.length*days.length*filteredSlots.length*2) {
           att2++;
           const subj = tokens2[p2];
           const sDays2 = [...days].filter(d=>!daySubj2[d].has(subj.id)).sort((a,b)=>dLoad2[a]-dLoad2[b]);
@@ -2329,7 +2336,7 @@ router.post('/generate', requireAuth, async (req, res) => {
           for (const day of sDays2) {
             if (placed2b) break;
             if (dLoad2[day]>=tgt2+1 && sDays2.some(d=>dLoad2[d]<tgt2)) continue;
-            const fSlots2 = shuffle(allSlots.filter(sl=>!used2.has(`${day}_${sl.id}`)));
+            const fSlots2 = shuffle(filteredSlots.filter(sl=>!used2.has(`${day}_${sl.id}`)));
             for (const slot of fSlots2) {
               const elig2 = allFaculty.filter(f => canTeach(f, subj.id));
               const cF2 = shuffle(elig2).sort((a,b)=>fThCnt2[a.id]-fThCnt2[b.id])

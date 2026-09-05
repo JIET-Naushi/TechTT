@@ -96,6 +96,24 @@
         </div>
       </div>
 
+      <!-- Time Slot Selector -->
+      <div class="card" id="slotSelectorCard">
+        <div class="card-title">
+          🕐 Time Slots to Use
+          <span id="slotSelCount" style="font-size:0.8rem;font-weight:400;color:#888;margin-left:8px;"></span>
+        </div>
+        <p style="font-size:0.85rem;color:#555;margin-bottom:12px;">
+          Select which periods should be used during generation. Deselect any slots you want kept free.
+        </p>
+        <div style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" onclick="toggleAllSlots(true)">✅ Select All</button>
+          <button class="btn btn-outline btn-sm" onclick="toggleAllSlots(false)">⬜ Deselect All</button>
+        </div>
+        <div id="slotCheckboxes" style="display:flex;flex-wrap:wrap;gap:8px;">
+          <span class="text-muted">Loading slots…</span>
+        </div>
+      </div>
+
       <!-- Actions -->
       <div class="card">
         <div class="card-title">Actions</div>
@@ -209,19 +227,75 @@
       if (!d.loggedIn) { location.href = '/login.html'; return; }
       deptId = d.user.isSuperAdmin ? getAdminDeptId() : (d.user.department_id || 1);
       initDeptSwitcher(d.user, () => { deptId = getAdminDeptId(); init(); });
-      init();
-    });
+      init();    });
 
     let selectedScope = 'all';
     let years = [], deptId = 1;
+    let allSlots = [];
 
     async function init() {
-      const res = await fetch(`/api/years?department_id=${deptId}`);
-      years = await res.json();
+      const [yRes, slotRes] = await Promise.all([
+        fetch(`/api/years?department_id=${deptId}`),
+        fetch(`/api/timeslots?department_id=${deptId}`)
+      ]);
+      years = await yRes.json();
+      const slots = await slotRes.json();
+      allSlots = slots.filter(s => !s.is_break);
+
       const sel = document.getElementById('yearSelect');
       sel.innerHTML = '<option value="">Select Year</option>' +
         years.map(y => `<option value="${y.id}">${y.display_name}</option>`).join('');
+
+      renderSlotCheckboxes();
       loadConstraintsSummary();
+    }
+
+    function renderSlotCheckboxes() {
+      const container = document.getElementById('slotCheckboxes');
+      if (!allSlots.length) {
+        container.innerHTML = '<span class="text-muted">No slots found.</span>';
+        return;
+      }
+      container.innerHTML = allSlots.map(s => `
+        <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;
+          border-radius:6px;border:1.5px solid #c5cae9;background:#f5f7ff;cursor:pointer;
+          font-size:0.83rem;font-weight:600;white-space:nowrap;user-select:none;"
+          id="slot-label-${s.id}">
+          <input type="checkbox" value="${s.id}" class="slot-cb" checked
+            onchange="updateSlotCount(); updateSlotStyle(${s.id})">
+          P${s.slot_number}
+          <span style="font-weight:400;color:#666;font-size:0.75rem;">${s.start_time}–${s.end_time}</span>
+        </label>`).join('');
+      updateSlotCount();
+    }
+
+    function updateSlotStyle(id) {
+      const cb = document.querySelector(`.slot-cb[value="${id}"]`);
+      const lbl = document.getElementById(`slot-label-${id}`);
+      if (!lbl) return;
+      lbl.style.background    = cb.checked ? '#e8eaf6' : '#fff';
+      lbl.style.borderColor   = cb.checked ? '#7986cb' : '#e0e0e0';
+      lbl.style.color         = cb.checked ? '#1a237e' : '#aaa';
+    }
+
+    function updateSlotCount() {
+      const checked = document.querySelectorAll('.slot-cb:checked').length;
+      const total   = allSlots.length;
+      document.getElementById('slotSelCount').textContent =
+        `${checked} of ${total} selected`;
+    }
+
+    function toggleAllSlots(state) {
+      document.querySelectorAll('.slot-cb').forEach(cb => {
+        cb.checked = state;
+        updateSlotStyle(parseInt(cb.value));
+      });
+      updateSlotCount();
+    }
+
+    function getSelectedSlotIds() {
+      return Array.from(document.querySelectorAll('.slot-cb:checked'))
+        .map(cb => parseInt(cb.value));
     }
 
     async function loadConstraintsSummary() {
@@ -266,6 +340,8 @@
 
     function getRequestBody(daysMode) {
       const body = { scope: selectedScope, days_mode: daysMode, department_id: deptId };
+      const slotIds = getSelectedSlotIds();
+      if (slotIds.length < allSlots.length) body.slot_ids = slotIds; // only send if filtered
       if (selectedScope === 'year' || selectedScope === 'section') {
         body.year_id = parseInt(document.getElementById('yearSelect').value) || undefined;
       }
