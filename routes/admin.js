@@ -218,9 +218,39 @@ router.put('/years/rename-all/:dept_id', requireAuth, async (req, res) => {
 
 router.delete('/departments/:id', requireAuth, requireSuperAdmin, async (req, res) => {
   try {
-    if (req.params.id == 1) return res.status(400).json({ error: 'Cannot delete the default department' });
-    await run('DELETE FROM departments WHERE id=$1', [req.params.id]);
-    res.json({ message: 'Department deleted' });
+    const id = parseInt(req.params.id);
+    if (id === 1) return res.status(400).json({ error: 'Cannot delete the default department' });
+
+    // Delete in dependency order to avoid FK constraint violations:
+    // timetable_entries reference sections, faculty, rooms, and time_slots
+    // so clear timetable_entries first, then the other tables in order
+
+    // 1. Clear timetable_entries for all sections in this dept
+    await run(`
+      DELETE FROM timetable_entries WHERE section_id IN (
+        SELECT s.id FROM sections s
+        JOIN years y ON s.year_id = y.id
+        WHERE y.department_id = $1
+      )`, [id]);
+
+    // 2. Clear lab_assignments for sections in this dept
+    await run(`
+      DELETE FROM lab_assignments WHERE section_id IN (
+        SELECT s.id FROM sections s
+        JOIN years y ON s.year_id = y.id
+        WHERE y.department_id = $1
+      )`, [id]);
+
+    // 3. Clear generation_constraints for this dept
+    await run('DELETE FROM generation_constraints WHERE department_id=$1', [id]);
+
+    // 4. Clear dept_incharges
+    await run('DELETE FROM dept_incharges WHERE department_id=$1', [id]);
+
+    // 5. Now delete the department — cascades handle: years→sections→subjects, faculty, rooms, time_slots
+    await run('DELETE FROM departments WHERE id=$1', [id]);
+
+    res.json({ message: 'Department deleted successfully' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
