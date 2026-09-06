@@ -25,6 +25,12 @@
     <div class="card no-print">
       <div class="filter-bar">
         <div class="form-group">
+          <label>Department</label>
+          <select id="deptSelect" class="form-control" onchange="onDeptChange()">
+            <option value="">Loading…</option>
+          </select>
+        </div>
+        <div class="form-group">
           <label>Year</label>
           <select id="yearSelect" class="form-control" onchange="loadSections()">
             <option value="">Select Year</option>
@@ -102,12 +108,46 @@
     function getXlColor(id) { getColor(id); return subjectXlColorMap[id]; }
 
     async function init() {
-      fetch('/api/auth/status').then(r => r.json()).then(d => {
-        if (d.loggedIn) {
-          document.getElementById('adminLink').style.display = 'inline';
-          if (!d.user.isSuperAdmin && d.user.department_id) deptId = d.user.department_id;
+      // Load all departments for the selector
+      const depts = await (await fetch('/api/departments')).json();
+      const dSel = document.getElementById('deptSelect');
+      dSel.innerHTML = depts.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+
+      // Auth check — resolve deptId then load data
+      const authData = await fetch('/api/auth/status').then(r => r.json());
+      if (authData.loggedIn) {
+        document.getElementById('adminLink').style.display = 'inline';
+        if (!authData.user.isSuperAdmin && authData.user.department_id) {
+          deptId = String(authData.user.department_id);
+          // Lock selector for incharges
+          dSel.value = deptId;
+          dSel.disabled = true;
         }
-      });
+      }
+      // If localStorage has a valid dept, use it
+      const stored = localStorage.getItem('selectedDepartmentId');
+      if (stored && depts.find(d => String(d.id) === stored) && (!authData.loggedIn || authData.user.isSuperAdmin)) {
+        deptId = stored;
+        dSel.value = deptId;
+      } else if (!stored) {
+        deptId = String(dSel.value || depts[0]?.id || '1');
+        localStorage.setItem('selectedDepartmentId', deptId);
+      }
+
+      await loadDeptData();
+    }
+
+    async function onDeptChange() {
+      deptId = document.getElementById('deptSelect').value;
+      localStorage.setItem('selectedDepartmentId', deptId);
+      document.getElementById('yearSelect').innerHTML = '<option value="">Select Year</option>';
+      document.getElementById('sectionSelect').innerHTML = '<option value="">Select Section</option>';
+      document.getElementById('timetableArea').style.display = 'none';
+      document.getElementById('emptyState').style.display = 'block';
+      await loadDeptData();
+    }
+
+    async function loadDeptData() {
       const [yRes, slRes] = await Promise.all([
         fetch(`/api/years?department_id=${deptId}`),
         fetch(`/api/timeslots?department_id=${deptId}`)
@@ -115,7 +155,8 @@
       const years = await yRes.json();
       slots = await slRes.json();
       const sel = document.getElementById('yearSelect');
-      years.forEach(y => sel.innerHTML += `<option value="${y.id}">${y.display_name}</option>`);
+      sel.innerHTML = '<option value="">Select Year</option>' +
+        years.map(y => `<option value="${y.id}">${y.display_name}</option>`).join('');
 
       const params = new URLSearchParams(location.search);
       if (params.get('section_id')) {

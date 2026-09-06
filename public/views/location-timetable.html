@@ -24,6 +24,12 @@
 
     <div class="card no-print">
       <div class="filter-bar">
+        <div class="form-group" style="min-width:180px;">
+          <label>Department</label>
+          <select id="deptSelect" class="form-control" onchange="onDeptChange()">
+            <option value="">Loading…</option>
+          </select>
+        </div>
         <div class="form-group" style="flex:1;min-width:200px;">
           <label>Select Room / Location</label>
           <select id="roomSelect" class="form-control" onchange="loadTimetable()">
@@ -92,13 +98,40 @@
     function getXlColor(id) { getColor(id); return sectionXlColorMap[id]; }
 
     async function init() {
-      fetch('/api/auth/status').then(r => r.json()).then(d => {
-        if (d.loggedIn) {
-          document.getElementById('adminLink').style.display = 'inline';
-          if (!d.user.isSuperAdmin && d.user.department_id) deptId = d.user.department_id;
-          document.getElementById('exportAllBtn').style.display = 'inline-flex';
+      const depts = await (await fetch('/api/departments')).json();
+      const dSel = document.getElementById('deptSelect');
+      dSel.innerHTML = depts.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+
+      const authData = await fetch('/api/auth/status').then(r => r.json());
+      if (authData.loggedIn) {
+        document.getElementById('adminLink').style.display = 'inline';
+        if (!authData.user.isSuperAdmin && authData.user.department_id) {
+          deptId = String(authData.user.department_id);
+          dSel.value = deptId;
+          dSel.disabled = true;
         }
-      });
+        document.getElementById('exportAllBtn').style.display = 'inline-flex';
+      }
+      const stored = localStorage.getItem('selectedDepartmentId');
+      if (stored && depts.find(d => String(d.id) === stored) && (!authData.loggedIn || authData.user.isSuperAdmin)) {
+        deptId = stored; dSel.value = deptId;
+      } else if (!stored) {
+        deptId = String(dSel.value || depts[0]?.id || '1');
+        localStorage.setItem('selectedDepartmentId', deptId);
+      }
+      await loadDeptData();
+    }
+
+    async function onDeptChange() {
+      deptId = document.getElementById('deptSelect').value;
+      localStorage.setItem('selectedDepartmentId', deptId);
+      document.getElementById('roomSelect').innerHTML = '<option value="">Select Room</option>';
+      document.getElementById('timetableArea').style.display = 'none';
+      document.getElementById('emptyState').style.display = 'block';
+      await loadDeptData();
+    }
+
+    async function loadDeptData() {
       const [rRes, slRes] = await Promise.all([
         fetch(`/api/rooms?department_id=${deptId}`),
         fetch(`/api/timeslots?department_id=${deptId}`)
@@ -106,6 +139,7 @@
       allRooms = await rRes.json();
       slots    = await slRes.json();
       const sel = document.getElementById('roomSelect');
+      sel.innerHTML = '<option value="">Select Room</option>';
       [...new Set(allRooms.map(r => r.type))].forEach(type => {
         const g = document.createElement('optgroup');
         g.label = type.charAt(0).toUpperCase() + type.slice(1) + 's';
