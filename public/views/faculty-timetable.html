@@ -328,8 +328,14 @@
           summHdr
         ];
 
-        for (const fac of allFaculty) {
-          const facEntries = await (await fetch(`/api/timetable/faculty?faculty_id=${fac.id}`)).json();
+        // Fetch all faculty timetables in parallel
+        const allEntries = await Promise.all(
+          allFaculty.map(fac => fetch(`/api/timetable/faculty?faculty_id=${fac.id}`).then(r => r.json()))
+        );
+
+        for (let fi = 0; fi < allFaculty.length; fi++) {
+          const fac = allFaculty[fi];
+          const facEntries = allEntries[fi];
           const total    = facEntries.filter(e => e.subject_id).length;
           const subjects = [...new Set(facEntries.filter(e => e.subject_id).map(e => e.subject_name))];
           const sections = [...new Set(facEntries.filter(e => e.section_id).map(e => `${e.year_name} Sec ${e.section_name}`))];
