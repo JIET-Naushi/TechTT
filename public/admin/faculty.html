@@ -703,6 +703,7 @@
             body: JSON.stringify({
               constraint_type: 'faculty_unavailable',
               faculty_id: currentConstraintFacId,
+              department_id: deptId,
               day, slot_id: slotId
             })
           });
@@ -792,6 +793,7 @@
           body: JSON.stringify({
             constraint_type: 'faculty_subject_lock',
             faculty_id: currentConstraintFacId,
+            department_id: deptId,
             subject_id: subjectId
           })
         });
