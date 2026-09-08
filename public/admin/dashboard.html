@@ -7,6 +7,33 @@
   <link rel="stylesheet" href="/css/style.css">
   <script src="/js/dept-switcher.js"></script>
   <script src="https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <style>
+    .dash-hero{background:linear-gradient(135deg,#1a237e 0%,#1565c0 60%,#0288d1 100%);border-radius:14px;padding:28px 32px;margin-bottom:24px;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:16px;box-shadow:0 4px 20px rgba(26,35,126,.22);position:relative;overflow:hidden;}
+    .dash-hero::before{content:'';position:absolute;top:-50px;right:-50px;width:200px;height:200px;background:rgba(255,255,255,.06);border-radius:50%;}
+    .dash-hero h2{margin:0 0 6px;font-size:1.6rem;font-weight:800;position:relative;}
+    .dash-hero p{margin:0;opacity:.82;font-size:.9rem;position:relative;}
+    .dash-hero-right{text-align:center;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);border-radius:12px;padding:14px 20px;flex-shrink:0;position:relative;}
+    .dash-hero-right .dn{font-size:2.2rem;font-weight:800;line-height:1;}
+    .dash-hero-right .dm{font-size:.78rem;opacity:.8;margin-top:2px;}
+    .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-bottom:24px;}
+    .stat-card{background:#fff;border-radius:12px;padding:18px 16px;box-shadow:0 2px 8px rgba(0,0,0,.07);border-top:4px solid #1a237e;cursor:pointer;transition:transform .15s,box-shadow .15s;text-decoration:none;color:inherit;display:block;}
+    .stat-card:hover{transform:translateY(-3px);box-shadow:0 6px 20px rgba(0,0,0,.12);color:inherit;text-decoration:none;}
+    .stat-card .sc-icon{font-size:1.5rem;margin-bottom:8px;display:block;}
+    .stat-card .stat-value{font-size:2rem;font-weight:800;color:#1a237e;line-height:1;}
+    .stat-card .stat-label{font-size:.72rem;color:#999;margin-top:5px;text-transform:uppercase;letter-spacing:.5px;}
+    .stat-card:nth-child(2){border-top-color:#0288d1;}.stat-card:nth-child(2) .stat-value{color:#0288d1;}
+    .stat-card:nth-child(3){border-top-color:#388e3c;}.stat-card:nth-child(3) .stat-value{color:#388e3c;}
+    .stat-card:nth-child(4){border-top-color:#f57c00;}.stat-card:nth-child(4) .stat-value{color:#f57c00;}
+    .stat-card:nth-child(5){border-top-color:#7b1fa2;}.stat-card:nth-child(5) .stat-value{color:#7b1fa2;}
+    .stat-card:nth-child(6){border-top-color:#c62828;}.stat-card:nth-child(6) .stat-value{color:#c62828;}
+    .actions-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;}
+    .ac{border:1.5px solid #e8eaf6;border-radius:10px;padding:16px 14px;display:flex;flex-direction:column;gap:5px;cursor:pointer;transition:all .15s;background:#fff;text-decoration:none;color:inherit;}
+    .ac:hover{border-color:#1a237e;background:#f5f7ff;transform:translateY(-2px);box-shadow:0 4px 12px rgba(26,35,126,.1);color:inherit;text-decoration:none;}
+    .ac .ai{font-size:1.5rem;}.ac .at{font-weight:700;font-size:.85rem;color:#1a237e;}.ac .ad{font-size:.72rem;color:#999;}
+    .ac.green{border-color:#c8e6c9;}.ac.green:hover{border-color:#388e3c;background:#f1f8e9;}.ac.green .at{color:#2e7d32;}
+    .dash-cols{display:grid;grid-template-columns:3fr 2fr;gap:24px;margin-bottom:24px;}
+    @media(max-width:768px){.dash-cols{grid-template-columns:1fr;}.dash-hero{flex-direction:column;padding:20px;}.dash-hero h2{font-size:1.3rem;}}
+  </style>
 </head>
 <body>
   <header class="header">
@@ -43,60 +70,73 @@
       <a href="/views/location-timetable.html"><span class="icon">📍</span> Location View</a>
     </nav>
     <main class="admin-content">
-      <div class="page-title">Dashboard</div>
-      <div class="stats-grid" id="statsGrid">
-        <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">Years</div></div>
-        <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">Sections</div></div>
-        <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">Subjects</div></div>
-        <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">Faculty</div></div>
-        <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">Rooms</div></div>
-        <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">Timetable Entries</div></div>
+
+      <!-- Hero banner -->
+      <div class="dash-hero">
+        <div>
+          <p style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.7;margin:0 0 6px;position:relative;">JIET Universe Timetable</p>
+          <h2>👋 Welcome back, <span id="heroName">Admin</span></h2>
+          <p id="deptDisplay" style="margin-top:4px;">Loading department…</p>
+          <span id="pageTitle" style="display:none;"></span>
+        </div>
+        <div class="dash-hero-right" id="heroCal">
+          <div class="dn" id="heroDay">—</div>
+          <div class="dm" id="heroDate">—</div>
+        </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+      <!-- Stats -->
+      <div class="stats-grid" id="statsGrid">
+        <a class="stat-card" href="/admin/sections.html"><span class="sc-icon">🎓</span><div class="stat-value">—</div><div class="stat-label">Years</div></a>
+        <a class="stat-card" href="/admin/sections.html"><span class="sc-icon">🏛️</span><div class="stat-value">—</div><div class="stat-label">Sections</div></a>
+        <a class="stat-card" href="/admin/subjects.html"><span class="sc-icon">📚</span><div class="stat-value">—</div><div class="stat-label">Subjects</div></a>
+        <a class="stat-card" href="/admin/faculty.html"><span class="sc-icon">👨‍🏫</span><div class="stat-value">—</div><div class="stat-label">Faculty</div></a>
+        <a class="stat-card" href="/admin/rooms.html"><span class="sc-icon">🏫</span><div class="stat-value">—</div><div class="stat-label">Rooms</div></a>
+        <a class="stat-card" href="/admin/editor.html"><span class="sc-icon">📅</span><div class="stat-value">—</div><div class="stat-label">TT Entries</div></a>
+      </div>
+
+      <!-- Actions + Conflicts -->
+      <div class="dash-cols">
         <div class="card">
-          <div class="card-title">Quick Actions</div>
-          <div style="display:flex;flex-direction:column;gap:10px;">
-            <a href="/admin/generate.html" class="btn btn-primary">⚡ Generate Timetable</a>
-            <a href="/admin/editor.html" class="btn btn-outline">✏️ Edit Timetable</a>
-            <a href="/views/class-timetable.html" class="btn btn-secondary">📅 View Class Timetable</a>
-            <a href="/views/faculty-timetable.html" class="btn btn-secondary">👤 View Faculty Timetable</a>
-            <button onclick="exportAllClasses()" class="btn btn-success">📊 Export All Classes</button>
-            <button onclick="exportAllFaculty()" class="btn btn-success">👥 Export All Faculty</button>
+          <div class="card-title">⚡ Quick Actions</div>
+          <div class="actions-grid">
+            <a href="/admin/generate.html" class="ac"><span class="ai">⚡</span><span class="at">Generate</span><span class="ad">Auto-generate timetable</span></a>
+            <a href="/admin/editor.html" class="ac"><span class="ai">✏️</span><span class="at">Editor</span><span class="ad">Manually edit any slot</span></a>
+            <a href="/admin/constraints.html" class="ac"><span class="ai">📌</span><span class="at">Constraints</span><span class="ad">Faculty & slot rules</span></a>
+            <a href="/admin/conflicts.html" class="ac"><span class="ai">⚠️</span><span class="at">Conflicts</span><span class="ad">Detect & resolve clashes</span></a>
+            <a href="/views/class-timetable.html" class="ac"><span class="ai">📅</span><span class="at">Class View</span><span class="ad">View section timetables</span></a>
+            <a href="/views/faculty-timetable.html" class="ac"><span class="ai">👤</span><span class="at">Faculty View</span><span class="ad">View faculty schedules</span></a>
+            <a href="/views/location-timetable.html" class="ac"><span class="ai">📍</span><span class="at">Room View</span><span class="ad">View room allocation</span></a>
+            <div class="ac green" onclick="exportAllClasses()" style="cursor:pointer;"><span class="ai">📊</span><span class="at">Export Classes</span><span class="ad">Download Excel workbook</span></div>
+            <div class="ac green" onclick="exportAllFaculty()" style="cursor:pointer;"><span class="ai">👥</span><span class="at">Export Faculty</span><span class="ad">Download Excel workbook</span></div>
           </div>
         </div>
         <div class="card">
-          <div class="card-title">Conflict Check</div>
-          <div id="conflictBox"><p class="text-muted">Loading conflicts...</p></div>
-          <button class="btn btn-outline mt-2" onclick="loadConflicts()">🔄 Refresh</button>
+          <div class="card-title">🔍 Conflict Check</div>
+          <div id="conflictBox"><p class="text-muted">Loading…</p></div>
+          <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-outline btn-sm" onclick="loadConflicts()">🔄 Refresh</button>
+            <a href="/admin/conflicts.html" class="btn btn-outline btn-sm">View All →</a>
+          </div>
         </div>
       </div>
 
-      <!-- Editable Department Settings -->
+      <!-- Department Settings -->
       <div class="card mt-3">
         <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
-          <span>Department Settings</span>
+          <span>⚙️ Department Settings</span>
           <button class="btn btn-outline btn-sm" onclick="toggleEditSettings()" id="editSettingsBtn">✏️ Edit</button>
         </div>
         <div id="settingsView">
           <table>
-            <tr><td style="width:200px;color:#666;">Department Name</td><td><strong id="deptDisplay">—</strong></td></tr>
-            <tr><td style="color:#666;">College Name</td><td><strong id="collegeDisplay">—</strong></td></tr>
-            <tr><td style="color:#666;">Programs</td><td>B.Tech I Year, II Year, III Year</td></tr>
-            <tr><td style="color:#666;">Working Days</td><td>Monday to Saturday</td></tr>
-            <tr><td style="color:#666;">Teaching Periods/Day</td><td>7 (08:00 – 15:00, Lunch 11:30–12:30)</td></tr>
+            <tr><td style="width:180px;color:#666;padding:6px 0;">Department Name</td><td><strong id="deptDisplayInner">—</strong></td></tr>
+            <tr><td style="color:#666;padding:6px 0;">College Name</td><td><strong id="collegeDisplay">—</strong></td></tr>
           </table>
         </div>
         <div id="settingsEdit" style="display:none;">
           <div class="form-row" style="margin-bottom:12px;">
-            <div class="form-group">
-              <label>Department Name</label>
-              <input type="text" id="deptInput" class="form-control" placeholder="e.g. Department of Technology">
-            </div>
-            <div class="form-group">
-              <label>College Name</label>
-              <input type="text" id="collegeInput" class="form-control" placeholder="e.g. JIET Universe">
-            </div>
+            <div class="form-group"><label>Department Name</label><input type="text" id="deptInput" class="form-control" placeholder="e.g. Department of Technology"></div>
+            <div class="form-group"><label>College Name</label><input type="text" id="collegeInput" class="form-control" placeholder="e.g. JIET Universe"></div>
           </div>
           <div style="display:flex;gap:10px;">
             <button class="btn btn-primary btn-sm" onclick="saveSettings()">Save</button>
@@ -106,43 +146,29 @@
         </div>
       </div>
 
-      <!-- Change Login Credentials (Super Admin only) -->
+      <!-- Change Credentials (Super Admin only) -->
       <div class="card mt-3" id="credentialsCard" style="display:none;">
         <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
           <span>🔐 Change Login Credentials</span>
           <button class="btn btn-outline btn-sm" onclick="toggleCredentials()" id="credentialsBtn">✏️ Change</button>
         </div>
         <div id="credentialsView">
-          <p style="font-size:0.88rem;color:#666;margin:0;">
-            Username and password for super admin login. Use the button to update your credentials.
-          </p>
-          <div style="margin-top:10px;display:flex;gap:10px;align-items:center;font-size:0.85rem;">
+          <p style="font-size:.88rem;color:#666;margin:0;">Username and password for super admin login.</p>
+          <div style="margin-top:10px;display:flex;gap:10px;align-items:center;font-size:.85rem;">
             <span style="color:#555;">Current username:</span>
             <strong id="currentUsernameDisplay" style="color:#1a237e;">—</strong>
           </div>
         </div>
         <div id="credentialsEdit" style="display:none;">
-          <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:0.83rem;color:#795548;">
+          <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:.83rem;color:#795548;">
             ⚠️ After saving, you will be logged out and must sign in with the new credentials.
           </div>
-          <div class="form-group">
-            <label>Current Password <span style="color:#c62828;">*</span></label>
-            <input type="password" id="currentPassword" class="form-control" placeholder="Enter current password to confirm">
-          </div>
+          <div class="form-group"><label>Current Password <span style="color:#c62828;">*</span></label><input type="password" id="currentPassword" class="form-control" placeholder="Enter current password"></div>
           <div class="form-row">
-            <div class="form-group">
-              <label>New Username <span style="font-size:0.75rem;color:#888;">(leave blank to keep current)</span></label>
-              <input type="text" id="newUsername" class="form-control" placeholder="New username (min 3 chars)" autocomplete="off">
-            </div>
-            <div class="form-group">
-              <label>New Password <span style="font-size:0.75rem;color:#888;">(leave blank to keep current)</span></label>
-              <input type="password" id="newPassword" class="form-control" placeholder="New password (min 6 chars)" autocomplete="new-password">
-            </div>
+            <div class="form-group"><label>New Username <span style="font-size:.75rem;color:#888;">(leave blank to keep)</span></label><input type="text" id="newUsername" class="form-control" placeholder="New username" autocomplete="off"></div>
+            <div class="form-group"><label>New Password <span style="font-size:.75rem;color:#888;">(leave blank to keep)</span></label><input type="password" id="newPassword" class="form-control" placeholder="New password" autocomplete="new-password"></div>
           </div>
-          <div class="form-group">
-            <label>Confirm New Password</label>
-            <input type="password" id="confirmPassword" class="form-control" placeholder="Repeat new password">
-          </div>
+          <div class="form-group"><label>Confirm New Password</label><input type="password" id="confirmPassword" class="form-control" placeholder="Repeat new password"></div>
           <div style="display:flex;gap:10px;margin-top:4px;">
             <button class="btn btn-danger btn-sm" onclick="saveCredentials()" id="saveCredBtn">🔐 Update Credentials</button>
             <button class="btn btn-secondary btn-sm" onclick="toggleCredentials()">Cancel</button>
@@ -151,7 +177,6 @@
         </div>
       </div>
     </main>
-  </div>
 
   <script>
     let currentSettings = {};
@@ -175,12 +200,19 @@
         isSuperAdmin = true;
         currentUsername = d.user.username;
         document.getElementById('currentUsernameDisplay').textContent = currentUsername;
+        document.getElementById('heroName').textContent = d.user.username;
       }
       if (!d.user.isSuperAdmin && d.user.dept_name) {
         document.getElementById('deptDisplay').textContent = d.user.dept_name;
-        document.getElementById('collegeDisplay').textContent = 'JIET Universe';
-        document.querySelector('.page-title').textContent = `Dashboard — ${d.user.dept_name}`;
+        document.getElementById('heroName').textContent = d.user.name || d.user.username || 'Admin';
+        document.querySelector('.page-title') && (document.querySelector('.page-title').textContent = `Dashboard — ${d.user.dept_name}`);
       }
+      // Populate hero date
+      const now = new Date();
+      const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      document.getElementById('heroDay').textContent = days[now.getDay()] + ' ' + now.getDate();
+      document.getElementById('heroDate').textContent = months[now.getMonth()] + ' ' + now.getFullYear();
       initDeptSwitcher(d.user, () => { loadStats(); loadSettings(); loadConflicts(); });
       loadStats(); loadSettings(); loadConflicts();
     });
@@ -209,10 +241,16 @@
     async function loadSettings() {
       const res = await fetch('/api/settings');
       currentSettings = await res.json();
-      document.getElementById('deptDisplay').textContent   = currentSettings.department_name || '—';
-      document.getElementById('collegeDisplay').textContent = currentSettings.college_name || '—';
-      document.getElementById('deptInput').value    = currentSettings.department_name || '';
-      document.getElementById('collegeInput').value = currentSettings.college_name || '';
+      const dname = currentSettings.department_name || '—';
+      const cname = currentSettings.college_name || '—';
+      const dInner = document.getElementById('deptDisplayInner');
+      if (dInner) dInner.textContent = dname;
+      const dDisp = document.getElementById('deptDisplay');
+      if (dDisp && dDisp.textContent === 'Loading department…') dDisp.textContent = dname;
+      const cDisp = document.getElementById('collegeDisplay');
+      if (cDisp) cDisp.textContent = cname;
+      document.getElementById('deptInput').value  = dname !== '—' ? dname : '';
+      document.getElementById('collegeInput').value = cname !== '—' ? cname : '';
     }
 
     function toggleEditSettings() {
