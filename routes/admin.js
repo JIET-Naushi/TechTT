@@ -730,11 +730,12 @@ router.put('/sections/:id', requireAuth, async (req, res) => {
     const deptId = getDeptId(req);
     if (!(await verifyDeptOwnership('sections', req.params.id, deptId)))
       return res.status(403).json({ error: 'Section does not belong to your department' });
-    const { name, lab_subsections, subsection_names } = req.body;
+    const { name, lab_subsections, subsection_names, preferred_room_id } = req.body;
     const sets = [], vals = [];
-    if (name             !== undefined) { sets.push(`name=$${sets.length+1}`);             vals.push(name); }
-    if (lab_subsections  !== undefined) { sets.push(`lab_subsections=$${sets.length+1}`);  vals.push(lab_subsections); }
-    if (subsection_names !== undefined) { sets.push(`subsection_names=$${sets.length+1}`); vals.push(JSON.stringify(subsection_names)); }
+    if (name              !== undefined) { sets.push(`name=$${sets.length+1}`);              vals.push(name); }
+    if (lab_subsections   !== undefined) { sets.push(`lab_subsections=$${sets.length+1}`);   vals.push(lab_subsections); }
+    if (subsection_names  !== undefined) { sets.push(`subsection_names=$${sets.length+1}`);  vals.push(JSON.stringify(subsection_names)); }
+    if (preferred_room_id !== undefined) { sets.push(`preferred_room_id=$${sets.length+1}`); vals.push(preferred_room_id || null); }
     if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
     vals.push(req.params.id);
     await run(`UPDATE sections SET ${sets.join(',')} WHERE id=$${vals.length}`, vals);
@@ -1688,7 +1689,13 @@ router.post('/generate', requireAuth, async (req, res) => {
 
     const shuffledClassrooms = shuffle([...classrooms]);
     const sectionRoomMap = {};
-    sections.forEach((sec,idx) => {
+    sections.forEach((sec, idx) => {
+      if (sec.preferred_room_id) {
+        // Use the admin-specified preferred room if it's a valid classroom in this dept
+        const room = allRooms.find(r => r.id === parseInt(sec.preferred_room_id));
+        if (room) { sectionRoomMap[sec.id] = room.id; return; }
+      }
+      // Fall back to round-robin from shuffled classrooms
       if (shuffledClassrooms.length > 0)
         sectionRoomMap[sec.id] = shuffledClassrooms[idx % shuffledClassrooms.length].id;
     });

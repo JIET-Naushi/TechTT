@@ -111,6 +111,7 @@
       ]);
       years    = await yRes.json();
       sections = await sRes.json();
+      await loadRooms();
       renderYears();
       const sel = document.getElementById('sectionYear');
       sel.innerHTML = '<option value="">Select Year</option>' +
@@ -217,6 +218,19 @@
             <button class="btn btn-sm" title="Assign faculty to each lab batch"
               onclick="openLabModal(${s.id}, '${y.display_name} – Section ${s.name}')"
               style="font-size:0.7rem;padding:2px 8px;background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;">🧑‍🔬 Lab Faculty</button>
+          </div>
+
+          <!-- Preferred classroom for theory slots -->
+          <div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap;">
+            <span style="font-size:0.72rem;color:#555;">🏫 Theory Room:</span>
+            <select id="pref-room-${s.id}"
+              style="font-size:0.72rem;padding:2px 6px;border:1.5px solid #c5cae9;border-radius:4px;max-width:140px;cursor:pointer;"
+              onchange="savePreferredRoom(${s.id}, this.value)">
+              <option value="">Auto-assign</option>
+              ${allRooms.filter(r => r.type === 'classroom').map(r =>
+                `<option value="${r.id}" ${r.id === s.preferred_room_id ? 'selected' : ''}>${r.name}</option>`
+              ).join('')}
+            </select>
           </div>
 
           <!-- Inline batch editor (hidden by default) -->
@@ -393,6 +407,24 @@
     // =====================================================================
     let currentLabSectionId = null;
     let allFaculty = [];
+    let allRooms   = [];
+
+    // Load rooms once for the preferred-room dropdowns
+    async function loadRooms() {
+      const res = await fetch(`/api/rooms?department_id=${deptId}`);
+      allRooms = res.ok ? await res.json() : [];
+    }
+
+    async function savePreferredRoom(sectionId, roomId) {
+      const res = await fetch(`/api/admin/sections/${sectionId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preferred_room_id: roomId ? parseInt(roomId) : null })
+      });
+      const data = await res.json();
+      if (res.ok) showAlert(roomId ? `Preferred room saved` : 'Room cleared — auto-assign enabled', 'success');
+      else showAlert(data.error || 'Error saving room', 'error');
+    }
 
     async function openLabModal(sectionId, title) {
       currentLabSectionId = sectionId;

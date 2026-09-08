@@ -307,6 +307,18 @@ async function initializeDatabase() {
     console.log('✅ Migrated sections: added subsection_names column');
   }
 
+  // Add preferred_room_id column to sections if missing
+  const prefRoomExists = await queryOne(`
+    SELECT EXISTS (
+      SELECT FROM information_schema.columns
+      WHERE table_name = 'sections' AND column_name = 'preferred_room_id'
+    ) as exists
+  `);
+  if (!prefRoomExists.exists) {
+    await run(`ALTER TABLE sections ADD COLUMN preferred_room_id INTEGER REFERENCES rooms(id) ON DELETE SET NULL`);
+    console.log('✅ Migrated sections: added preferred_room_id column');
+  }
+
   // Add category column to subjects if missing (regular | btu)
   const subjCategoryExists = await queryOne(`
     SELECT EXISTS (
