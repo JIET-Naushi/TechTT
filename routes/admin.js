@@ -1593,6 +1593,17 @@ router.post('/generate', requireAuth, async (req, res) => {
       if (!(await verifyDeptOwnership('years', year_id, deptId)))
         return res.status(403).json({ error: 'Year not in your department' });
       sections = await query('SELECT * FROM sections WHERE year_id=$1', [year_id]);
+    } else if (scope === 'years' && Array.isArray(req.body.year_ids) && req.body.year_ids.length) {
+      // Multi-year selection: verify each year belongs to this department
+      const yearIds = req.body.year_ids.map(Number).filter(id => !isNaN(id));
+      for (const yId of yearIds) {
+        if (!(await verifyDeptOwnership('years', yId, deptId)))
+          return res.status(403).json({ error: `Year ${yId} not in your department` });
+      }
+      sections = await query(
+        `SELECT * FROM sections WHERE year_id = ANY($1::int[])`,
+        [yearIds]
+      );
     } else {
       sections = await query(
         'SELECT s.*, s.lab_subsections FROM sections s JOIN years y ON s.year_id=y.id WHERE y.department_id=$1', [deptId]
@@ -2553,6 +2564,14 @@ router.post('/clear', requireAuth, async (req, res) => {
       if (!(await verifyDeptOwnership('years', year_id, deptId)))
         return res.status(403).json({ error: 'Year not in your department' });
       const secs = await query('SELECT id FROM sections WHERE year_id=$1', [year_id]);
+      for (const s of secs) await run('DELETE FROM timetable_entries WHERE section_id=$1', [s.id]);
+    } else if (scope === 'years' && Array.isArray(req.body.year_ids) && req.body.year_ids.length) {
+      const yearIds = req.body.year_ids.map(Number).filter(id => !isNaN(id));
+      for (const yId of yearIds) {
+        if (!(await verifyDeptOwnership('years', yId, deptId)))
+          return res.status(403).json({ error: `Year ${yId} not in your department` });
+      }
+      const secs = await query(`SELECT id FROM sections WHERE year_id = ANY($1::int[])`, [yearIds]);
       for (const s of secs) await run('DELETE FROM timetable_entries WHERE section_id=$1', [s.id]);
     } else {
       // Clear only this department's sections

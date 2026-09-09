@@ -74,7 +74,7 @@
           </div>
           <div class="generate-option" data-scope="year" onclick="selectScope('year')">
             <h4>📅 By Year</h4>
-            <p>Generate for all sections of a specific year</p>
+            <p>Generate for one or more selected years</p>
           </div>
           <div class="generate-option" data-scope="section" onclick="selectScope('section')">
             <h4>🎯 Single Section</h4>
@@ -83,10 +83,11 @@
         </div>
 
         <div id="yearSelector" style="display:none;" class="form-group" style="margin-top:16px;">
-          <label>Select Year</label>
-          <select id="yearSelect" class="form-control" onchange="loadSections()">
-            <option value="">Select Year</option>
-          </select>
+          <label>Select Years <span style="font-size:0.75rem;color:#888;font-weight:400;">(tick one or more)</span></label>
+          <div id="yearCheckboxes"
+               style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;padding:10px;border:1.5px solid #c5cae9;border-radius:6px;background:#f8f9ff;">
+            <span class="text-muted" style="font-size:0.82rem;">Loading years…</span>
+          </div>
         </div>
         <div id="sectionSelector" style="display:none;" class="form-group">
           <label>Select Section</label>
@@ -242,12 +243,35 @@
       const slots = await slotRes.json();
       allSlots = slots.filter(s => !s.is_break);
 
-      const sel = document.getElementById('yearSelect');
-      sel.innerHTML = '<option value="">Select Year</option>' +
-        years.map(y => `<option value="${y.id}">${y.display_name}</option>`).join('');
+      // Render year checkboxes
+      const ycBox = document.getElementById('yearCheckboxes');
+      if (years.length) {
+        ycBox.innerHTML = years.map(y => `
+          <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;
+            border-radius:6px;border:1.5px solid #c5cae9;background:#f5f7ff;cursor:pointer;
+            font-size:0.83rem;font-weight:600;white-space:nowrap;user-select:none;"
+            id="yr-label-${y.id}">
+            <input type="checkbox" value="${y.id}" class="year-cb"
+              onchange="onYearCheckChange()">
+            ${y.display_name}
+          </label>`).join('');
+      } else {
+        ycBox.innerHTML = '<span class="text-muted" style="font-size:0.82rem;">No years found.</span>';
+      }
+
+      // Single-year select for section scope is now handled by yearCheckboxes
 
       renderSlotCheckboxes();
       loadConstraintsSummary();
+    }
+
+    function onYearCheckChange() {
+      // When in section scope, load sections for the single checked year
+      if (selectedScope === 'section') {
+        const checked = getCheckedYearIds();
+        if (checked.length === 1) loadSectionsForYear(checked[0]);
+        else document.getElementById('sectionSelect').innerHTML = '<option value="">Select Section</option>';
+      }
     }
 
     function renderSlotCheckboxes() {
@@ -326,11 +350,26 @@
         (scope === 'year' || scope === 'section') ? 'block' : 'none';
       document.getElementById('sectionSelector').style.display =
         scope === 'section' ? 'block' : 'none';
+      // Reset checkboxes when switching scope
+      document.querySelectorAll('.year-cb').forEach(cb => {
+        cb.checked = false;
+        const lbl = document.getElementById(`yr-label-${cb.value}`);
+        if (lbl) { lbl.style.background = '#f5f7ff'; lbl.style.borderColor = '#c5cae9'; lbl.style.color = ''; }
+      });
+      document.getElementById('sectionSelect').innerHTML = '<option value="">Select Section</option>';
+    }
+
+    function getCheckedYearIds() {
+      return Array.from(document.querySelectorAll('.year-cb:checked')).map(cb => parseInt(cb.value));
     }
 
     async function loadSections() {
-      const yearId = document.getElementById('yearSelect').value;
-      if (!yearId) return;
+      // kept for backward compat — now uses yearCheckboxes
+      const checked = getCheckedYearIds();
+      if (checked.length === 1) loadSectionsForYear(checked[0]);
+    }
+
+    async function loadSectionsForYear(yearId) {
       const res = await fetch(`/api/sections?year_id=${yearId}`);
       const sections = await res.json();
       const sel = document.getElementById('sectionSelect');
@@ -341,9 +380,23 @@
     function getRequestBody(daysMode) {
       const body = { scope: selectedScope, days_mode: daysMode, department_id: deptId };
       const slotIds = getSelectedSlotIds();
-      if (slotIds.length < allSlots.length) body.slot_ids = slotIds; // only send if filtered
+      if (slotIds.length < allSlots.length) body.slot_ids = slotIds;
+
       if (selectedScope === 'year' || selectedScope === 'section') {
-        body.year_id = parseInt(document.getElementById('yearSelect').value) || undefined;
+        const checkedIds = getCheckedYearIds();
+        if (selectedScope === 'year') {
+          // Multi-year: use 'years' scope with array, or 'year' scope for single
+          if (checkedIds.length > 1) {
+            body.scope = 'years';
+            body.year_ids = checkedIds;
+          } else {
+            body.scope = 'year';
+            body.year_id = checkedIds[0] || undefined;
+          }
+        } else {
+          // Section scope: single year must be selected to narrow section list
+          body.year_id = checkedIds[0] || undefined;
+        }
       }
       if (selectedScope === 'section') {
         body.section_id = parseInt(document.getElementById('sectionSelect').value) || undefined;
@@ -384,8 +437,10 @@
 
     async function generateTimetable(daysMode) {
       const body = getRequestBody(daysMode);
-      if (body.scope === 'year' && !body.year_id)     { showAlert('Please select a year', 'error'); return; }
-      if (body.scope === 'section' && !body.section_id) { showAlert('Please select a section', 'error'); return; }
+      if ((selectedScope === 'year') && !body.year_id && !(body.year_ids && body.year_ids.length))
+        { showAlert('Please select at least one year', 'error'); return; }
+      if (body.scope === 'section' && !body.section_id)
+        { showAlert('Please select a section', 'error'); return; }
 
       const modeLabel = daysMode === 'weekdays' ? 'Mon–Fri' : 'Mon–Sat';
       setLoading(true, `Generating timetable (${modeLabel})…`);
@@ -427,8 +482,10 @@
 
     async function resetAndGenerate(daysMode) {
       const body = getRequestBody(daysMode);
-      if (body.scope === 'year' && !body.year_id)     { showAlert('Please select a year', 'error'); return; }
-      if (body.scope === 'section' && !body.section_id) { showAlert('Please select a section', 'error'); return; }
+      if ((selectedScope === 'year') && !body.year_id && !(body.year_ids && body.year_ids.length))
+        { showAlert('Please select at least one year', 'error'); return; }
+      if (body.scope === 'section' && !body.section_id)
+        { showAlert('Please select a section', 'error'); return; }
 
       const modeLabel = daysMode === 'weekdays' ? 'Mon–Fri' : 'Mon–Sat';
       if (!confirm(`This will clear the existing timetable and regenerate (${modeLabel}). Continue?`)) return;
