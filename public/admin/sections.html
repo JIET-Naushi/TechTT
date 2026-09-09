@@ -286,7 +286,7 @@
       const res = await fetch(`/api/admin/sections/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName })
+        body: JSON.stringify({ name: newName, department_id: deptId })
       });
       const data = await res.json();
       if (res.ok) {
@@ -331,7 +331,7 @@
       const res = await fetch(`/api/admin/sections/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lab_subsections: count, subsection_names: names })
+        body: JSON.stringify({ lab_subsections: count, subsection_names: names, department_id: deptId })
       });
       const data = await res.json();
       if (res.ok) {
@@ -351,7 +351,7 @@
       const res = await fetch('/api/admin/sections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year_id, name })
+        body: JSON.stringify({ year_id, name, department_id: deptId })
       });
       const data = await res.json();
       if (res.ok) {
@@ -419,7 +419,7 @@
       const res = await fetch(`/api/admin/sections/${sectionId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ preferred_room_id: roomId ? parseInt(roomId) : null })
+        body: JSON.stringify({ preferred_room_id: roomId ? parseInt(roomId) : null, department_id: deptId })
       });
       const data = await res.json();
       if (res.ok) showAlert(roomId ? `Preferred room saved` : 'Room cleared — auto-assign enabled', 'success');
