@@ -1689,6 +1689,22 @@ router.post('/generate', requireAuth, async (req, res) => {
     const markRoom      = (d,s,r) => { const k=`${d}_${s}`; if(!roomBusy[k]) roomBusy[k]=new Set(); roomBusy[k].add(r); };
     const shuffle = a => { const b=[...a]; for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];} return b; };
 
+    // Track which faculty have already been assigned to each subject across sections.
+    // Prevents the same faculty from teaching the same subject in multiple sections.
+    // key: subjectId → Set<facultyId>
+    const subjectFacultyUsed = {};
+    const markSubjectFaculty = (subjId, facId) => {
+      if (!subjectFacultyUsed[subjId]) subjectFacultyUsed[subjId] = new Set();
+      subjectFacultyUsed[subjId].add(facId);
+    };
+    // Returns true when faculty facId has already been assigned to subjId in another section,
+    // and no explicit section-scoped lock assigns them here.
+    const isSubjectFacultyUsed = (subjId, facId, sectionId) => {
+      const sectionLockKey = `${subjId}|${sectionId}`;
+      if (subjectLockMap[sectionLockKey] === facId) return false; // explicitly locked here — allow
+      return !!(subjectFacultyUsed[subjId]?.has(facId));
+    };
+
     // Normalize subjects_can_teach to string IDs for reliable matching
     const canTeach = (f, subjId) => {
       try {
@@ -2123,12 +2139,21 @@ router.post('/generate', requireAuth, async (req, res) => {
               chosenF = (isFacultyFree(day, slot.id, lockedF.id) && !isFacultyUnavailable(day, slot.id, lockedF.id))
                 ? lockedF : null;
             } else {
-              const eligible = allFaculty.filter(f => canTeach(f, subj.id));
+              const eligible = allFaculty.filter(f =>
+                canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id)
+              );
               const candidateFaculty = shuffle(eligible)
                 .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id]);
               chosenF = candidateFaculty.find(f =>
                 isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id)
               );
+              // If all unassigned-elsewhere faculty are busy at this slot, fall back to any eligible
+              if (!chosenF) {
+                const fallback = allFaculty.filter(f => canTeach(f, subj.id));
+                chosenF = shuffle(fallback)
+                  .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id])
+                  .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+              }
             }
             if (!chosenF) continue;
 
@@ -2148,6 +2173,7 @@ router.post('/generate', requireAuth, async (req, res) => {
             daySubjects[day].add(subj.id);
             dayLoad[day]++;
             facultyTheoryCount[chosenF.id]++;
+            markSubjectFaculty(subj.id, chosenF.id);
             pi++;
             placed = true;
             break;
@@ -2168,9 +2194,16 @@ router.post('/generate', requireAuth, async (req, res) => {
                 chosenF = (isFacultyFree(day, slot.id, lockedF2.id) && !isFacultyUnavailable(day, slot.id, lockedF2.id))
                   ? lockedF2 : null;
               } else {
-                const eligible = allFaculty.filter(f => canTeach(f, subj.id));
+                const eligible = allFaculty.filter(f =>
+                  canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id)
+                );
                 chosenF = shuffle(eligible)
                   .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+                // Fall back to any eligible faculty if all unused-elsewhere are busy
+                if (!chosenF) {
+                  chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id)))
+                    .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+                }
               }
               if (!chosenF) continue;
               const preferred = classrooms.find(r => r.id === preferredRoomId);
@@ -2188,6 +2221,7 @@ router.post('/generate', requireAuth, async (req, res) => {
               daySubjects[day].add(subj.id);
               dayLoad[day]++;
               facultyTheoryCount[chosenF.id]++;
+              markSubjectFaculty(subj.id, chosenF.id);
               pi++;
               forcePlaced = true;
               break;
