@@ -454,6 +454,15 @@
       const assigned = Array.isArray(assignedRaw) ? assignedRaw : [];
       const assignedIds = new Set(assigned.map(s => s.subject_id));
 
+      // Find subjects already assigned to OTHER sections in the same year
+      const siblingSections = sections.filter(s => s.year_id === yearId && s.id !== sectionId);
+      const takenIds = new Set();
+      await Promise.all(siblingSections.map(async sib => {
+        const res = await fetch(`/api/admin/section-subjects/${sib.id}?department_id=${deptId}`);
+        const raw = await res.json();
+        if (Array.isArray(raw)) raw.forEach(r => takenIds.add(r.subject_id));
+      }));
+
       if (!allYearSubjects.length) {
         document.getElementById('subjectAssignContent').innerHTML =
           '<p class="text-muted text-center">No subjects found for this year.</p>';
@@ -470,16 +479,21 @@
           ${label}
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
-          ${subjects.map(s => `
-            <label style="display:flex;align-items:center;gap:7px;font-size:0.83rem;cursor:pointer;
-              padding:4px 6px;border-radius:4px;${assignedIds.has(s.id) ? 'background:#fff3e0;' : ''}">
+          ${subjects.map(s => {
+            const isAssigned = assignedIds.has(s.id);
+            const isTaken    = !isAssigned && takenIds.has(s.id);
+            const bg = isAssigned ? 'background:#fff3e0;' : isTaken ? 'background:#f5f5f5;opacity:0.6;' : '';
+            return `<label style="display:flex;align-items:center;gap:7px;font-size:0.83rem;cursor:${isTaken?'not-allowed':'pointer'};
+              padding:4px 6px;border-radius:4px;${bg}">
               <input type="checkbox" class="subj-assign-cb" value="${s.id}"
-                ${assignedIds.has(s.id) ? 'checked' : ''}
+                ${isAssigned ? 'checked' : ''} ${isTaken ? 'disabled title="Assigned to another section"' : ''}
                 onchange="this.closest('label').style.background=this.checked?'#fff3e0':''">
               <span>${s.name}${s.category==='btu'
                 ? ' <span style="font-size:0.68rem;background:#fff3cd;color:#856404;padding:1px 5px;border-radius:8px;">BTU</span>' : ''}
+                ${isTaken ? ' <span style="font-size:0.68rem;color:#e53935;font-weight:600;">(taken)</span>' : ''}
               </span>
-            </label>`).join('')}
+            </label>`;
+          }).join('')}
         </div>`;
 
       document.getElementById('subjectAssignContent').innerHTML =
@@ -584,7 +598,7 @@
       const [subRes, facRes, assignRes] = await Promise.all([
         fetch(`/api/subjects?year_id=${sec.year_id}`),
         fetch(`/api/faculty?department_id=${deptId}`),
-        fetch(`/api/admin/lab-assignments/${sectionId}`)
+        fetch(`/api/admin/lab-assignments/${sectionId}?department_id=${deptId}`)
       ]);
       const allSubjects   = await subRes.json();
       allFaculty          = await facRes.json();
