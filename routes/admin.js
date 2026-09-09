@@ -1844,18 +1844,36 @@ router.post('/generate', requireAuth, async (req, res) => {
 
     for (const section of sections) {
       // Use section-specific subject list if defined; otherwise fall back to all year subjects
+      // minus subjects already explicitly assigned to OTHER sections in the same year.
       const sectionSubjectRows = await query(
         'SELECT subject_id FROM section_subjects WHERE section_id=$1', [section.id]
       );
       let subjects;
       if (sectionSubjectRows.length > 0) {
+        // Explicit list — use exactly these subjects
         const ids = sectionSubjectRows.map(r => r.subject_id);
         subjects = await query(
           `SELECT * FROM subjects WHERE id = ANY($1::int[]) AND year_id=$2`,
           [ids, section.year_id]
         );
       } else {
-        subjects = await query('SELECT * FROM subjects WHERE year_id=$1', [section.year_id]);
+        // No explicit list — use all year subjects EXCEPT those claimed by sibling sections
+        const takenRows = await query(
+          `SELECT DISTINCT ss.subject_id
+           FROM section_subjects ss
+           JOIN sections sec ON ss.section_id = sec.id
+           WHERE sec.year_id = $1 AND ss.section_id != $2`,
+          [section.year_id, section.id]
+        );
+        const takenIds = takenRows.map(r => r.subject_id);
+        if (takenIds.length > 0) {
+          subjects = await query(
+            `SELECT * FROM subjects WHERE year_id=$1 AND id != ALL($2::int[])`,
+            [section.year_id, takenIds]
+          );
+        } else {
+          subjects = await query('SELECT * FROM subjects WHERE year_id=$1', [section.year_id]);
+        }
       }
       if (!subjects.length) continue;
 
