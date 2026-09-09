@@ -784,7 +784,8 @@
               subject_id:   subjSel?.value  || null,
               faculty_id:   facSel?.value   || null,
               room_id:      roomSel?.value  || null,
-              subsection:   batch
+              subsection:   batch,
+              department_id: deptId
             };
             if (batchEntryId) body.entry_id = parseInt(batchEntryId);
 
@@ -813,7 +814,8 @@
             faculty_id:   document.getElementById('mFaculty').value   || null,
             room_id:      document.getElementById('mRoom').value      || null,
             entry_id:     (!subsection && entryId) ? parseInt(entryId) : undefined,
-            subsection:   subsection || null
+            subsection:   subsection || null,
+            department_id: deptId
           };
 
           const res  = await fetch('/api/admin/timetable/entry', {
@@ -862,7 +864,8 @@
         body: JSON.stringify({
           section_id:   parseInt(document.getElementById('mSectionId').value),
           time_slot_id: parseInt(document.getElementById('mSlotId').value),
-          day_of_week:  document.getElementById('mDay').value
+          day_of_week:  document.getElementById('mDay').value,
+          department_id: deptId
         })
       });
       if (res.ok) {
