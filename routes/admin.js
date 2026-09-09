@@ -610,16 +610,17 @@ router.delete('/subjects/:id', requireAuth, async (req, res) => {
 
 router.post('/faculty', requireAuth, async (req, res) => {
   try {
-    const { name, designation, role, email, subjects_can_teach } = req.body;
+    const { name, designation, role, email, subjects_can_teach, max_hours_per_week } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
     const deptId = getDeptId(req);
     // Normalize to array of integers
     const subjectsArray = Array.isArray(subjects_can_teach)
       ? subjects_can_teach.map(id => parseInt(id)).filter(id => !isNaN(id))
       : [];
+    const maxHours = parseInt(max_hours_per_week) || 0;
     const result = await run(
-      'INSERT INTO faculty (department_id,name,designation,role,email,subjects_can_teach) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
-      [deptId, name, designation||'', role||'faculty', email||'', JSON.stringify(subjectsArray)]
+      'INSERT INTO faculty (department_id,name,designation,role,email,subjects_can_teach,max_hours_per_week) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+      [deptId, name, designation||'', role||'faculty', email||'', JSON.stringify(subjectsArray), maxHours]
     );
     res.json({ id: result.rows[0].id, message: 'Faculty created' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -630,13 +631,14 @@ router.put('/faculty/:id', requireAuth, async (req, res) => {
     const deptId = getDeptId(req);
     if (!(await verifyDeptOwnership('faculty', req.params.id, deptId)))
       return res.status(403).json({ error: 'Faculty does not belong to your department' });
-    const { name, designation, role, email, subjects_can_teach } = req.body;
+    const { name, designation, role, email, subjects_can_teach, max_hours_per_week } = req.body;
     // Normalize to array of integers
     const subjectsArray = Array.isArray(subjects_can_teach)
       ? subjects_can_teach.map(id => parseInt(id)).filter(id => !isNaN(id))
       : [];
-    await run('UPDATE faculty SET name=$1,designation=$2,role=$3,email=$4,subjects_can_teach=$5 WHERE id=$6',
-      [name, designation, role, email, JSON.stringify(subjectsArray), req.params.id]);
+    const maxHours = parseInt(max_hours_per_week) || 0;
+    await run('UPDATE faculty SET name=$1,designation=$2,role=$3,email=$4,subjects_can_teach=$5,max_hours_per_week=$6 WHERE id=$7',
+      [name, designation, role, email, JSON.stringify(subjectsArray), maxHours, req.params.id]);
     res.json({ message: 'Faculty updated' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1689,6 +1691,20 @@ router.post('/generate', requireAuth, async (req, res) => {
     const markRoom      = (d,s,r) => { const k=`${d}_${s}`; if(!roomBusy[k]) roomBusy[k]=new Set(); roomBusy[k].add(r); };
     const shuffle = a => { const b=[...a]; for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];} return b; };
 
+    // Global faculty load counter — persists across ALL sections in one run.
+    // Counts every theory slot assigned to each faculty member.
+    const facultyTheoryCount = Object.fromEntries(allFaculty.map(f => [f.id, 0]));
+
+    // Returns true if faculty has a max_hours_per_week set AND has already reached it.
+    // max_hours_per_week = 0 means no limit.
+    const isFacultyOverLoaded = (facId) => {
+      const f = allFaculty.find(f => f.id === facId);
+      if (!f) return false;
+      const max = parseInt(f.max_hours_per_week) || 0;
+      if (max === 0) return false;  // no limit defined
+      return (facultyTheoryCount[facId] || 0) >= max;
+    };
+
     // Track which faculty have already been assigned to each subject across sections.
     // Prevents the same faculty from teaching the same subject in multiple sections.
     // key: subjectId → Set<facultyId>
@@ -1984,7 +2000,6 @@ router.post('/generate', requireAuth, async (req, res) => {
 
       const daySubjects = Object.fromEntries(days.map(d => [d, new Set()]));
       const preferredRoomId = sectionRoomMap[section.id];
-      const facultyTheoryCount = Object.fromEntries(allFaculty.map(f => [f.id, 0]));
 
       // ── Pre-place theory_batch_slot pinned entries ─────────────────────────
       // Each constraint row = one batch (value = batch name e.g. "A","B","C").
@@ -2054,13 +2069,22 @@ router.post('/generate', requireAuth, async (req, res) => {
             }
           }
           if (!chosenF) {
-            const eligible = allFaculty.filter(f => canTeach(f, pinSubj.id));
+            const eligible = allFaculty.filter(f => canTeach(f, pinSubj.id) && !isFacultyOverLoaded(f.id));
             chosenF = shuffle(eligible)
               .find(f =>
                 isFacultyFree(pinDay, pinSlotId, f.id) &&
                 !isFacultyUnavailable(pinDay, pinSlotId, f.id) &&
                 !usedFacIds.has(f.id)
               ) || null;
+            // Fall back to any canTeach faculty if all under-limit are busy at this slot
+            if (!chosenF) {
+              chosenF = shuffle(allFaculty.filter(f => canTeach(f, pinSubj.id)))
+                .find(f =>
+                  isFacultyFree(pinDay, pinSlotId, f.id) &&
+                  !isFacultyUnavailable(pinDay, pinSlotId, f.id) &&
+                  !usedFacIds.has(f.id)
+                ) || null;
+            }
           }
           if (chosenF) usedFacIds.add(chosenF.id);
 
@@ -2136,7 +2160,7 @@ router.post('/generate', requireAuth, async (req, res) => {
           for (const slot of shuffledFree) {
             const key = `${day}_${slot.id}`;
 
-            // Find eligible faculty — respect subject-lock and unavailability constraints
+            // Find eligible faculty — respect subject-lock, unavailability, and load cap
             const lockedF = getLockedFaculty(subj.id, section.id);
             let chosenF;
             if (lockedF) {
@@ -2145,17 +2169,27 @@ router.post('/generate', requireAuth, async (req, res) => {
                 ? lockedF : null;
             } else {
               const eligible = allFaculty.filter(f =>
-                canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id)
+                canTeach(f, subj.id) &&
+                !isSubjectFacultyUsed(subj.id, f.id, section.id) &&
+                !isFacultyOverLoaded(f.id)
               );
               const candidateFaculty = shuffle(eligible)
                 .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id]);
               chosenF = candidateFaculty.find(f =>
                 isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id)
               );
-              // If all unassigned-elsewhere faculty are busy at this slot, fall back to any eligible
+              // Fall back to any eligible (ignore load cap) if all under-limit faculty are busy at this slot
               if (!chosenF) {
-                const fallback = allFaculty.filter(f => canTeach(f, subj.id));
+                const fallback = allFaculty.filter(f =>
+                  canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id)
+                );
                 chosenF = shuffle(fallback)
+                  .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id])
+                  .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+              }
+              // Last resort: any canTeach faculty
+              if (!chosenF) {
+                chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id)))
                   .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id])
                   .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
               }
@@ -2192,7 +2226,7 @@ router.post('/generate', requireAuth, async (req, res) => {
             if (forcePlaced) break;
             const freeSlots = shuffle(filteredSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`)));
             for (const slot of freeSlots) {
-              // Respect subject-lock and unavailability constraints in force-place too
+              // Respect subject-lock, unavailability, and load cap in force-place too
               const lockedF2 = getLockedFaculty(subj.id, section.id);
               let chosenF;
               if (lockedF2) {
@@ -2200,11 +2234,19 @@ router.post('/generate', requireAuth, async (req, res) => {
                   ? lockedF2 : null;
               } else {
                 const eligible = allFaculty.filter(f =>
-                  canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id)
+                  canTeach(f, subj.id) &&
+                  !isSubjectFacultyUsed(subj.id, f.id, section.id) &&
+                  !isFacultyOverLoaded(f.id)
                 );
                 chosenF = shuffle(eligible)
                   .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
-                // Fall back to any eligible faculty if all unused-elsewhere are busy
+                // Fall back ignoring load cap if all under-limit are busy
+                if (!chosenF) {
+                  chosenF = shuffle(allFaculty.filter(f =>
+                    canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id)
+                  )).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+                }
+                // Last resort: any canTeach faculty
                 if (!chosenF) {
                   chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id)))
                     .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));

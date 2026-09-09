@@ -345,6 +345,18 @@ async function initializeDatabase() {
     console.log('✅ Migrated subjects: added preferred_lab_room_id column');
   }
 
+  // Add max_hours_per_week column to faculty if missing (0 = no limit)
+  const facMaxHoursExists = await queryOne(`
+    SELECT EXISTS (
+      SELECT FROM information_schema.columns
+      WHERE table_name = 'faculty' AND column_name = 'max_hours_per_week'
+    ) as exists
+  `);
+  if (!facMaxHoursExists.exists) {
+    await run(`ALTER TABLE faculty ADD COLUMN max_hours_per_week INTEGER NOT NULL DEFAULT 0`);
+    console.log('✅ Migrated faculty: added max_hours_per_week column (0 = no limit)');
+  }
+
   // Add preferred_lab_room_ids (JSON array of room IDs) column to subjects if missing
   const subjLabRoomIdsExists = await queryOne(`
     SELECT EXISTS (
