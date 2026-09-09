@@ -2716,6 +2716,49 @@ router.post('/clear', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// NULL-out faculty_id and room_id on timetable entries (keeps slot structure, clears assignments)
+router.post('/clear-assignments', requireAuth, async (req, res) => {
+  try {
+    const { scope, year_id, section_id } = req.body;
+    const deptId = getDeptId(req);
+
+    let secIds = [];
+    if (scope === 'section' && section_id) {
+      if (!(await verifyDeptOwnership('sections', section_id, deptId)))
+        return res.status(403).json({ error: 'Section not in your department' });
+      secIds = [section_id];
+    } else if (scope === 'year' && year_id) {
+      if (!(await verifyDeptOwnership('years', year_id, deptId)))
+        return res.status(403).json({ error: 'Year not in your department' });
+      const secs = await query('SELECT id FROM sections WHERE year_id=$1', [year_id]);
+      secIds = secs.map(s => s.id);
+    } else if (scope === 'years' && Array.isArray(req.body.year_ids) && req.body.year_ids.length) {
+      const yearIds = req.body.year_ids.map(Number).filter(id => !isNaN(id));
+      for (const yId of yearIds) {
+        if (!(await verifyDeptOwnership('years', yId, deptId)))
+          return res.status(403).json({ error: `Year ${yId} not in your department` });
+      }
+      const secs = await query(`SELECT id FROM sections WHERE year_id = ANY($1::int[])`, [yearIds]);
+      secIds = secs.map(s => s.id);
+    } else {
+      const secs = await query(
+        'SELECT s.id FROM sections s JOIN years y ON s.year_id=y.id WHERE y.department_id=$1', [deptId]
+      );
+      secIds = secs.map(s => s.id);
+    }
+
+    if (!secIds.length) return res.json({ success: true, message: 'No sections found — nothing to clear.' });
+
+    const result = await run(
+      `UPDATE timetable_entries SET faculty_id = NULL, room_id = NULL
+       WHERE section_id = ANY($1::int[])`,
+      [secIds]
+    );
+    const count = result.rowCount || 0;
+    res.json({ success: true, message: `Cleared assignments on ${count} entry(ies) across ${secIds.length} section(s). Slot structure is preserved.` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // =============================================================================
 // ==================== VALIDATION =============================================
 // =============================================================================

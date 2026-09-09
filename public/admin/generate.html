@@ -167,7 +167,15 @@
               <button class="btn btn-warning btn-lg" onclick="clearTimetable()" id="clearBtn">
                 🗑️ Clear Timetable
               </button>
+              <button class="btn btn-outline btn-lg" onclick="clearToNull()" id="clearNullBtn"
+                style="border-color:#e65100;color:#e65100;">
+                🔲 Clear Assignments to NULL
+              </button>
             </div>
+            <p style="font-size:0.78rem;color:#888;margin-top:8px;">
+              <strong>Clear Timetable</strong> — deletes all entries for the selected scope.<br>
+              <strong>Clear Assignments to NULL</strong> — keeps the slot structure but removes faculty &amp; room from every entry (useful for reassigning without regenerating).
+            </p>
           </div>
 
         </div>
@@ -404,7 +412,7 @@
       return body;
     }
 
-    const ALL_BTN_IDS = ['generateBtn','resetBtn','generateWeekdaysBtn','resetWeekdaysBtn','clearBtn'];
+    const ALL_BTN_IDS = ['generateBtn','resetBtn','generateWeekdaysBtn','resetWeekdaysBtn','clearBtn','clearNullBtn'];
 
     function setLoading(loading, msg = 'Generating...') {
       ALL_BTN_IDS.forEach(id => {
@@ -527,6 +535,28 @@
       });
       const data = await res.json();
       showResult(`<div class="alert alert-info">🗑️ ${data.message}</div>`);
+    }
+
+    async function clearToNull() {
+      const body = getRequestBody('all_week');
+      const scopeLabel = body.scope === 'section' ? 'the selected section'
+        : (body.scope === 'year' || body.scope === 'years') ? 'the selected year(s)'
+        : 'all sections';
+      if (!confirm(`Clear all faculty & room assignments for ${scopeLabel}?\n\nSlot structure is kept — only faculty and room will be set to NULL.`)) return;
+      setLoading(true, 'Clearing assignments…');
+      try {
+        const res  = await fetch('/api/admin/clear-assignments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        setLoading(false);
+        showResult(`<div class="alert alert-info">🔲 ${data.message}</div>`);
+      } catch (err) {
+        setLoading(false);
+        showResult(`<div class="alert alert-error">❌ ${err.message}</div>`);
+      }
     }
 
     function showResult(html) {
