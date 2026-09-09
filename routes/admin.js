@@ -1726,6 +1726,17 @@ router.post('/generate', requireAuth, async (req, res) => {
       return !!(subjectFacultyUsed[subjId]?.has(facId));
     };
 
+    // Track which single faculty has been chosen for each subject within a section.
+    // key: "sectionId|subjectId" → facultyId
+    // Once a faculty is picked for subject X in section S, ALL remaining tokens
+    // for that subject in that section must reuse the same faculty.
+    const sectionSubjectFacultyMap = {};
+    const getSectionSubjectFaculty = (sectionId, subjId) =>
+      sectionSubjectFacultyMap[`${sectionId}|${subjId}`] ?? null;
+    const setSectionSubjectFaculty = (sectionId, subjId, facId) => {
+      sectionSubjectFacultyMap[`${sectionId}|${subjId}`] = facId;
+    };
+
     // Normalize subjects_can_teach to string IDs for reliable matching
     const canTeach = (f, subjId) => {
       try {
@@ -2168,32 +2179,43 @@ router.post('/generate', requireAuth, async (req, res) => {
               chosenF = (isFacultyFree(day, slot.id, lockedF.id) && !isFacultyUnavailable(day, slot.id, lockedF.id))
                 ? lockedF : null;
             } else {
-              const eligible = allFaculty.filter(f =>
-                canTeach(f, subj.id) &&
-                !isSubjectFacultyUsed(subj.id, f.id, section.id) &&
-                !isFacultyOverLoaded(f.id)
-              );
-              const candidateFaculty = shuffle(eligible)
-                .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id]);
-              chosenF = candidateFaculty.find(f =>
-                isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id)
-              );
-              // Fall back to any eligible (ignore load cap) if all under-limit faculty are busy at this slot
-              if (!chosenF) {
-                const fallback = allFaculty.filter(f =>
-                  canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id)
+              // If this subject already has a chosen faculty for this section, reuse them
+              const alreadyChosenId = getSectionSubjectFaculty(section.id, subj.id);
+              if (alreadyChosenId !== null) {
+                const alreadyChosen = allFaculty.find(f => f.id === alreadyChosenId);
+                chosenF = (alreadyChosen &&
+                  isFacultyFree(day, slot.id, alreadyChosen.id) &&
+                  !isFacultyUnavailable(day, slot.id, alreadyChosen.id))
+                  ? alreadyChosen : null;
+                // If reuse faculty is busy at this slot, skip — don't assign a different faculty
+              } else {
+                const eligible = allFaculty.filter(f =>
+                  canTeach(f, subj.id) &&
+                  !isSubjectFacultyUsed(subj.id, f.id, section.id) &&
+                  !isFacultyOverLoaded(f.id)
                 );
-                chosenF = shuffle(fallback)
-                  .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id])
-                  .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
-              }
-              // Last resort: any canTeach faculty
-              if (!chosenF) {
-                chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id)))
-                  .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id])
-                  .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
-              }
-            }
+                const candidateFaculty = shuffle(eligible)
+                  .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id]);
+                chosenF = candidateFaculty.find(f =>
+                  isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id)
+                );
+                // Fall back to any eligible (ignore load cap) if all under-limit faculty are busy at this slot
+                if (!chosenF) {
+                  const fallback = allFaculty.filter(f =>
+                    canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id)
+                  );
+                  chosenF = shuffle(fallback)
+                    .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id])
+                    .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+                }
+                // Last resort: any canTeach faculty
+                if (!chosenF) {
+                  chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id)))
+                    .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id])
+                    .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+                }
+              } // end else (first assignment for this section+subject)
+            } // end else (no locked faculty)
             if (!chosenF) continue;
 
             const preferred = classrooms.find(r => r.id === preferredRoomId);
@@ -2212,6 +2234,7 @@ router.post('/generate', requireAuth, async (req, res) => {
             daySubjects[day].add(subj.id);
             dayLoad[day]++;
             facultyTheoryCount[chosenF.id]++;
+            setSectionSubjectFaculty(section.id, subj.id, chosenF.id);
             markSubjectFaculty(subj.id, chosenF.id);
             pi++;
             placed = true;
@@ -2233,23 +2256,33 @@ router.post('/generate', requireAuth, async (req, res) => {
                 chosenF = (isFacultyFree(day, slot.id, lockedF2.id) && !isFacultyUnavailable(day, slot.id, lockedF2.id))
                   ? lockedF2 : null;
               } else {
-                const eligible = allFaculty.filter(f =>
-                  canTeach(f, subj.id) &&
-                  !isSubjectFacultyUsed(subj.id, f.id, section.id) &&
-                  !isFacultyOverLoaded(f.id)
-                );
-                chosenF = shuffle(eligible)
-                  .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
-                // Fall back ignoring load cap if all under-limit are busy
-                if (!chosenF) {
-                  chosenF = shuffle(allFaculty.filter(f =>
-                    canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id)
-                  )).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
-                }
-                // Last resort: any canTeach faculty
-                if (!chosenF) {
-                  chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id)))
+                // Reuse already-chosen faculty for this section+subject if set
+                const alreadyChosenId2 = getSectionSubjectFaculty(section.id, subj.id);
+                if (alreadyChosenId2 !== null) {
+                  const alreadyChosen2 = allFaculty.find(f => f.id === alreadyChosenId2);
+                  chosenF = (alreadyChosen2 &&
+                    isFacultyFree(day, slot.id, alreadyChosen2.id) &&
+                    !isFacultyUnavailable(day, slot.id, alreadyChosen2.id))
+                    ? alreadyChosen2 : null;
+                } else {
+                  const eligible = allFaculty.filter(f =>
+                    canTeach(f, subj.id) &&
+                    !isSubjectFacultyUsed(subj.id, f.id, section.id) &&
+                    !isFacultyOverLoaded(f.id)
+                  );
+                  chosenF = shuffle(eligible)
                     .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+                  // Fall back ignoring load cap if all under-limit are busy
+                  if (!chosenF) {
+                    chosenF = shuffle(allFaculty.filter(f =>
+                      canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id)
+                    )).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+                  }
+                  // Last resort: any canTeach faculty
+                  if (!chosenF) {
+                    chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id)))
+                      .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+                  }
                 }
               }
               if (!chosenF) continue;
@@ -2268,6 +2301,7 @@ router.post('/generate', requireAuth, async (req, res) => {
               daySubjects[day].add(subj.id);
               dayLoad[day]++;
               facultyTheoryCount[chosenF.id]++;
+              setSectionSubjectFaculty(section.id, subj.id, chosenF.id);
               markSubjectFaculty(subj.id, chosenF.id);
               pi++;
               forcePlaced = true;
