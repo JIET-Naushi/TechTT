@@ -1146,19 +1146,6 @@ router.post('/resolve-conflict', requireAuth, async (req, res) => {
 
     // Find duplicates: for each faculty_id or room_id that appears more than once,
     // keep the first entry (lowest id) and null-out the faculty/room in the rest
-    const facultyMap = {};
-    const roomMap = {};
-    for (const e of entries) {
-      if (e.faculty_id) {
-        if (!facultyMap[e.faculty_id]) facultyMap[e.faculty_id] = [];
-        facultyMap[e.faculty_id].push(e.id);
-      }
-      if (e.room_id) {
-        if (!roomMap[e.room_id]) roomMap[e.room_id].push(e.id);
-        else roomMap[e.room_id].push(e.id);
-      }
-    }
-    // Build map properly
     const fMap = {}, rMap = {};
     for (const e of entries) {
       if (e.faculty_id) { if (!fMap[e.faculty_id]) fMap[e.faculty_id] = []; fMap[e.faculty_id].push(e.id); }
