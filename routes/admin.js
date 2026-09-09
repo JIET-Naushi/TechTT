@@ -1820,7 +1820,7 @@ router.post('/generate', requireAuth, async (req, res) => {
     const sectionRoomMap = {};
     sections.forEach((sec, idx) => {
       if (sec.preferred_room_id) {
-        // Use the admin-specified preferred room if it's a valid classroom in this dept
+        // Use the admin-specified preferred room (any type) if it belongs to this dept
         const room = allRooms.find(r => r.id === parseInt(sec.preferred_room_id));
         if (room) { sectionRoomMap[sec.id] = room.id; return; }
       }
@@ -2320,7 +2320,7 @@ router.post('/generate', requireAuth, async (req, res) => {
             } // end else (no locked faculty)
             if (!chosenF) continue;
 
-            const preferred = classrooms.find(r => r.id === preferredRoomId);
+            const preferred = allRooms.find(r => r.id === preferredRoomId);
             const chosenR = (preferred && isRoomFree(day, slot.id, preferred.id))
               ? preferred
               : shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
@@ -2388,7 +2388,7 @@ router.post('/generate', requireAuth, async (req, res) => {
                 }
               }
               if (!chosenF) continue;
-              const preferred = classrooms.find(r => r.id === preferredRoomId);
+              const preferred = allRooms.find(r => r.id === preferredRoomId);
               const chosenR = (preferred && isRoomFree(day, slot.id, preferred.id))
                 ? preferred
                 : shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
@@ -2638,7 +2638,7 @@ router.post('/generate', requireAuth, async (req, res) => {
                 }
               }
               if (!cF2) continue;
-              const pref2 = classrooms.find(r=>r.id===prefR2);
+              const pref2 = allRooms.find(r=>r.id===prefR2);
               const cR2 = (pref2&&isRoomFree(day,slot.id,pref2.id)) ? pref2 : shuffle([...classrooms]).find(r=>isRoomFree(day,slot.id,r.id));
               if (!cR2) continue;
               await run('INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
