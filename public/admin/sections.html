@@ -227,8 +227,8 @@
               style="font-size:0.72rem;padding:2px 6px;border:1.5px solid #c5cae9;border-radius:4px;max-width:140px;cursor:pointer;"
               onchange="savePreferredRoom(${s.id}, this.value)">
               <option value="">Auto-assign</option>
-              ${allRooms.filter(r => r.type === 'classroom').map(r =>
-                `<option value="${r.id}" ${r.id === s.preferred_room_id ? 'selected' : ''}>${r.name}</option>`
+              ${allRooms.map(r =>
+                `<option value="${r.id}" ${r.id === s.preferred_room_id ? 'selected' : ''}>${r.name}${r.type === 'lab' ? ' (Lab)' : ''}</option>`
               ).join('')}
             </select>
           </div>

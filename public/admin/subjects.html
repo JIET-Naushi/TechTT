@@ -259,7 +259,8 @@
         category: document.getElementById('subjectCategory').value,
         credits: parseInt(document.getElementById('subjectCredits').value),
         hours_per_week: parseInt(document.getElementById('subjectHours').value),
-        preferred_lab_room_id: document.getElementById('subjectLabRoom').value || null
+        preferred_lab_room_id: document.getElementById('subjectLabRoom').value || null,
+        department_id: deptId
       };
       const url = id ? `/api/admin/subjects/${id}` : '/api/admin/subjects';
       const method = id ? 'PUT' : 'POST';
