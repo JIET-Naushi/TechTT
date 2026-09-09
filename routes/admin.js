@@ -2576,9 +2576,15 @@ router.post('/generate', requireAuth, async (req, res) => {
         for (const subj of capped2) for (let i=0;i<(subj.hours_per_week||1);i++) tokens2.push(subj);
         tokens2 = shuffle(tokens2);
         const daySubj2 = Object.fromEntries(days.map(d=>[d,new Set()]));
-        const fThCnt2  = Object.fromEntries(allFaculty.map(f=>[f.id,0]));
         const tgt2     = Math.ceil(tokens2.length/days.length);
         const prefR2   = sectionRoomMap[section.id];
+
+        // Clear any previous section+subject faculty assignments for this section before retry
+        // so the retry picks fresh (but then consistent) faculty per subject
+        for (const subj of capped2) {
+          delete sectionSubjectFacultyMap[`${section.id}|${subj.id}`];
+        }
+
         let p2=0, att2=0;
         while (p2<tokens2.length && att2<tokens2.length*days.length*filteredSlots.length*2) {
           att2++;
@@ -2591,9 +2597,41 @@ router.post('/generate', requireAuth, async (req, res) => {
             if (dLoad2[day]>=tgt2+1 && sDays2.some(d=>dLoad2[d]<tgt2)) continue;
             const fSlots2 = shuffle(filteredSlots.filter(sl=>!used2.has(`${day}_${sl.id}`)));
             for (const slot of fSlots2) {
-              const elig2 = allFaculty.filter(f => canTeach(f, subj.id));
-              const cF2 = shuffle(elig2).sort((a,b)=>fThCnt2[a.id]-fThCnt2[b.id])
-                .find(f=>isFacultyFree(day,slot.id,f.id) && !isFacultyUnavailable(day,slot.id,f.id));
+              const lockedF2r = getLockedFaculty(subj.id, section.id);
+              let cF2;
+              if (lockedF2r) {
+                cF2 = (isFacultyFree(day,slot.id,lockedF2r.id) && !isFacultyUnavailable(day,slot.id,lockedF2r.id))
+                  ? lockedF2r : null;
+              } else {
+                // Reuse already-chosen faculty for this section+subject if set
+                const retryChosenId = getSectionSubjectFaculty(section.id, subj.id);
+                if (retryChosenId !== null) {
+                  const retryCF = allFaculty.find(f => f.id === retryChosenId);
+                  cF2 = (retryCF &&
+                    isFacultyFree(day, slot.id, retryCF.id) &&
+                    !isFacultyUnavailable(day, slot.id, retryCF.id))
+                    ? retryCF : null;
+                } else {
+                  const elig2 = allFaculty.filter(f =>
+                    canTeach(f, subj.id) &&
+                    !isSubjectFacultyUsed(subj.id, f.id, section.id) &&
+                    !isFacultyOverLoaded(f.id)
+                  );
+                  cF2 = shuffle(elig2).sort((a,b)=>facultyTheoryCount[a.id]-facultyTheoryCount[b.id])
+                    .find(f=>isFacultyFree(day,slot.id,f.id) && !isFacultyUnavailable(day,slot.id,f.id));
+                  if (!cF2) {
+                    cF2 = shuffle(allFaculty.filter(f =>
+                      canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id)
+                    )).sort((a,b)=>facultyTheoryCount[a.id]-facultyTheoryCount[b.id])
+                      .find(f=>isFacultyFree(day,slot.id,f.id) && !isFacultyUnavailable(day,slot.id,f.id));
+                  }
+                  if (!cF2) {
+                    cF2 = shuffle(allFaculty.filter(f => canTeach(f, subj.id)))
+                      .sort((a,b)=>facultyTheoryCount[a.id]-facultyTheoryCount[b.id])
+                      .find(f=>isFacultyFree(day,slot.id,f.id) && !isFacultyUnavailable(day,slot.id,f.id));
+                  }
+                }
+              }
               if (!cF2) continue;
               const pref2 = classrooms.find(r=>r.id===prefR2);
               const cR2 = (pref2&&isRoomFree(day,slot.id,pref2.id)) ? pref2 : shuffle([...classrooms]).find(r=>isRoomFree(day,slot.id,r.id));
@@ -2602,7 +2640,10 @@ router.post('/generate', requireAuth, async (req, res) => {
                 [section.id,slot.id,day,subj.id,cF2.id,cR2.id]);
               markFaculty(day,slot.id,cF2.id); markRoom(day,slot.id,cR2.id);
               used2.add(`${day}_${slot.id}`); daySubj2[day].add(subj.id);
-              dLoad2[day]++; fThCnt2[cF2.id]++; p2++; placed2b=true; break;
+              dLoad2[day]++; facultyTheoryCount[cF2.id]++;
+              setSectionSubjectFaculty(section.id, subj.id, cF2.id);
+              markSubjectFaculty(subj.id, cF2.id);
+              p2++; placed2b=true; break;
             }
           }
           if (!placed2b) p2++;
