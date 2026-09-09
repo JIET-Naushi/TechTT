@@ -557,14 +557,14 @@ router.put('/change-credentials', requireAuth, async (req, res) => {
 
 router.post('/subjects', requireAuth, async (req, res) => {
   try {
-    const { year_id, name, code, type, category, credits, hours_per_week } = req.body;
+    const { year_id, name, code, type, category, credits, hours_per_week, preferred_lab_room_id } = req.body;
     if (!year_id || !name) return res.status(400).json({ error: 'year_id and name required' });
     const deptId = getDeptId(req);
     if (!(await verifyDeptOwnership('years', year_id, deptId)))
       return res.status(403).json({ error: 'Year does not belong to your department' });
     const result = await run(
-      'INSERT INTO subjects (year_id,name,code,type,category,credits,hours_per_week) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
-      [year_id, name, code||'', type||'theory', category||'regular', credits||3, hours_per_week||3]
+      'INSERT INTO subjects (year_id,name,code,type,category,credits,hours_per_week,preferred_lab_room_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
+      [year_id, name, code||'', type||'theory', category||'regular', credits||3, hours_per_week||3, preferred_lab_room_id||null]
     );
     res.json({ id: result.rows[0].id, message: 'Subject created' });
   } catch (err) { res.status(500).json({ error: err.message }); }
