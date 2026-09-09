@@ -233,7 +233,15 @@
         box.innerHTML = '<div class="alert alert-success">✅ No conflicts detected!</div>';
       } else {
         box.innerHTML = `<div class="alert alert-error">⚠️ ${conflicts.length} conflict(s) found:</div>` +
-          conflicts.slice(0, 5).map(c => `<div class="alert alert-warning" style="margin-bottom:6px;font-size:0.82rem;">${c.message}</div>`).join('') +
+          conflicts.slice(0, 5).map(c => {
+          const label = c.type === 'faculty' ? '👤 Faculty' : '🏫 Room';
+          const entries = (c.faculty_entries || c.room_entries || []);
+          const sections = entries.map(e => e.section_name).filter(Boolean).join(', ');
+          return `<div class="alert alert-warning" style="margin-bottom:6px;font-size:0.82rem;">
+            ${label} conflict: <strong>${c.resource_name || '—'}</strong> on <strong>${c.day}</strong> at ${c.time || ''}
+            ${sections ? `— Sections: ${sections}` : ''}
+          </div>`;
+        }).join('') +
           (conflicts.length > 5 ? `<p class="text-muted">...and ${conflicts.length - 5} more</p>` : '');
       }
     }

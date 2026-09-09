@@ -94,6 +94,32 @@
     </div>
   </div>
 
+  <!-- Subject Assignment Modal -->
+  <div class="modal-overlay" id="subjectAssignModal">
+    <div class="modal" style="max-width:620px;max-height:90vh;overflow-y:auto;">
+      <div class="modal-header">
+        <div class="modal-title" id="subjectAssignTitle">Assign Subjects to Section</div>
+        <button class="modal-close" onclick="closeSubjectAssignModal()">×</button>
+      </div>
+      <div style="padding:4px 0 14px;">
+        <p style="font-size:0.83rem;color:#555;margin-bottom:12px;">
+          Tick the subjects this section should receive during auto-generation.<br>
+          <strong>If none are ticked, the section gets all subjects for its year</strong> (default behaviour).
+        </p>
+        <div id="subjectAssignContent" style="min-height:60px;">
+          <p class="text-muted text-center">Loading…</p>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content:space-between;">
+        <button class="btn btn-danger btn-sm" onclick="clearSectionSubjects()">🗑 Clear All (use year defaults)</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-secondary" onclick="closeSubjectAssignModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="saveSectionSubjects()">💾 Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     fetch('/api/auth/status').then(r => r.json()).then(d => {
       if (!d.loggedIn) { location.href = '/login.html'; return; }
@@ -218,6 +244,9 @@
             <button class="btn btn-sm" title="Assign faculty to each lab batch"
               onclick="openLabModal(${s.id}, '${y.display_name} – Section ${s.name}')"
               style="font-size:0.7rem;padding:2px 8px;background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;">🧑‍🔬 Lab Faculty</button>
+            <button class="btn btn-sm" title="Assign subjects for this section (generation)"
+              onclick="openSubjectAssignModal(${s.id}, '${y.display_name} – Section ${s.name}', ${y.id})"
+              style="font-size:0.7rem;padding:2px 8px;background:#fff3e0;color:#e65100;border:1px solid #ffcc80;">📚 Subjects</button>
           </div>
 
           <!-- Preferred classroom for theory slots -->
@@ -401,6 +430,108 @@
     }
 
     async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login.html'; }
+
+    // =====================================================================
+    // SUBJECT ASSIGNMENT MODAL
+    // =====================================================================
+    let currentSubjectAssignSectionId = null;
+    let currentSubjectAssignYearId    = null;
+    let allYearSubjects = []; // subjects for the year of the open section
+
+    async function openSubjectAssignModal(sectionId, title, yearId) {
+      currentSubjectAssignSectionId = sectionId;
+      currentSubjectAssignYearId    = yearId;
+      document.getElementById('subjectAssignTitle').textContent = `📚 Subjects — ${title}`;
+      document.getElementById('subjectAssignModal').classList.add('active');
+      document.getElementById('subjectAssignContent').innerHTML = '<p class="text-muted text-center">Loading…</p>';
+
+      const [allRes, assignedRes] = await Promise.all([
+        fetch(`/api/subjects?year_id=${yearId}`),
+        fetch(`/api/admin/section-subjects/${sectionId}`)
+      ]);
+      allYearSubjects = await allRes.json();
+      const assigned  = await assignedRes.json();
+      const assignedIds = new Set(assigned.map(s => s.subject_id));
+
+      if (!allYearSubjects.length) {
+        document.getElementById('subjectAssignContent').innerHTML =
+          '<p class="text-muted text-center">No subjects found for this year.</p>';
+        return;
+      }
+
+      // Group by type
+      const theory = allYearSubjects.filter(s => s.type !== 'lab');
+      const labs   = allYearSubjects.filter(s => s.type === 'lab');
+
+      const renderGroup = (label, subjects) => !subjects.length ? '' : `
+        <div style="font-size:0.75rem;font-weight:700;color:#1a237e;text-transform:uppercase;
+          letter-spacing:.4px;border-bottom:1px solid #e8eaf6;padding-bottom:4px;margin:10px 0 6px;">
+          ${label}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
+          ${subjects.map(s => `
+            <label style="display:flex;align-items:center;gap:7px;font-size:0.83rem;cursor:pointer;
+              padding:4px 6px;border-radius:4px;${assignedIds.has(s.id) ? 'background:#fff3e0;' : ''}">
+              <input type="checkbox" class="subj-assign-cb" value="${s.id}"
+                ${assignedIds.has(s.id) ? 'checked' : ''}
+                onchange="this.closest('label').style.background=this.checked?'#fff3e0':''">
+              <span>${s.name}${s.category==='btu'
+                ? ' <span style="font-size:0.68rem;background:#fff3cd;color:#856404;padding:1px 5px;border-radius:8px;">BTU</span>' : ''}
+              </span>
+            </label>`).join('')}
+        </div>`;
+
+      document.getElementById('subjectAssignContent').innerHTML =
+        `<div style="margin-bottom:6px;display:flex;gap:8px;">
+           <button class="btn btn-outline btn-sm" onclick="toggleAllSubjectCbs(true)">✅ Select All</button>
+           <button class="btn btn-outline btn-sm" onclick="toggleAllSubjectCbs(false)">⬜ Deselect All</button>
+         </div>` +
+        renderGroup('Theory Subjects', theory) +
+        renderGroup('Lab Subjects', labs);
+    }
+
+    function toggleAllSubjectCbs(state) {
+      document.querySelectorAll('.subj-assign-cb').forEach(cb => {
+        cb.checked = state;
+        cb.closest('label').style.background = state ? '#fff3e0' : '';
+      });
+    }
+
+    function closeSubjectAssignModal() {
+      document.getElementById('subjectAssignModal').classList.remove('active');
+    }
+
+    async function saveSectionSubjects() {
+      const ids = Array.from(document.querySelectorAll('.subj-assign-cb:checked'))
+        .map(cb => parseInt(cb.value));
+      const res = await fetch(`/api/admin/section-subjects/${currentSubjectAssignSectionId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject_ids: ids, department_id: deptId })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showAlert(ids.length
+          ? `✅ ${ids.length} subject(s) assigned to section`
+          : '✅ Cleared — section will use all year subjects', 'success');
+        closeSubjectAssignModal();
+      } else {
+        showAlert(data.error || 'Error saving', 'error');
+      }
+    }
+
+    async function clearSectionSubjects() {
+      if (!confirm('Remove all subject assignments? The section will use all year subjects during generation.')) return;
+      const res = await fetch(`/api/admin/section-subjects/${currentSubjectAssignSectionId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject_ids: [], department_id: deptId })
+      });
+      if (res.ok) {
+        showAlert('Cleared — section uses all year subjects', 'success');
+        closeSubjectAssignModal();
+      }
+    }
 
     // =====================================================================
     // LAB FACULTY ASSIGNMENT MODAL

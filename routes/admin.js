@@ -1236,6 +1236,79 @@ router.get('/lab-assignments/:sectionId', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// =============================================================================
+// ==================== SECTION SUBJECTS =======================================
+// =============================================================================
+
+// GET subjects assigned to a specific section (empty array = use all year subjects)
+router.get('/section-subjects/:sectionId', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('sections', req.params.sectionId, deptId)))
+      return res.status(403).json({ error: 'Section not in your department' });
+    const rows = await query(
+      `SELECT ss.subject_id, s.name, s.code, s.type, s.category, s.credits, s.hours_per_week
+       FROM section_subjects ss
+       JOIN subjects s ON ss.subject_id = s.id
+       WHERE ss.section_id = $1
+       ORDER BY s.type, s.name`,
+      [req.params.sectionId]
+    );
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST assign a subject to a section
+router.post('/section-subjects', requireAuth, async (req, res) => {
+  try {
+    const { section_id, subject_id } = req.body;
+    if (!section_id || !subject_id) return res.status(400).json({ error: 'section_id and subject_id required' });
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('sections', section_id, deptId)))
+      return res.status(403).json({ error: 'Section not in your department' });
+    if (!(await verifyDeptOwnership('subjects', subject_id, deptId)))
+      return res.status(403).json({ error: 'Subject not in your department' });
+    await run(
+      `INSERT INTO section_subjects (section_id, subject_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [section_id, subject_id]
+    );
+    res.json({ message: 'Subject assigned to section' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE remove a subject assignment from a section
+router.delete('/section-subjects/:sectionId/:subjectId', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('sections', req.params.sectionId, deptId)))
+      return res.status(403).json({ error: 'Section not in your department' });
+    await run(
+      `DELETE FROM section_subjects WHERE section_id=$1 AND subject_id=$2`,
+      [req.params.sectionId, req.params.subjectId]
+    );
+    res.json({ message: 'Subject removed from section' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT replace all subject assignments for a section at once
+router.put('/section-subjects/:sectionId', requireAuth, async (req, res) => {
+  try {
+    const deptId = getDeptId(req);
+    if (!(await verifyDeptOwnership('sections', req.params.sectionId, deptId)))
+      return res.status(403).json({ error: 'Section not in your department' });
+    const { subject_ids } = req.body; // array of ints, empty = use all
+    const ids = Array.isArray(subject_ids) ? subject_ids.map(Number).filter(id => !isNaN(id)) : [];
+    // Clear existing then re-insert
+    await run(`DELETE FROM section_subjects WHERE section_id=$1`, [req.params.sectionId]);
+    for (const subjId of ids) {
+      if (await verifyDeptOwnership('subjects', subjId, deptId))
+        await run(`INSERT INTO section_subjects (section_id, subject_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+          [req.params.sectionId, subjId]);
+    }
+    res.json({ message: `Section subjects updated (${ids.length} assigned)` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // UPSERT a single batch assignment
 // Validates that the same faculty is NOT assigned to multiple batches of the same subject
 router.post('/lab-assignments', requireAuth, async (req, res) => {
@@ -1770,7 +1843,20 @@ router.post('/generate', requireAuth, async (req, res) => {
     });
 
     for (const section of sections) {
-      const subjects = await query('SELECT * FROM subjects WHERE year_id=$1', [section.year_id]);
+      // Use section-specific subject list if defined; otherwise fall back to all year subjects
+      const sectionSubjectRows = await query(
+        'SELECT subject_id FROM section_subjects WHERE section_id=$1', [section.id]
+      );
+      let subjects;
+      if (sectionSubjectRows.length > 0) {
+        const ids = sectionSubjectRows.map(r => r.subject_id);
+        subjects = await query(
+          `SELECT * FROM subjects WHERE id = ANY($1::int[]) AND year_id=$2`,
+          [ids, section.year_id]
+        );
+      } else {
+        subjects = await query('SELECT * FROM subjects WHERE year_id=$1', [section.year_id]);
+      }
       if (!subjects.length) continue;
 
       const numSubsections = section.lab_subsections || 2;

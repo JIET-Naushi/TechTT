@@ -336,11 +336,11 @@
 
             <div class="actions">
               <button class="btn btn-secondary"
-                onclick="manualResolve('${c.day}', ${c.slot_id})">
+                onclick="manualResolve('${c.day}', ${c.slot_id ?? 0})">
                 ✏️ Manual Edit
               </button>
               <button class="btn-resolve"
-                onclick="autoResolveConflict('${c.day}', ${c.slot_id})">
+                onclick="autoResolveConflict('${c.day}', ${c.slot_id ?? 0})">
                 ⚡ Auto-Resolve
               </button>
             </div>
@@ -366,6 +366,7 @@
     }
 
     async function autoResolveConflict(day, slotId) {
+      if (!day || !slotId) { showAlert('Cannot resolve: missing day or slot information', 'error'); return; }
       if (!confirm(`Auto-resolve the ${day} conflict?\n\nThis removes duplicate entries, keeping only the first occurrence.`)) return;
       showAlert('Resolving...', 'info');
       try {

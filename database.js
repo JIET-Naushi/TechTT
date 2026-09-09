@@ -397,6 +397,18 @@ async function initializeDatabase() {
     )
   `);
 
+  // section_subjects: explicitly assigns which subjects a section receives during generation.
+  // If a section has NO rows here, it gets all year subjects (default behaviour).
+  // If it has ANY rows, it gets ONLY those subjects.
+  await run(`
+    CREATE TABLE IF NOT EXISTS section_subjects (
+      id SERIAL PRIMARY KEY,
+      section_id INTEGER NOT NULL REFERENCES sections(id) ON DELETE CASCADE,
+      subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+      UNIQUE(section_id, subject_id)
+    )
+  `);
+
   // Generation constraints: pre-assign faculty to theory subjects, block days/slots, etc.
   await run(`
     CREATE TABLE IF NOT EXISTS generation_constraints (
