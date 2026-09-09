@@ -344,6 +344,24 @@ async function initializeDatabase() {
     await run(`ALTER TABLE subjects ADD COLUMN preferred_lab_room_id INTEGER REFERENCES rooms(id) ON DELETE SET NULL`);
     console.log('✅ Migrated subjects: added preferred_lab_room_id column');
   }
+
+  // Add preferred_lab_room_ids (JSON array of room IDs) column to subjects if missing
+  const subjLabRoomIdsExists = await queryOne(`
+    SELECT EXISTS (
+      SELECT FROM information_schema.columns
+      WHERE table_name = 'subjects' AND column_name = 'preferred_lab_room_ids'
+    ) as exists
+  `);
+  if (!subjLabRoomIdsExists.exists) {
+    await run(`ALTER TABLE subjects ADD COLUMN preferred_lab_room_ids TEXT DEFAULT '[]'`);
+    // Migrate existing single preferred_lab_room_id values into the new array column
+    await run(`
+      UPDATE subjects
+      SET preferred_lab_room_ids = json_build_array(preferred_lab_room_id)::text
+      WHERE preferred_lab_room_id IS NOT NULL
+    `);
+    console.log('✅ Migrated subjects: added preferred_lab_room_ids column and backfilled from preferred_lab_room_id');
+  }
   await run(`
     INSERT INTO departments (name, code) 
     VALUES ('Department of Computer Science', 'CS')

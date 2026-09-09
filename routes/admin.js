@@ -557,14 +557,18 @@ router.put('/change-credentials', requireAuth, async (req, res) => {
 
 router.post('/subjects', requireAuth, async (req, res) => {
   try {
-    const { year_id, name, code, type, category, credits, hours_per_week, preferred_lab_room_id } = req.body;
+    const { year_id, name, code, type, category, credits, hours_per_week, preferred_lab_room_ids } = req.body;
     if (!year_id || !name) return res.status(400).json({ error: 'year_id and name required' });
     const deptId = getDeptId(req);
     if (!(await verifyDeptOwnership('years', year_id, deptId)))
       return res.status(403).json({ error: 'Year does not belong to your department' });
+    // Normalise to a JSON array of integers
+    const roomIds = Array.isArray(preferred_lab_room_ids)
+      ? preferred_lab_room_ids.map(id => parseInt(id)).filter(id => !isNaN(id))
+      : [];
     const result = await run(
-      'INSERT INTO subjects (year_id,name,code,type,category,credits,hours_per_week,preferred_lab_room_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
-      [year_id, name, code||'', type||'theory', category||'regular', credits||3, hours_per_week||3, preferred_lab_room_id||null]
+      'INSERT INTO subjects (year_id,name,code,type,category,credits,hours_per_week,preferred_lab_room_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
+      [year_id, name, code||'', type||'theory', category||'regular', credits||3, hours_per_week||3, JSON.stringify(roomIds)]
     );
     res.json({ id: result.rows[0].id, message: 'Subject created' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -575,9 +579,15 @@ router.put('/subjects/:id', requireAuth, async (req, res) => {
     const deptId = getDeptId(req);
     if (!(await verifyDeptOwnership('subjects', req.params.id, deptId)))
       return res.status(403).json({ error: 'Subject does not belong to your department' });
-    const { name, code, type, category, credits, hours_per_week, preferred_lab_room_id } = req.body;
-    await run('UPDATE subjects SET name=$1,code=$2,type=$3,category=$4,credits=$5,hours_per_week=$6,preferred_lab_room_id=$7 WHERE id=$8',
-      [name, code, type, category||'regular', credits, hours_per_week, preferred_lab_room_id||null, req.params.id]);
+    const { name, code, type, category, credits, hours_per_week, preferred_lab_room_ids } = req.body;
+    // Normalise to a JSON array of integers
+    const roomIds = Array.isArray(preferred_lab_room_ids)
+      ? preferred_lab_room_ids.map(id => parseInt(id)).filter(id => !isNaN(id))
+      : [];
+    await run(
+      'UPDATE subjects SET name=$1,code=$2,type=$3,category=$4,credits=$5,hours_per_week=$6,preferred_lab_room_ids=$7 WHERE id=$8',
+      [name, code, type, category||'regular', credits, hours_per_week, JSON.stringify(roomIds), req.params.id]
+    );
     res.json({ message: 'Subject updated' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1864,19 +1874,29 @@ router.post('/generate', requireAuth, async (req, res) => {
               if (!allFacultyFree) continue;
 
               // Find separate free lab rooms for each batch
-              // If the subject has a preferred_lab_room_id, try that first for the first available batch
+              // If the subject has preferred_lab_room_ids, try each preferred room (in order) first
               const usedLabIds = new Set();
               const batchRooms = [];
               let roomsOk = true;
               for (let bi = 0; bi < numSubsections; bi++) {
                 const token2 = sessionSubjects[bi];
-                const subjPrefLabRoomId = token2 ? parseInt(token2.subj.preferred_lab_room_id || 0) : 0;
+                // Parse the preferred rooms array for this batch's subject
+                let prefRoomIds = [];
+                if (token2) {
+                  try {
+                    const raw = token2.subj.preferred_lab_room_ids;
+                    prefRoomIds = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');
+                  } catch { prefRoomIds = []; }
+                  prefRoomIds = prefRoomIds.map(id => parseInt(id)).filter(id => !isNaN(id));
+                }
                 let availableLab = null;
-                // Try preferred lab room first (if set and free and not already used in another batch)
-                if (subjPrefLabRoomId && !usedLabIds.has(subjPrefLabRoomId)) {
-                  const prefRoom = labs.find(r => r.id === subjPrefLabRoomId);
+                // Try each preferred room in order — pick first that is free and not already used
+                for (const prefId of prefRoomIds) {
+                  if (usedLabIds.has(prefId)) continue;
+                  const prefRoom = labs.find(r => r.id === prefId);
                   if (prefRoom && candidate.every(sl => isRoomFree(day, sl.id, prefRoom.id))) {
                     availableLab = prefRoom;
+                    break;
                   }
                 }
                 // Fall back to least-used free lab room

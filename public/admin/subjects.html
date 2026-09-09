@@ -114,12 +114,13 @@
             <input type="number" id="subjectHours" class="form-control" value="3" min="1" max="7">
           </div>
         </div>
-        <!-- Preferred Lab Room — only relevant for lab subjects -->
+        <!-- Preferred Lab Rooms — only relevant for lab subjects -->
         <div class="form-group" id="labRoomGroup" style="display:none;">
-          <label>Preferred Lab Room <span style="font-size:0.75rem;color:#888;">(used during auto-generation)</span></label>
-          <select id="subjectLabRoom" class="form-control">
-            <option value="">— Auto-assign —</option>
-          </select>
+          <label>Preferred Lab Rooms <span style="font-size:0.75rem;color:#888;">(tick one or more; generator tries them in order)</span></label>
+          <div id="labRoomCheckboxes"
+               style="max-height:160px;overflow-y:auto;border:1.5px solid #c5cae9;border-radius:6px;padding:8px 10px;background:#f8f9ff;display:flex;flex-direction:column;gap:6px;">
+            <span class="text-muted" style="font-size:0.82rem;">No rooms available</span>
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
@@ -144,12 +145,9 @@
         fetch(`/api/years?department_id=${deptId}`),
         fetch(`/api/rooms?department_id=${deptId}`)
       ]);
-      years     = await yRes.json();
-      allRooms  = await rRes.json();
-      const labRooms = allRooms.filter(r => r.type === 'lab');
-      const labRoomSel = document.getElementById('subjectLabRoom');
-      labRoomSel.innerHTML = '<option value="">— Auto-assign —</option>' +
-        labRooms.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+      years    = await yRes.json();
+      allRooms = await rRes.json();
+      rebuildRoomCheckboxes([]);
 
       const yearFilter  = document.getElementById('yearFilter');
       const subjectYear = document.getElementById('subjectYear');
@@ -158,6 +156,29 @@
         subjectYear.innerHTML += `<option value="${y.id}">${y.display_name}</option>`;
       });
       loadSubjects();
+    }
+
+    function rebuildRoomCheckboxes(checkedIds) {
+      const box = document.getElementById('labRoomCheckboxes');
+      if (!allRooms.length) {
+        box.innerHTML = '<span class="text-muted" style="font-size:0.82rem;">No rooms available</span>';
+        return;
+      }
+      box.innerHTML = allRooms.map(r => {
+        const checked = checkedIds.includes(r.id) ? 'checked' : '';
+        const label   = r.type === 'lab' ? `${r.name} <span style="font-size:0.7rem;color:#1565c0;font-weight:600;">[Lab]</span>`
+                                         : `${r.name} <span style="font-size:0.7rem;color:#555;">[Classroom]</span>`;
+        return `<label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;cursor:pointer;padding:3px 0;">
+          <input type="checkbox" value="${r.id}" ${checked}
+            style="width:15px;height:15px;accent-color:#1a237e;cursor:pointer;">
+          ${label}
+        </label>`;
+      }).join('');
+    }
+
+    function getCheckedRoomIds() {
+      return Array.from(document.querySelectorAll('#labRoomCheckboxes input[type=checkbox]:checked'))
+        .map(cb => parseInt(cb.value));
     }
 
     async function loadSubjects() {
@@ -189,10 +210,18 @@
           <td>${s.credits}</td>
           <td>${s.hours_per_week}</td>
           <td style="font-size:0.78rem;">
-            ${s.type === 'lab' && s.preferred_lab_room_id
-              ? `<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:10px;font-size:0.75rem;font-weight:600;">${allRooms.find(r=>r.id===s.preferred_lab_room_id)?.name || '—'}</span>`
-              : s.type === 'lab' ? '<span class="text-muted">Auto</span>' : '—'}
-          </td>
+            ${s.type === 'lab'
+              ? (() => {
+                  let ids = [];
+                  try { ids = Array.isArray(s.preferred_lab_room_ids) ? s.preferred_lab_room_ids : JSON.parse(s.preferred_lab_room_ids || '[]'); } catch {}
+                  ids = ids.map(id => parseInt(id)).filter(id => !isNaN(id));
+                  if (!ids.length) return '<span class="text-muted">Auto</span>';
+                  return ids.map(id => {
+                    const r = allRooms.find(r => r.id === id);
+                    return r ? `<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:10px;font-size:0.75rem;font-weight:600;display:inline-block;margin:1px 2px;">${r.name}</span>` : '';
+                  }).join('');
+                })()
+              : '—'}</td>
           <td>
             <button class="btn btn-outline btn-sm" onclick="editSubject(${s.id})">Edit</button>
             <button class="btn btn-danger btn-sm" onclick="deleteSubject(${s.id}, '${s.name.replace(/'/g, "\\'")}')">Delete</button>
@@ -212,6 +241,7 @@
       document.getElementById('modalTitle').textContent = 'Add Subject';
       document.getElementById('saveBtn').textContent = 'Save Subject';
       document.getElementById('labRoomGroup').style.display = 'none';
+      rebuildRoomCheckboxes([]);
       if (subject) {
         document.getElementById('modalTitle').textContent = 'Edit Subject';
         document.getElementById('subjectId').value = subject.id;
@@ -222,13 +252,16 @@
         document.getElementById('subjectCategory').value = subject.category || 'regular';
         document.getElementById('subjectCredits').value = subject.credits;
         document.getElementById('subjectHours').value = subject.hours_per_week;
-        document.getElementById('subjectLabRoom').value = subject.preferred_lab_room_id || '';
+        let checkedIds = [];
+        try { checkedIds = Array.isArray(subject.preferred_lab_room_ids) ? subject.preferred_lab_room_ids : JSON.parse(subject.preferred_lab_room_ids || '[]'); } catch {}
+        checkedIds = checkedIds.map(id => parseInt(id)).filter(id => !isNaN(id));
+        rebuildRoomCheckboxes(checkedIds);
         document.getElementById('labRoomGroup').style.display = subject.type === 'lab' ? 'block' : 'none';
       }
       document.getElementById('modalOverlay').classList.add('active');
     }
 
-    // Show/hide lab room dropdown based on subject type
+    // Show/hide lab room checkboxes based on subject type
     document.getElementById('subjectType').addEventListener('change', function() {
       document.getElementById('labRoomGroup').style.display = this.value === 'lab' ? 'block' : 'none';
     });
@@ -259,7 +292,7 @@
         category: document.getElementById('subjectCategory').value,
         credits: parseInt(document.getElementById('subjectCredits').value),
         hours_per_week: parseInt(document.getElementById('subjectHours').value),
-        preferred_lab_room_id: document.getElementById('subjectLabRoom').value || null,
+        preferred_lab_room_ids: getCheckedRoomIds(),
         department_id: deptId
       };
       const url = id ? `/api/admin/subjects/${id}` : '/api/admin/subjects';
