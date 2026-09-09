@@ -337,7 +337,8 @@
             day,
             slot_id: parseInt(slotId),
             value: b,             // batch name
-            faculty_id: facultyId
+            faculty_id: facultyId,
+            department_id: deptId
           })
         });
         const data = await res.json();
@@ -355,7 +356,7 @@
 
     // ── Pins table — grouped by section+day+slot, showing per-batch subject ──
     async function refreshPinsTable() {
-      const res = await fetch('/api/admin/constraints');
+      const res = await fetch(`/api/admin/constraints?department_id=${deptId}`);
       const all = res.ok ? await res.json() : [];
       const pins = all.filter(c=>c.constraint_type==='theory_batch_slot');
       const tbody = document.getElementById('pinsTableBody');
@@ -416,7 +417,7 @@
 
     async function clearAllPins() {
       if(!confirm('Remove ALL theory batch slot pins for this department?')) return;
-      const res=await fetch('/api/admin/constraints');
+      const res=await fetch(`/api/admin/constraints?department_id=${deptId}`);
       const all=res.ok?await res.json():[];
       const ids=all.filter(c=>c.constraint_type==='theory_batch_slot').map(c=>c.id);
       let deleted=0;
@@ -427,7 +428,7 @@
 
     // ── Faculty constraints tab ───────────────────────────────────────────────
     async function refreshFacultyConstraintsTable() {
-      const res=await fetch('/api/admin/constraints');
+      const res=await fetch(`/api/admin/constraints?department_id=${deptId}`);
       const all=res.ok?await res.json():[];
       const rows=all.filter(c=>c.constraint_type==='faculty_unavailable'||c.constraint_type==='faculty_subject_lock');
       const tbody=document.getElementById('facultyConstraintsBody');
@@ -458,7 +459,7 @@
 
     async function clearFacultyConstraints(){
       if(!confirm('Remove ALL faculty unavailable + subject lock constraints?')) return;
-      const res=await fetch('/api/admin/constraints');
+      const res=await fetch(`/api/admin/constraints?department_id=${deptId}`);
       const all=res.ok?await res.json():[];
       const ids=all.filter(c=>c.constraint_type==='faculty_unavailable'||c.constraint_type==='faculty_subject_lock').map(c=>c.id);
       let deleted=0;
