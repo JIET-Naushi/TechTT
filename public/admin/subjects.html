@@ -55,10 +55,10 @@
             <thead>
               <tr>
                 <th>#</th><th>Subject Name</th><th>Code</th><th>Year</th>
-                <th>Type</th><th>Credits</th><th>Hrs/Week</th><th>Actions</th>
+                <th>Type</th><th>Credits</th><th>Hrs/Week</th><th>Lab Room</th><th>Actions</th>
               </tr>
             </thead>
-            <tbody id="subjectsTable"><tr><td colspan="8" class="text-center text-muted">Loading...</td></tr></tbody>
+            <tbody id="subjectsTable"><tr><td colspan="9" class="text-center text-muted">Loading...</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -114,6 +114,13 @@
             <input type="number" id="subjectHours" class="form-control" value="3" min="1" max="7">
           </div>
         </div>
+        <!-- Preferred Lab Room — only relevant for lab subjects -->
+        <div class="form-group" id="labRoomGroup" style="display:none;">
+          <label>Preferred Lab Room <span style="font-size:0.75rem;color:#888;">(used during auto-generation)</span></label>
+          <select id="subjectLabRoom" class="form-control">
+            <option value="">— Auto-assign —</option>
+          </select>
+        </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
           <button type="submit" class="btn btn-primary" id="saveBtn">Save Subject</button>
@@ -130,11 +137,20 @@
       init();
     });
 
-    let years = [], subjects = [], deptId = 1;
+    let years = [], subjects = [], deptId = 1, allRooms = [];
 
     async function init() {
-      const res = await fetch(`/api/years?department_id=${deptId}`);
-      years = await res.json();
+      const [yRes, rRes] = await Promise.all([
+        fetch(`/api/years?department_id=${deptId}`),
+        fetch(`/api/rooms?department_id=${deptId}`)
+      ]);
+      years     = await yRes.json();
+      allRooms  = await rRes.json();
+      const labRooms = allRooms.filter(r => r.type === 'lab');
+      const labRoomSel = document.getElementById('subjectLabRoom');
+      labRoomSel.innerHTML = '<option value="">— Auto-assign —</option>' +
+        labRooms.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+
       const yearFilter  = document.getElementById('yearFilter');
       const subjectYear = document.getElementById('subjectYear');
       years.forEach(y => {
@@ -157,7 +173,7 @@
     function renderTable() {
       const tbody = document.getElementById('subjectsTable');
       if (subjects.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No subjects found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted">No subjects found</td></tr>';
         return;
       }
       tbody.innerHTML = subjects.map((s, i) => `
@@ -172,6 +188,11 @@
           </td>
           <td>${s.credits}</td>
           <td>${s.hours_per_week}</td>
+          <td style="font-size:0.78rem;">
+            ${s.type === 'lab' && s.preferred_lab_room_id
+              ? `<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:10px;font-size:0.75rem;font-weight:600;">${allRooms.find(r=>r.id===s.preferred_lab_room_id)?.name || '—'}</span>`
+              : s.type === 'lab' ? '<span class="text-muted">Auto</span>' : '—'}
+          </td>
           <td>
             <button class="btn btn-outline btn-sm" onclick="editSubject(${s.id})">Edit</button>
             <button class="btn btn-danger btn-sm" onclick="deleteSubject(${s.id}, '${s.name.replace(/'/g, "\\'")}')">Delete</button>
@@ -190,6 +211,7 @@
       document.getElementById('subjectForm').reset();
       document.getElementById('modalTitle').textContent = 'Add Subject';
       document.getElementById('saveBtn').textContent = 'Save Subject';
+      document.getElementById('labRoomGroup').style.display = 'none';
       if (subject) {
         document.getElementById('modalTitle').textContent = 'Edit Subject';
         document.getElementById('subjectId').value = subject.id;
@@ -200,9 +222,16 @@
         document.getElementById('subjectCategory').value = subject.category || 'regular';
         document.getElementById('subjectCredits').value = subject.credits;
         document.getElementById('subjectHours').value = subject.hours_per_week;
+        document.getElementById('subjectLabRoom').value = subject.preferred_lab_room_id || '';
+        document.getElementById('labRoomGroup').style.display = subject.type === 'lab' ? 'block' : 'none';
       }
       document.getElementById('modalOverlay').classList.add('active');
     }
+
+    // Show/hide lab room dropdown based on subject type
+    document.getElementById('subjectType').addEventListener('change', function() {
+      document.getElementById('labRoomGroup').style.display = this.value === 'lab' ? 'block' : 'none';
+    });
 
     function closeModal() { document.getElementById('modalOverlay').classList.remove('active'); }
 
@@ -229,7 +258,8 @@
         type: document.getElementById('subjectType').value,
         category: document.getElementById('subjectCategory').value,
         credits: parseInt(document.getElementById('subjectCredits').value),
-        hours_per_week: parseInt(document.getElementById('subjectHours').value)
+        hours_per_week: parseInt(document.getElementById('subjectHours').value),
+        preferred_lab_room_id: document.getElementById('subjectLabRoom').value || null
       };
       const url = id ? `/api/admin/subjects/${id}` : '/api/admin/subjects';
       const method = id ? 'PUT' : 'POST';

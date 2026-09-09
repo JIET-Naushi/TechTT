@@ -332,6 +332,18 @@ async function initializeDatabase() {
     await run(`UPDATE subjects SET category='btu', type='theory' WHERE type='btu'`);
     console.log('✅ Migrated subjects: added category column (regular/btu)');
   }
+
+  // Add preferred_lab_room_id column to subjects if missing (for lab subjects only)
+  const subjLabRoomExists = await queryOne(`
+    SELECT EXISTS (
+      SELECT FROM information_schema.columns
+      WHERE table_name = 'subjects' AND column_name = 'preferred_lab_room_id'
+    ) as exists
+  `);
+  if (!subjLabRoomExists.exists) {
+    await run(`ALTER TABLE subjects ADD COLUMN preferred_lab_room_id INTEGER REFERENCES rooms(id) ON DELETE SET NULL`);
+    console.log('✅ Migrated subjects: added preferred_lab_room_id column');
+  }
   await run(`
     INSERT INTO departments (name, code) 
     VALUES ('Department of Computer Science', 'CS')

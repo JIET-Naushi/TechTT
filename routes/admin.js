@@ -575,9 +575,9 @@ router.put('/subjects/:id', requireAuth, async (req, res) => {
     const deptId = getDeptId(req);
     if (!(await verifyDeptOwnership('subjects', req.params.id, deptId)))
       return res.status(403).json({ error: 'Subject does not belong to your department' });
-    const { name, code, type, category, credits, hours_per_week } = req.body;
-    await run('UPDATE subjects SET name=$1,code=$2,type=$3,category=$4,credits=$5,hours_per_week=$6 WHERE id=$7',
-      [name, code, type, category||'regular', credits, hours_per_week, req.params.id]);
+    const { name, code, type, category, credits, hours_per_week, preferred_lab_room_id } = req.body;
+    await run('UPDATE subjects SET name=$1,code=$2,type=$3,category=$4,credits=$5,hours_per_week=$6,preferred_lab_room_id=$7 WHERE id=$8',
+      [name, code, type, category||'regular', credits, hours_per_week, preferred_lab_room_id||null, req.params.id]);
     res.json({ message: 'Subject updated' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1864,14 +1864,28 @@ router.post('/generate', requireAuth, async (req, res) => {
               if (!allFacultyFree) continue;
 
               // Find separate free lab rooms for each batch
+              // If the subject has a preferred_lab_room_id, try that first for the first available batch
               const usedLabIds = new Set();
               const batchRooms = [];
               let roomsOk = true;
               for (let bi = 0; bi < numSubsections; bi++) {
-                const availableLab = labs.filter(r =>
-                  !usedLabIds.has(r.id) &&
-                  candidate.every(sl => isRoomFree(day, sl.id, r.id))
-                ).sort((a, b) => roomUsageCount[a.id] - roomUsageCount[b.id])[0];
+                const token2 = sessionSubjects[bi];
+                const subjPrefLabRoomId = token2 ? parseInt(token2.subj.preferred_lab_room_id || 0) : 0;
+                let availableLab = null;
+                // Try preferred lab room first (if set and free and not already used in another batch)
+                if (subjPrefLabRoomId && !usedLabIds.has(subjPrefLabRoomId)) {
+                  const prefRoom = labs.find(r => r.id === subjPrefLabRoomId);
+                  if (prefRoom && candidate.every(sl => isRoomFree(day, sl.id, prefRoom.id))) {
+                    availableLab = prefRoom;
+                  }
+                }
+                // Fall back to least-used free lab room
+                if (!availableLab) {
+                  availableLab = labs.filter(r =>
+                    !usedLabIds.has(r.id) &&
+                    candidate.every(sl => isRoomFree(day, sl.id, r.id))
+                  ).sort((a, b) => roomUsageCount[a.id] - roomUsageCount[b.id])[0];
+                }
                 if (!availableLab) { roomsOk = false; break; }
                 batchRooms.push(availableLab);
                 usedLabIds.add(availableLab.id);
