@@ -447,10 +447,11 @@
 
       const [allRes, assignedRes] = await Promise.all([
         fetch(`/api/subjects?year_id=${yearId}`),
-        fetch(`/api/admin/section-subjects/${sectionId}`)
+        fetch(`/api/admin/section-subjects/${sectionId}?department_id=${deptId}`)
       ]);
       allYearSubjects = await allRes.json();
-      const assigned  = await assignedRes.json();
+      const assignedRaw = await assignedRes.json();
+      const assigned = Array.isArray(assignedRaw) ? assignedRaw : [];
       const assignedIds = new Set(assigned.map(s => s.subject_id));
 
       if (!allYearSubjects.length) {
