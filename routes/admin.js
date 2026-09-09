@@ -1698,10 +1698,15 @@ router.post('/generate', requireAuth, async (req, res) => {
       subjectFacultyUsed[subjId].add(facId);
     };
     // Returns true when faculty facId has already been assigned to subjId in another section,
-    // and no explicit section-scoped lock assigns them here.
+    // and no explicit lock (section-scoped OR global) pre-authorises them for this subject.
+    // Rule: a faculty can teach the same subject in multiple sections ONLY if pre-defined
+    // via a faculty_subject_lock constraint before generation runs.
     const isSubjectFacultyUsed = (subjId, facId, sectionId) => {
-      const sectionLockKey = `${subjId}|${sectionId}`;
-      if (subjectLockMap[sectionLockKey] === facId) return false; // explicitly locked here — allow
+      // Section-specific lock for this subject → always allowed
+      if (subjectLockMap[`${subjId}|${sectionId}`] === facId) return false;
+      // Global lock for this subject (no section_id) → allowed across all sections
+      if (subjectLockMap[`${subjId}`] === facId) return false;
+      // No pre-defined lock — block if already used in another section
       return !!(subjectFacultyUsed[subjId]?.has(facId));
     };
 
