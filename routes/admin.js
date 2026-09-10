@@ -1819,14 +1819,15 @@ router.post('/generate', requireAuth, async (req, res) => {
     const shuffledClassrooms = shuffle([...classrooms]);
     const sectionRoomMap = {};
     sections.forEach((sec, idx) => {
-      if (sec.preferred_room_id) {
+      const prefId = parseInt(sec.preferred_room_id);
+      if (prefId) {
         // Use the admin-specified preferred room (any type) if it belongs to this dept
-        const room = allRooms.find(r => r.id === parseInt(sec.preferred_room_id));
-        if (room) { sectionRoomMap[sec.id] = room.id; return; }
+        const room = allRooms.find(r => parseInt(r.id) === prefId);
+        if (room) { sectionRoomMap[sec.id] = parseInt(room.id); return; }
       }
       // Fall back to round-robin from shuffled classrooms
       if (shuffledClassrooms.length > 0)
-        sectionRoomMap[sec.id] = shuffledClassrooms[idx % shuffledClassrooms.length].id;
+        sectionRoomMap[sec.id] = parseInt(shuffledClassrooms[idx % shuffledClassrooms.length].id);
     });
 
     for (const section of sections) {
@@ -2320,7 +2321,7 @@ router.post('/generate', requireAuth, async (req, res) => {
             } // end else (no locked faculty)
             if (!chosenF) continue;
 
-            const preferred = allRooms.find(r => r.id === preferredRoomId);
+            const preferred = allRooms.find(r => parseInt(r.id) === parseInt(preferredRoomId));
             let chosenR;
             if (preferred) {
               if (isRoomFree(day, slot.id, preferred.id)) {
@@ -2397,7 +2398,7 @@ router.post('/generate', requireAuth, async (req, res) => {
                 }
               }
               if (!chosenF) continue;
-              const preferred = allRooms.find(r => r.id === preferredRoomId);
+              const preferred = allRooms.find(r => parseInt(r.id) === parseInt(preferredRoomId));
               let chosenR;
               if (preferred) {
                 if (isRoomFree(day, slot.id, preferred.id)) {
@@ -2655,7 +2656,7 @@ router.post('/generate', requireAuth, async (req, res) => {
                 }
               }
               if (!cF2) continue;
-              const pref2 = allRooms.find(r=>r.id===prefR2);
+              const pref2 = allRooms.find(r => parseInt(r.id) === parseInt(prefR2));
               let cR2;
               if (pref2) {
                 if (isRoomFree(day,slot.id,pref2.id)) {
