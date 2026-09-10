@@ -481,8 +481,7 @@
         // Use different variable name to avoid shadowing the outer allSubjects
         const [subRes, assignRes, secRes] = await Promise.all([
           fetch(`/api/subjects?department_id=${deptId}`),
-          fetch(`/api/admin/lab-assignments/${sectionId}`),
-          // Fetch sections for this year to get lab_subsections — use department query then filter
+          fetch(`/api/admin/lab-assignments/${sectionId}?department_id=${deptId}`),
           fetch(`/api/sections?year_id=${document.getElementById('labYearSelect').value}`)
         ]);
         
@@ -568,7 +567,8 @@
               section_id: parseInt(currentLabSectionId),
               subject_id: subjectId,
               batch_name: batch,
-              faculty_id: facultyId
+              faculty_id: facultyId,
+              department_id: deptId
             })
           });
           const data = await res.json();
@@ -619,7 +619,7 @@
           constraintAllSlots = (await sRes.json()).filter(s => !s.is_break);
         }
         // Load existing constraints for this faculty
-        const cRes = await fetch(`/api/admin/constraints/faculty/${facultyId}`);
+        const cRes = await fetch(`/api/admin/constraints/faculty/${facultyId}?department_id=${deptId}`);
         existingConstraints = cRes.ok ? await cRes.json() : [];
 
         renderUnavailabilityGrid();
@@ -860,7 +860,7 @@
 
     async function refreshConstraintsOverview() {
       try {
-        const res = await fetch('/api/admin/constraints');
+        const res = await fetch(`/api/admin/constraints?department_id=${deptId}`);
         const all = res.ok ? await res.json() : [];
         const tbody = document.getElementById('constraintsOverviewBody');
         if (!all.length) {
@@ -893,7 +893,9 @@
     async function clearAllConstraints() {
       if (!confirm('Remove ALL faculty constraints for this department? This cannot be undone.')) return;
       try {
-        const res = await fetch('/api/admin/constraints', { method: 'DELETE' });
+        const res = await fetch('/api/admin/constraints', { method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ department_id: deptId }) });
         if (!res.ok) throw new Error((await res.json()).error);
         showAlert('All constraints cleared', 'success');
         await refreshConstraintsOverview();
