@@ -1756,10 +1756,10 @@ router.post('/generate', requireAuth, async (req, res) => {
     const facultyBusy = {};
     const roomBusy    = {};
     const roomUsageCount = Object.fromEntries(labs.map(r => [r.id, 0]));
-    const isFacultyFree = (d,s,f) => !facultyBusy[`${d}_${s}`]?.has(f);
-    const isRoomFree    = (d,s,r) => !roomBusy[`${d}_${s}`]?.has(r);
-    const markFaculty   = (d,s,f) => { const k=`${d}_${s}`; if(!facultyBusy[k]) facultyBusy[k]=new Set(); facultyBusy[k].add(f); };
-    const markRoom      = (d,s,r) => { const k=`${d}_${s}`; if(!roomBusy[k]) roomBusy[k]=new Set(); roomBusy[k].add(r); };
+    const isFacultyFree = (d,s,f) => !facultyBusy[`${d}_${parseInt(s)}`]?.has(parseInt(f));
+    const isRoomFree    = (d,s,r) => !roomBusy[`${d}_${parseInt(s)}`]?.has(parseInt(r));
+    const markFaculty   = (d,s,f) => { const k=`${d}_${parseInt(s)}`; if(!facultyBusy[k]) facultyBusy[k]=new Set(); facultyBusy[k].add(parseInt(f)); };
+    const markRoom      = (d,s,r) => { const k=`${d}_${parseInt(s)}`; if(!roomBusy[k]) roomBusy[k]=new Set(); roomBusy[k].add(parseInt(r)); };
     const shuffle = a => { const b=[...a]; for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];} return b; };
 
     // Global faculty load counter — persists across ALL sections in one run.
