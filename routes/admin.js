@@ -1689,7 +1689,7 @@ router.post('/generate', requireAuth, async (req, res) => {
     for (const sec of sections)
       await run('DELETE FROM timetable_entries WHERE section_id=$1', [sec.id]);
 
-    const allFaculty  = await query("SELECT * FROM faculty WHERE role='faculty' AND department_id=$1", [deptId]);
+    const allFaculty  = await query("SELECT * FROM faculty WHERE role IN ('faculty','hod_mentor','hod_admin') AND department_id=$1", [deptId]);
     const allRooms    = await query('SELECT * FROM rooms WHERE department_id=$1', [deptId]);
     const classrooms  = allRooms.filter(r => r.type === 'classroom');
     // Use dedicated lab rooms; fall back to classrooms if none configured
