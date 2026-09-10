@@ -2114,7 +2114,6 @@ router.post('/generate', requireAuth, async (req, res) => {
 
       const daySubjects = Object.fromEntries(days.map(d => [d, new Set()]));
       const preferredRoomId = sectionRoomMap[section.id];
-      console.log(`[GEN] Section ${section.id} (${section.name}): db.preferred_room_id=${section.preferred_room_id} => sectionRoomMap=${preferredRoomId}`);
 
       // ── Pre-place theory_batch_slot pinned entries ─────────────────────────
       // Each constraint row = one batch (value = batch name e.g. "A","B","C").
@@ -2341,7 +2340,6 @@ router.post('/generate', requireAuth, async (req, res) => {
               chosenR = shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
             }
             if (!chosenR) continue;
-            console.log(`[GEN] Sec ${section.name} subj ${subj.name} day ${day} slot ${slot.id}: preferredRoomId=${preferredRoomId} preferred=${preferred?.id} chosenR=${chosenR?.id}`);
 
             await run(
               'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
@@ -2362,82 +2360,102 @@ router.post('/generate', requireAuth, async (req, res) => {
         }
 
         if (!placed) {
-          // Couldn't place on any preferred day — try any remaining day without subject restriction
+          // Force-place: couldn't place on preferred days.
+          // Pass 1: try all days/slots where faculty AND preferred room are both free.
+          // Pass 2: if still not placed, accept any free classroom (last resort, prevents token drop).
           let forcePlaced = false;
-          for (const day of [...days].sort((a,b) => dayLoad[a]-dayLoad[b])) {
+          const sortedAllDays = [...days].sort((a,b) => dayLoad[a]-dayLoad[b]);
+
+          // Pass 1 — strict preferred room
+          for (const day of sortedAllDays) {
             if (forcePlaced) break;
             const freeSlots = shuffle(filteredSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`)));
             for (const slot of freeSlots) {
-              // Respect subject-lock, unavailability, and load cap in force-place too
               const lockedF2 = getLockedFaculty(subj.id, section.id);
               let chosenF;
               if (lockedF2) {
                 chosenF = (isFacultyFree(day, slot.id, lockedF2.id) && !isFacultyUnavailable(day, slot.id, lockedF2.id))
                   ? lockedF2 : null;
               } else {
-                // Reuse already-chosen faculty for this section+subject if set
                 const alreadyChosenId2 = getSectionSubjectFaculty(section.id, subj.id);
                 if (alreadyChosenId2 !== null) {
                   const alreadyChosen2 = allFaculty.find(f => f.id === alreadyChosenId2);
-                  chosenF = (alreadyChosen2 &&
-                    isFacultyFree(day, slot.id, alreadyChosen2.id) &&
-                    !isFacultyUnavailable(day, slot.id, alreadyChosen2.id))
+                  chosenF = (alreadyChosen2 && isFacultyFree(day, slot.id, alreadyChosen2.id) && !isFacultyUnavailable(day, slot.id, alreadyChosen2.id))
                     ? alreadyChosen2 : null;
                 } else {
-                  const eligible = allFaculty.filter(f =>
-                    canTeach(f, subj.id) &&
-                    !isSubjectFacultyUsed(subj.id, f.id, section.id) &&
-                    !isFacultyOverLoaded(f.id)
-                  );
-                  chosenF = shuffle(eligible)
-                    .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
-                  // Fall back ignoring load cap if all under-limit are busy
-                  if (!chosenF) {
-                    chosenF = shuffle(allFaculty.filter(f =>
-                      canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id)
-                    )).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
-                  }
-                  // Last resort: any canTeach faculty
-                  if (!chosenF) {
-                    chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id)))
-                      .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
-                  }
+                  const eligible = allFaculty.filter(f => canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id) && !isFacultyOverLoaded(f.id));
+                  chosenF = shuffle(eligible).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+                  if (!chosenF) chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id))).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+                  if (!chosenF) chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id))).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
                 }
               }
               if (!chosenF) continue;
+              // Pass 1: preferred room must be free
               const preferred = allRooms.find(r => parseInt(r.id) === parseInt(preferredRoomId));
-              let chosenR;
-              if (preferred) {
-                if (isRoomFree(day, slot.id, preferred.id)) {
-                  chosenR = preferred;
-                } else {
-                  // Preferred room busy — fall back to any free classroom so the token is not dropped
-                  chosenR = shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
-                }
-              } else {
-                chosenR = shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
-              }
+              if (preferred && !isRoomFree(day, slot.id, preferred.id)) continue;
+              const chosenR = preferred || shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
               if (!chosenR) continue;
               await run(
                 'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
                 [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id]
               );
-              markFaculty(day, slot.id, chosenF.id);
-              markRoom(day, slot.id, chosenR.id);
-              usedSlots.add(`${day}_${slot.id}`);
-              daySubjects[day].add(subj.id);
-              dayLoad[day]++;
-              facultyTheoryCount[chosenF.id]++;
+              markFaculty(day, slot.id, chosenF.id); markRoom(day, slot.id, chosenR.id);
+              usedSlots.add(`${day}_${slot.id}`); daySubjects[day].add(subj.id);
+              dayLoad[day]++; facultyTheoryCount[chosenF.id]++;
               setSectionSubjectFaculty(section.id, subj.id, chosenF.id);
               markSubjectFaculty(subj.id, chosenF.id);
-              pi++;
-              forcePlaced = true;
-              break;
+              pi++; forcePlaced = true; break;
             }
           }
+
+          // Pass 2 — fallback: accept any free classroom (prevents token being dropped)
+          if (!forcePlaced) {
+            for (const day of sortedAllDays) {
+              if (forcePlaced) break;
+              const freeSlots = shuffle(filteredSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`)));
+              for (const slot of freeSlots) {
+                const lockedF2 = getLockedFaculty(subj.id, section.id);
+                let chosenF;
+                if (lockedF2) {
+                  chosenF = (isFacultyFree(day, slot.id, lockedF2.id) && !isFacultyUnavailable(day, slot.id, lockedF2.id))
+                    ? lockedF2 : null;
+                } else {
+                  const alreadyChosenId2 = getSectionSubjectFaculty(section.id, subj.id);
+                  if (alreadyChosenId2 !== null) {
+                    const alreadyChosen2 = allFaculty.find(f => f.id === alreadyChosenId2);
+                    chosenF = (alreadyChosen2 && isFacultyFree(day, slot.id, alreadyChosen2.id) && !isFacultyUnavailable(day, slot.id, alreadyChosen2.id))
+                      ? alreadyChosen2 : null;
+                  } else {
+                    const eligible = allFaculty.filter(f => canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id) && !isFacultyOverLoaded(f.id));
+                    chosenF = shuffle(eligible).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+                    if (!chosenF) chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id))).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+                    if (!chosenF) chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id))).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
+                  }
+                }
+                if (!chosenF) continue;
+                // Pass 2: accept any free classroom
+                const preferred = allRooms.find(r => parseInt(r.id) === parseInt(preferredRoomId));
+                const chosenR = (preferred && isRoomFree(day, slot.id, preferred.id))
+                  ? preferred
+                  : shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
+                if (!chosenR) continue;
+                await run(
+                  'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
+                  [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id]
+                );
+                markFaculty(day, slot.id, chosenF.id); markRoom(day, slot.id, chosenR.id);
+                usedSlots.add(`${day}_${slot.id}`); daySubjects[day].add(subj.id);
+                dayLoad[day]++; facultyTheoryCount[chosenF.id]++;
+                setSectionSubjectFaculty(section.id, subj.id, chosenF.id);
+                markSubjectFaculty(subj.id, chosenF.id);
+                pi++; forcePlaced = true; break;
+              }
+            }
+          }
+
           if (!forcePlaced) {
             console.warn(`Could not place theory token for ${subj.name} in section ${section.name}`);
-            pi++; // skip to avoid infinite loop
+            pi++;
           }
         }
       }
