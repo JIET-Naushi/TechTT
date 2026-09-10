@@ -2321,9 +2321,15 @@ router.post('/generate', requireAuth, async (req, res) => {
             if (!chosenF) continue;
 
             const preferred = allRooms.find(r => r.id === preferredRoomId);
-            const chosenR = (preferred && isRoomFree(day, slot.id, preferred.id))
-              ? preferred
-              : shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
+            let chosenR;
+            if (preferred) {
+              // Section has a defined room — use it strictly; skip slot if busy
+              if (!isRoomFree(day, slot.id, preferred.id)) continue;
+              chosenR = preferred;
+            } else {
+              // No preferred room — pick any free classroom
+              chosenR = shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
+            }
             if (!chosenR) continue;
 
             await run(
@@ -2389,9 +2395,13 @@ router.post('/generate', requireAuth, async (req, res) => {
               }
               if (!chosenF) continue;
               const preferred = allRooms.find(r => r.id === preferredRoomId);
-              const chosenR = (preferred && isRoomFree(day, slot.id, preferred.id))
-                ? preferred
-                : shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
+              let chosenR;
+              if (preferred) {
+                if (!isRoomFree(day, slot.id, preferred.id)) continue;
+                chosenR = preferred;
+              } else {
+                chosenR = shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
+              }
               if (!chosenR) continue;
               await run(
                 'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
@@ -2639,7 +2649,13 @@ router.post('/generate', requireAuth, async (req, res) => {
               }
               if (!cF2) continue;
               const pref2 = allRooms.find(r=>r.id===prefR2);
-              const cR2 = (pref2&&isRoomFree(day,slot.id,pref2.id)) ? pref2 : shuffle([...classrooms]).find(r=>isRoomFree(day,slot.id,r.id));
+              let cR2;
+              if (pref2) {
+                if (!isRoomFree(day,slot.id,pref2.id)) continue;
+                cR2 = pref2;
+              } else {
+                cR2 = shuffle([...classrooms]).find(r=>isRoomFree(day,slot.id,r.id));
+              }
               if (!cR2) continue;
               await run('INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
                 [section.id,slot.id,day,subj.id,cF2.id,cR2.id]);
