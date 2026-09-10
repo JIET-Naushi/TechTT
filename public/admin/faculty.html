@@ -480,7 +480,7 @@
       try {
         // Use different variable name to avoid shadowing the outer allSubjects
         const [subRes, assignRes, secRes] = await Promise.all([
-          fetch(`/api/subjects?department_id=${deptId}`),
+          fetch(`/api/subjects?year_id=${document.getElementById('labYearSelect').value}`),
           fetch(`/api/admin/lab-assignments/${sectionId}?department_id=${deptId}`),
           fetch(`/api/sections?year_id=${document.getElementById('labYearSelect').value}`)
         ]);
