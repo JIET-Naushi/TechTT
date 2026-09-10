@@ -2114,6 +2114,7 @@ router.post('/generate', requireAuth, async (req, res) => {
 
       const daySubjects = Object.fromEntries(days.map(d => [d, new Set()]));
       const preferredRoomId = sectionRoomMap[section.id];
+      console.log(`[GEN] Section ${section.id} (${section.name}): db.preferred_room_id=${section.preferred_room_id} => sectionRoomMap=${preferredRoomId}`);
 
       // ── Pre-place theory_batch_slot pinned entries ─────────────────────────
       // Each constraint row = one batch (value = batch name e.g. "A","B","C").
@@ -2334,13 +2335,13 @@ router.post('/generate', requireAuth, async (req, res) => {
                 chosenR = preferred;
               } else {
                 // Preferred room busy at this slot — skip to next slot
-                // (after all slots/days exhausted, force-place will fall back to any room)
                 continue;
               }
             } else {
               chosenR = shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
             }
             if (!chosenR) continue;
+            console.log(`[GEN] Sec ${section.name} subj ${subj.name} day ${day} slot ${slot.id}: preferredRoomId=${preferredRoomId} preferred=${preferred?.id} chosenR=${chosenR?.id}`);
 
             await run(
               'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
