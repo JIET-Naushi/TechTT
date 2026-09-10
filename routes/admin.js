@@ -2361,97 +2361,69 @@ router.post('/generate', requireAuth, async (req, res) => {
         }
 
         if (!placed) {
-          // Force-place: couldn't place on preferred days.
-          // Pass 1: try all days/slots where faculty AND preferred room are both free.
-          // Pass 2: if still not placed, accept any free classroom (last resort, prevents token drop).
+          // Force-place: normal loop exhausted preferred days.
+          // Build a sorted candidate list: slots where preferred room is free first,
+          // then slots where it's busy — across ALL days sorted by load.
+          // Try preferred room at each slot; fall back to any classroom only as absolute last resort.
           let forcePlaced = false;
+
+          // Helper: resolve faculty for a given day+slot
+          const resolveF = (day, slotId) => {
+            const lockedF2 = getLockedFaculty(subj.id, section.id);
+            if (lockedF2) {
+              return (isFacultyFree(day, slotId, lockedF2.id) && !isFacultyUnavailable(day, slotId, lockedF2.id)) ? lockedF2 : null;
+            }
+            const alreadyChosenId2 = getSectionSubjectFaculty(section.id, subj.id);
+            if (alreadyChosenId2 !== null) {
+              const ac = allFaculty.find(f => f.id === alreadyChosenId2);
+              return (ac && isFacultyFree(day, slotId, ac.id) && !isFacultyUnavailable(day, slotId, ac.id)) ? ac : null;
+            }
+            const elig1 = allFaculty.filter(f => canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id) && !isFacultyOverLoaded(f.id));
+            let cf = shuffle(elig1).find(f => isFacultyFree(day, slotId, f.id) && !isFacultyUnavailable(day, slotId, f.id));
+            if (!cf) cf = shuffle(allFaculty.filter(f => canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id))).find(f => isFacultyFree(day, slotId, f.id) && !isFacultyUnavailable(day, slotId, f.id));
+            if (!cf) cf = shuffle(allFaculty.filter(f => canTeach(f, subj.id))).find(f => isFacultyFree(day, slotId, f.id) && !isFacultyUnavailable(day, slotId, f.id));
+            return cf || null;
+          };
+
+          const preferred = allRooms.find(r => parseInt(r.id) === parseInt(preferredRoomId));
           const sortedAllDays = [...days].sort((a,b) => dayLoad[a]-dayLoad[b]);
 
-          // Pass 1 — strict preferred room
+          // Build full candidate list sorted: preferred-room-free slots first
+          const allCandidates = [];
           for (const day of sortedAllDays) {
-            if (forcePlaced) break;
-            const freeSlots = shuffle(filteredSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`)));
-            for (const slot of freeSlots) {
-              const lockedF2 = getLockedFaculty(subj.id, section.id);
-              let chosenF;
-              if (lockedF2) {
-                chosenF = (isFacultyFree(day, slot.id, lockedF2.id) && !isFacultyUnavailable(day, slot.id, lockedF2.id))
-                  ? lockedF2 : null;
-              } else {
-                const alreadyChosenId2 = getSectionSubjectFaculty(section.id, subj.id);
-                if (alreadyChosenId2 !== null) {
-                  const alreadyChosen2 = allFaculty.find(f => f.id === alreadyChosenId2);
-                  chosenF = (alreadyChosen2 && isFacultyFree(day, slot.id, alreadyChosen2.id) && !isFacultyUnavailable(day, slot.id, alreadyChosen2.id))
-                    ? alreadyChosen2 : null;
-                } else {
-                  const eligible = allFaculty.filter(f => canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id) && !isFacultyOverLoaded(f.id));
-                  chosenF = shuffle(eligible).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
-                  if (!chosenF) chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id))).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
-                  if (!chosenF) chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id))).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
-                }
-              }
-              if (!chosenF) continue;
-              // Pass 1: preferred room must be free
-              const preferred = allRooms.find(r => parseInt(r.id) === parseInt(preferredRoomId));
-              if (preferred && !isRoomFree(day, slot.id, preferred.id)) continue;
-              const chosenR = preferred || shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
-              if (!chosenR) continue;
-              await run(
-                'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
-                [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id]
-              );
-              markFaculty(day, slot.id, chosenF.id); markRoom(day, slot.id, chosenR.id);
-              usedSlots.add(`${day}_${slot.id}`); daySubjects[day].add(subj.id);
-              dayLoad[day]++; facultyTheoryCount[chosenF.id]++;
-              setSectionSubjectFaculty(section.id, subj.id, chosenF.id);
-              markSubjectFaculty(subj.id, chosenF.id);
-              pi++; forcePlaced = true; break;
-            }
+            const freeSlots = filteredSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`));
+            const withRoom    = shuffle(freeSlots.filter(sl => !preferred || isRoomFree(day, sl.id, preferred.id)));
+            const withoutRoom = shuffle(freeSlots.filter(sl =>  preferred && !isRoomFree(day, sl.id, preferred.id)));
+            for (const sl of withRoom)    allCandidates.push({ day, slot: sl, hasPreferred: true });
+            for (const sl of withoutRoom) allCandidates.push({ day, slot: sl, hasPreferred: false });
           }
 
-          // Pass 2 — fallback: accept any free classroom (prevents token being dropped)
-          if (!forcePlaced) {
-            for (const day of sortedAllDays) {
-              if (forcePlaced) break;
-              const freeSlots = shuffle(filteredSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`)));
-              for (const slot of freeSlots) {
-                const lockedF2 = getLockedFaculty(subj.id, section.id);
-                let chosenF;
-                if (lockedF2) {
-                  chosenF = (isFacultyFree(day, slot.id, lockedF2.id) && !isFacultyUnavailable(day, slot.id, lockedF2.id))
-                    ? lockedF2 : null;
-                } else {
-                  const alreadyChosenId2 = getSectionSubjectFaculty(section.id, subj.id);
-                  if (alreadyChosenId2 !== null) {
-                    const alreadyChosen2 = allFaculty.find(f => f.id === alreadyChosenId2);
-                    chosenF = (alreadyChosen2 && isFacultyFree(day, slot.id, alreadyChosen2.id) && !isFacultyUnavailable(day, slot.id, alreadyChosen2.id))
-                      ? alreadyChosen2 : null;
-                  } else {
-                    const eligible = allFaculty.filter(f => canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id) && !isFacultyOverLoaded(f.id));
-                    chosenF = shuffle(eligible).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
-                    if (!chosenF) chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id))).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
-                    if (!chosenF) chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id))).find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
-                  }
-                }
-                if (!chosenF) continue;
-                // Pass 2: accept any free classroom
-                const preferred = allRooms.find(r => parseInt(r.id) === parseInt(preferredRoomId));
-                const chosenR = (preferred && isRoomFree(day, slot.id, preferred.id))
-                  ? preferred
-                  : shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
-                if (!chosenR) continue;
-                await run(
-                  'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
-                  [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id]
-                );
-                markFaculty(day, slot.id, chosenF.id); markRoom(day, slot.id, chosenR.id);
-                usedSlots.add(`${day}_${slot.id}`); daySubjects[day].add(subj.id);
-                dayLoad[day]++; facultyTheoryCount[chosenF.id]++;
-                setSectionSubjectFaculty(section.id, subj.id, chosenF.id);
-                markSubjectFaculty(subj.id, chosenF.id);
-                pi++; forcePlaced = true; break;
-              }
+          for (const { day, slot, hasPreferred } of allCandidates) {
+            if (forcePlaced) break;
+            const chosenF = resolveF(day, slot.id);
+            if (!chosenF) continue;
+            let chosenR;
+            if (preferred && hasPreferred) {
+              chosenR = preferred;
+            } else if (!preferred) {
+              chosenR = shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
+            } else {
+              // Preferred room busy here — only use this slot as last resort (no preferred-room candidates left)
+              const anyPrefLeft = allCandidates.some(c => c.hasPreferred && !usedSlots.has(`${c.day}_${c.slot.id}`) && resolveF(c.day, c.slot.id));
+              if (anyPrefLeft) continue; // still have better options
+              chosenR = shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
             }
+            if (!chosenR) continue;
+            await run(
+              'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
+              [section.id, slot.id, day, subj.id, chosenF.id, chosenR.id]
+            );
+            markFaculty(day, slot.id, chosenF.id); markRoom(day, slot.id, chosenR.id);
+            usedSlots.add(`${day}_${slot.id}`); daySubjects[day].add(subj.id);
+            dayLoad[day]++; facultyTheoryCount[chosenF.id]++;
+            setSectionSubjectFaculty(section.id, subj.id, chosenF.id);
+            markSubjectFaculty(subj.id, chosenF.id);
+            pi++; forcePlaced = true;
           }
 
           if (!forcePlaced) {
