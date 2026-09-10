@@ -2618,7 +2618,6 @@ router.post('/generate', requireAuth, async (req, res) => {
             if (dLoad2[day]>=tgt2+1 && sDays2.some(d=>dLoad2[d]<tgt2)) continue;
             const pref2 = allRooms.find(r => parseInt(r.id) === parseInt(prefR2));
             const fSlots2Raw = filteredSlots.filter(sl=>!used2.has(`${day}_${sl.id}`));
-            // Sort: preferred-room-free slots first
             const fSlots2 = pref2
               ? [...shuffle(fSlots2Raw.filter(sl=>isRoomFree(day,sl.id,pref2.id))),
                  ...shuffle(fSlots2Raw.filter(sl=>!isRoomFree(day,sl.id,pref2.id)))]
@@ -2704,7 +2703,13 @@ router.post('/generate', requireAuth, async (req, res) => {
                 }
                 if (!cF2) continue;
                 const pref2b = allRooms.find(r=>parseInt(r.id)===parseInt(prefR2));
-                const cR2b = (pref2b&&isRoomFree(day,slot.id,pref2b.id)) ? pref2b : shuffle([...classrooms]).find(r=>isRoomFree(day,slot.id,r.id));
+                let cR2b;
+                if (pref2b) {
+                  if (!isRoomFree(day,slot.id,pref2b.id)) continue;
+                  cR2b = pref2b;
+                } else {
+                  cR2b = shuffle([...classrooms]).find(r=>isRoomFree(day,slot.id,r.id));
+                }
                 if (!cR2b) continue;
                 await run('INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
                   [section.id,slot.id,day,subj.id,cF2.id,cR2b.id]);
