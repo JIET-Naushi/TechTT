@@ -2273,11 +2273,18 @@ router.post('/generate', requireAuth, async (req, res) => {
           // Prefer days below target first, then allow overflow
           if (dayLoad[day] >= targetPerDay + 1 && sortedDays.some(d => dayLoad[d] < targetPerDay)) continue;
 
-          // Try slots on this day that are free
+          // Try slots on this day that are free — sort to prefer slots where the preferred room is also free
+          const preferred = allRooms.find(r => parseInt(r.id) === parseInt(preferredRoomId));
           const freeSlots = filteredSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`));
-          const shuffledFree = shuffle(freeSlots);
+          // Put slots where the preferred room is free first, then remaining slots
+          const sortedSlots = preferred
+            ? [
+                ...shuffle(freeSlots.filter(sl => isRoomFree(day, sl.id, preferred.id))),
+                ...shuffle(freeSlots.filter(sl => !isRoomFree(day, sl.id, preferred.id)))
+              ]
+            : shuffle(freeSlots);
 
-          for (const slot of shuffledFree) {
+          for (const slot of sortedSlots) {
             const key = `${day}_${slot.id}`;
 
             // Find eligible faculty — respect subject-lock, unavailability, and load cap
@@ -2296,7 +2303,6 @@ router.post('/generate', requireAuth, async (req, res) => {
                   isFacultyFree(day, slot.id, alreadyChosen.id) &&
                   !isFacultyUnavailable(day, slot.id, alreadyChosen.id))
                   ? alreadyChosen : null;
-                // If reuse faculty is busy at this slot, skip — don't assign a different faculty
               } else {
                 const eligible = allFaculty.filter(f =>
                   canTeach(f, subj.id) &&
@@ -2308,7 +2314,6 @@ router.post('/generate', requireAuth, async (req, res) => {
                 chosenF = candidateFaculty.find(f =>
                   isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id)
                 );
-                // Fall back to any eligible (ignore load cap) if all under-limit faculty are busy at this slot
                 if (!chosenF) {
                   const fallback = allFaculty.filter(f =>
                     canTeach(f, subj.id) && !isSubjectFacultyUsed(subj.id, f.id, section.id)
@@ -2317,23 +2322,21 @@ router.post('/generate', requireAuth, async (req, res) => {
                     .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id])
                     .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
                 }
-                // Last resort: any canTeach faculty
                 if (!chosenF) {
                   chosenF = shuffle(allFaculty.filter(f => canTeach(f, subj.id)))
                     .sort((a, b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id])
                     .find(f => isFacultyFree(day, slot.id, f.id) && !isFacultyUnavailable(day, slot.id, f.id));
                 }
-              } // end else (first assignment for this section+subject)
-            } // end else (no locked faculty)
+              }
+            }
             if (!chosenF) continue;
 
-            const preferred = allRooms.find(r => parseInt(r.id) === parseInt(preferredRoomId));
             let chosenR;
             if (preferred) {
               if (isRoomFree(day, slot.id, preferred.id)) {
                 chosenR = preferred;
               } else {
-                // Preferred room busy at this slot — skip to next slot
+                // Preferred room busy at this slot — skip (preferred slots were tried first above)
                 continue;
               }
             } else {
