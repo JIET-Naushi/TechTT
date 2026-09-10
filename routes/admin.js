@@ -1823,14 +1823,10 @@ router.post('/generate', requireAuth, async (req, res) => {
       if (prefId) {
         const room = allRooms.find(r => parseInt(r.id) === prefId);
         if (room) { sectionRoomMap[sec.id] = parseInt(room.id); return; }
-        // Room not found in allRooms for this dept — log and fall through
-        console.error(`[ROOM] Section ${sec.name} (${sec.id}): preferred_room_id=${sec.preferred_room_id} NOT found in allRooms. allRooms ids: ${allRooms.map(r=>r.id).join(',')}`);
       }
       if (shuffledClassrooms.length > 0)
         sectionRoomMap[sec.id] = parseInt(shuffledClassrooms[idx % shuffledClassrooms.length].id);
     });
-    // Log the full sectionRoomMap for debugging
-    console.error(`[ROOM] sectionRoomMap: ${JSON.stringify(sectionRoomMap)}`);
 
     for (const section of sections) {
       // Use section-specific subject list if defined; otherwise fall back to all year subjects
@@ -2116,7 +2112,6 @@ router.post('/generate', requireAuth, async (req, res) => {
 
       const daySubjects = Object.fromEntries(days.map(d => [d, new Set()]));
       const preferredRoomId = sectionRoomMap[section.id];
-      console.error(`[ROOM] Section ${section.name} (${section.id}): preferredRoomId=${preferredRoomId}`);
 
       // ── Pre-place theory_batch_slot pinned entries ─────────────────────────
       // Each constraint row = one batch (value = batch name e.g. "A","B","C").
@@ -2346,7 +2341,6 @@ router.post('/generate', requireAuth, async (req, res) => {
               chosenR = shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
             }
             if (!chosenR) continue;
-            console.error(`[ROOM] Sec ${section.name} subj ${subj.name}: preferredRoomId=${preferredRoomId} => chosenR=${chosenR.id} (${chosenR.name})`);
 
             await run(
               'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
@@ -2650,7 +2644,13 @@ router.post('/generate', requireAuth, async (req, res) => {
           for (const day of sDays2) {
             if (placed2b) break;
             if (dLoad2[day]>=tgt2+1 && sDays2.some(d=>dLoad2[d]<tgt2)) continue;
-            const fSlots2 = shuffle(filteredSlots.filter(sl=>!used2.has(`${day}_${sl.id}`)));
+            const pref2 = allRooms.find(r => parseInt(r.id) === parseInt(prefR2));
+            const fSlots2Raw = filteredSlots.filter(sl=>!used2.has(`${day}_${sl.id}`));
+            // Sort: preferred-room-free slots first
+            const fSlots2 = pref2
+              ? [...shuffle(fSlots2Raw.filter(sl=>isRoomFree(day,sl.id,pref2.id))),
+                 ...shuffle(fSlots2Raw.filter(sl=>!isRoomFree(day,sl.id,pref2.id)))]
+              : shuffle(fSlots2Raw);
             for (const slot of fSlots2) {
               const lockedF2r = getLockedFaculty(subj.id, section.id);
               let cF2;
@@ -2694,7 +2694,8 @@ router.post('/generate', requireAuth, async (req, res) => {
                 if (isRoomFree(day,slot.id,pref2.id)) {
                   cR2 = pref2;
                 } else {
-                  cR2 = shuffle([...classrooms]).find(r=>isRoomFree(day,slot.id,r.id));
+                  // Preferred room busy — skip slot (preferred-room-free slots were tried first)
+                  continue;
                 }
               } else {
                 cR2 = shuffle([...classrooms]).find(r=>isRoomFree(day,slot.id,r.id));
@@ -2708,6 +2709,40 @@ router.post('/generate', requireAuth, async (req, res) => {
               setSectionSubjectFaculty(section.id, subj.id, cF2.id);
               markSubjectFaculty(subj.id, cF2.id);
               p2++; placed2b=true; break;
+            }
+          }
+          // Pass 2 fallback for retry: if preferred room prevented placement, accept any classroom
+          if (!placed2b) {
+            for (const day of sDays2) {
+              if (placed2b) break;
+              const fSlots2b = shuffle(filteredSlots.filter(sl=>!used2.has(`${day}_${sl.id}`)));
+              for (const slot of fSlots2b) {
+                const lockedF2r = getLockedFaculty(subj.id, section.id);
+                let cF2;
+                if (lockedF2r) {
+                  cF2 = (isFacultyFree(day,slot.id,lockedF2r.id) && !isFacultyUnavailable(day,slot.id,lockedF2r.id)) ? lockedF2r : null;
+                } else {
+                  const retryChosenId = getSectionSubjectFaculty(section.id, subj.id);
+                  if (retryChosenId !== null) {
+                    const retryCF = allFaculty.find(f => f.id === retryChosenId);
+                    cF2 = (retryCF && isFacultyFree(day,slot.id,retryCF.id) && !isFacultyUnavailable(day,slot.id,retryCF.id)) ? retryCF : null;
+                  } else {
+                    cF2 = shuffle(allFaculty.filter(f=>canTeach(f,subj.id))).find(f=>isFacultyFree(day,slot.id,f.id)&&!isFacultyUnavailable(day,slot.id,f.id));
+                  }
+                }
+                if (!cF2) continue;
+                const pref2b = allRooms.find(r=>parseInt(r.id)===parseInt(prefR2));
+                const cR2b = (pref2b&&isRoomFree(day,slot.id,pref2b.id)) ? pref2b : shuffle([...classrooms]).find(r=>isRoomFree(day,slot.id,r.id));
+                if (!cR2b) continue;
+                await run('INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
+                  [section.id,slot.id,day,subj.id,cF2.id,cR2b.id]);
+                markFaculty(day,slot.id,cF2.id); markRoom(day,slot.id,cR2b.id);
+                used2.add(`${day}_${slot.id}`); daySubj2[day].add(subj.id);
+                dLoad2[day]++; facultyTheoryCount[cF2.id]++;
+                setSectionSubjectFaculty(section.id,subj.id,cF2.id);
+                markSubjectFaculty(subj.id,cF2.id);
+                p2++; placed2b=true; break;
+              }
             }
           }
           if (!placed2b) p2++;
