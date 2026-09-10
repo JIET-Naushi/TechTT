@@ -1821,14 +1821,16 @@ router.post('/generate', requireAuth, async (req, res) => {
     sections.forEach((sec, idx) => {
       const prefId = parseInt(sec.preferred_room_id);
       if (prefId) {
-        // Use the admin-specified preferred room (any type) if it belongs to this dept
         const room = allRooms.find(r => parseInt(r.id) === prefId);
         if (room) { sectionRoomMap[sec.id] = parseInt(room.id); return; }
+        // Room not found in allRooms for this dept — log and fall through
+        console.error(`[ROOM] Section ${sec.name} (${sec.id}): preferred_room_id=${sec.preferred_room_id} NOT found in allRooms. allRooms ids: ${allRooms.map(r=>r.id).join(',')}`);
       }
-      // Fall back to round-robin from shuffled classrooms
       if (shuffledClassrooms.length > 0)
         sectionRoomMap[sec.id] = parseInt(shuffledClassrooms[idx % shuffledClassrooms.length].id);
     });
+    // Log the full sectionRoomMap for debugging
+    console.error(`[ROOM] sectionRoomMap: ${JSON.stringify(sectionRoomMap)}`);
 
     for (const section of sections) {
       // Use section-specific subject list if defined; otherwise fall back to all year subjects
@@ -2114,6 +2116,7 @@ router.post('/generate', requireAuth, async (req, res) => {
 
       const daySubjects = Object.fromEntries(days.map(d => [d, new Set()]));
       const preferredRoomId = sectionRoomMap[section.id];
+      console.error(`[ROOM] Section ${section.name} (${section.id}): preferredRoomId=${preferredRoomId}`);
 
       // ── Pre-place theory_batch_slot pinned entries ─────────────────────────
       // Each constraint row = one batch (value = batch name e.g. "A","B","C").
@@ -2343,6 +2346,7 @@ router.post('/generate', requireAuth, async (req, res) => {
               chosenR = shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
             }
             if (!chosenR) continue;
+            console.error(`[ROOM] Sec ${section.name} subj ${subj.name}: preferredRoomId=${preferredRoomId} => chosenR=${chosenR.id} (${chosenR.name})`);
 
             await run(
               'INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
