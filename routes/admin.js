@@ -2202,10 +2202,16 @@ router.post('/generate', requireAuth, async (req, res) => {
           }
           if (chosenF) usedFacIds.add(chosenF.id);
 
-          // Room: pick a free classroom not yet used by another batch in this group
-          const chosenR = shuffle([...classrooms]).find(r =>
-            !usedRoomIds.has(r.id) && isRoomFree(pinDay, pinSlotId, r.id)
-          ) || null;
+          // Room: use section's preferred room if defined and free, otherwise any free classroom
+          let chosenR;
+          const prefRoomForPin = allRooms.find(r => parseInt(r.id) === parseInt(preferredRoomId));
+          if (prefRoomForPin && !usedRoomIds.has(prefRoomForPin.id) && isRoomFree(pinDay, pinSlotId, prefRoomForPin.id)) {
+            chosenR = prefRoomForPin;
+          } else {
+            chosenR = shuffle([...classrooms]).find(r =>
+              !usedRoomIds.has(r.id) && isRoomFree(pinDay, pinSlotId, r.id)
+            ) || null;
+          }
 
           if (!chosenR) {
             console.warn(`theory_batch_slot: no free room for batch ${batchName} at ${pinDay} #${pinSlotId} in section ${section.name}`);
