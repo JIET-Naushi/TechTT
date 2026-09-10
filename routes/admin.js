@@ -2323,11 +2323,14 @@ router.post('/generate', requireAuth, async (req, res) => {
             const preferred = allRooms.find(r => r.id === preferredRoomId);
             let chosenR;
             if (preferred) {
-              // Section has a defined room — use it strictly; skip slot if busy
-              if (!isRoomFree(day, slot.id, preferred.id)) continue;
-              chosenR = preferred;
+              if (isRoomFree(day, slot.id, preferred.id)) {
+                chosenR = preferred;
+              } else {
+                // Preferred room busy at this slot — skip to next slot
+                // (after all slots/days exhausted, force-place will fall back to any room)
+                continue;
+              }
             } else {
-              // No preferred room — pick any free classroom
               chosenR = shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
             }
             if (!chosenR) continue;
@@ -2397,8 +2400,12 @@ router.post('/generate', requireAuth, async (req, res) => {
               const preferred = allRooms.find(r => r.id === preferredRoomId);
               let chosenR;
               if (preferred) {
-                if (!isRoomFree(day, slot.id, preferred.id)) continue;
-                chosenR = preferred;
+                if (isRoomFree(day, slot.id, preferred.id)) {
+                  chosenR = preferred;
+                } else {
+                  // Preferred room busy — fall back to any free classroom so the token is not dropped
+                  chosenR = shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
+                }
               } else {
                 chosenR = shuffle([...classrooms]).find(r => isRoomFree(day, slot.id, r.id));
               }
@@ -2651,8 +2658,11 @@ router.post('/generate', requireAuth, async (req, res) => {
               const pref2 = allRooms.find(r=>r.id===prefR2);
               let cR2;
               if (pref2) {
-                if (!isRoomFree(day,slot.id,pref2.id)) continue;
-                cR2 = pref2;
+                if (isRoomFree(day,slot.id,pref2.id)) {
+                  cR2 = pref2;
+                } else {
+                  cR2 = shuffle([...classrooms]).find(r=>isRoomFree(day,slot.id,r.id));
+                }
               } else {
                 cR2 = shuffle([...classrooms]).find(r=>isRoomFree(day,slot.id,r.id));
               }
