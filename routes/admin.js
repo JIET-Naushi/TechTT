@@ -2464,6 +2464,17 @@ router.post('/generate', requireAuth, async (req, res) => {
         if (spread <= 3) break; // acceptable distribution
 
         // Regenerate this section
+        // First: remove faculty/room busy marks that were set by this section's first-pass entries,
+        // so the retry can re-use the same slots and rooms freely.
+        const oldEntries = await query(
+          `SELECT te.day_of_week, te.time_slot_id, te.faculty_id, te.room_id
+           FROM timetable_entries te WHERE te.section_id=$1`, [section.id]
+        );
+        for (const e of oldEntries) {
+          const k = `${e.day_of_week}_${parseInt(e.time_slot_id)}`;
+          if (e.faculty_id && facultyBusy[k]) facultyBusy[k].delete(parseInt(e.faculty_id));
+          if (e.room_id    && roomBusy[k])    roomBusy[k].delete(parseInt(e.room_id));
+        }
         await run('DELETE FROM timetable_entries WHERE section_id=$1', [section.id]);
         retriedSections++;
         retries++;
