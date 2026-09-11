@@ -219,7 +219,8 @@
               : 'Lab Session';
             const color = getColor(slotEntries[0].subject_id);
             const isBtu = slotEntries[0].subject_category === 'btu';
-            const tags  = `<span class="tt-tag">LAB</span>${isBtu ? '<span class="tt-tag btu-tag">B.T.U.</span>' : ''}`;
+            const sessionType = slotEntries[0].subject_type;
+            const tags  = `<span class="tt-tag">${sessionType === 'tutorial' ? 'TUT' : 'LAB'}</span>${isBtu ? '<span class="tt-tag btu-tag">B.T.U.</span>' : ''}`;
             const rows  = slotEntries.map(e => `
               <div class="lab-batch">
                 <span class="lab-batch-label">${e.subsection}</span>
@@ -238,7 +239,8 @@
           const color = getColor(e.subject_id);
           const isBtu = e.subject_category === 'btu';
           const isLab = e.subject_type === 'lab';
-          const badge = isBtu ? '<span class="tt-tag btu-tag">B.T.U.</span>' : isLab ? '<span class="tt-tag">LAB</span>' : '';
+          const isTutorial = e.subject_type === 'tutorial';
+          const badge = isBtu ? '<span class="tt-tag btu-tag">B.T.U.</span>' : isLab ? '<span class="tt-tag">LAB</span>' : isTutorial ? '<span class="tt-tag tutorial-tag">TUT</span>' : '';
           const batchBadge = e.subsection ? `<span class="tt-tag batch-tag">Batch ${e.subsection}</span>` : '';
           html += `<td><div class="timetable-cell ${color}${isBtu ? ' btu-cell' : ''}">
             <div class="cell-subject">${e.subject_name || '?'} ${badge}${batchBadge}</div>
@@ -324,16 +326,17 @@
           if (se.some(e => e.subsection)) {
                 const xlC = getXlColor(se[0].subject_id);
                 const isBtu = se[0].subject_category === 'btu';
+                const slotType = se[0].subject_type;
                 const uniqueSubjs = [...new Set(se.map(e => e.subject_name).filter(Boolean))];
-                const hdr = uniqueSubjs.length === 1 ? uniqueSubjs[0] : 'Lab Session';
-                const txt = hdr + (isBtu ? ' [B.T.U.] LAB' : ' [LAB]') + '\n' +
+                const hdr = uniqueSubjs.length === 1 ? uniqueSubjs[0] : (slotType === 'tutorial' ? 'Tutorial Session' : 'Lab Session');
+                const txt = hdr + (isBtu ? ' [B.T.U.] LAB' : slotType === 'tutorial' ? ' [TUT]' : ' [LAB]') + '\n' +
                   se.map(e => `${e.subsection}: ${e.subject_name||'?'} | ${e.faculty_name||'—'} | ${e.room_name||''}`).join('\n');
                 row.push(subjectCell(txt, xlC, isBtu));
               } else {
             const e = se[0];
             const xlC = getXlColor(e.subject_id);
             const isBtu = e.subject_category === 'btu';
-            const tag = isBtu ? ' [B.T.U.]' : e.subject_type==='lab' ? ' [LAB]' : '';
+            const tag = isBtu ? ' [B.T.U.]' : e.subject_type==='lab' ? ' [LAB]' : e.subject_type==='tutorial' ? ' [TUT]' : '';
             const batch = e.subsection ? `\nBatch ${e.subsection}` : '';
             const txt = `${e.subject_name}${tag}${batch}\n${e.faculty_name||'—'}\n${e.room_name||'—'}`;
             row.push(subjectCell(txt, xlC, isBtu));
@@ -469,16 +472,17 @@
               if (se.some(e => e.subsection)) {
                 const xlC = getSectionXlColor(se[0].subject_id);
                 const isBtu = se[0].subject_category === 'btu';
+                const slotType = se[0].subject_type;
                 const uniqueSubjs = [...new Set(se.map(e => e.subject_name).filter(Boolean))];
-                const hdr = uniqueSubjs.length === 1 ? uniqueSubjs[0] : 'Lab Session';
-                const txt = hdr + (isBtu ? ' [B.T.U.] LAB' : ' [LAB]') + '\n' +
+                const hdr = uniqueSubjs.length === 1 ? uniqueSubjs[0] : (slotType === 'tutorial' ? 'Tutorial Session' : 'Lab Session');
+                const txt = hdr + (isBtu ? ' [B.T.U.] LAB' : slotType === 'tutorial' ? ' [TUT]' : ' [LAB]') + '\n' +
                   se.map(e => `${e.subsection}: ${e.subject_name||'?'} | ${e.faculty_name||'—'} | ${e.room_name||''}`).join('\n');
                 row.push(subjectCell(txt, xlC, isBtu));
               } else {
                 const e = se[0];
                 const xlC = getSectionXlColor(e.subject_id);
                 const isBtu = e.subject_category === 'btu';
-                const tag = isBtu ? ' [B.T.U.]' : e.subject_type==='lab' ? ' [LAB]' : '';
+                const tag = isBtu ? ' [B.T.U.]' : e.subject_type==='lab' ? ' [LAB]' : e.subject_type==='tutorial' ? ' [TUT]' : '';
                 const batch = e.subsection ? `\nBatch ${e.subsection}` : '';
                 const txt = `${e.subject_name}${tag}${batch}\n${e.faculty_name||'—'}\n${e.room_name||'—'}`;
                 row.push(subjectCell(txt, xlC, isBtu));

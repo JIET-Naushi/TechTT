@@ -49,7 +49,7 @@
         <div class="toolbar" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
           <span id="facultyCount" class="text-muted"></span>
           <button class="btn btn-primary" onclick="openModal()">+ Add Faculty</button>
-          <button class="btn btn-outline" onclick="openLabAssignmentModal()" id="labAssignBtn" style="display:none;">🔬 Lab Batch Assignment</button>
+          <button class="btn btn-outline" onclick="openLabAssignmentModal()" id="labAssignBtn" style="display:none;">🔬 Lab/Tutorial Batch Assignment</button>
           <button class="btn btn-outline" onclick="openConstraintsListModal()" id="constraintsListBtn" style="display:none;border-color:#7b1fa2;color:#7b1fa2;">🔒 Faculty Constraints</button>
         </div>
         <div class="table-wrapper">
@@ -123,7 +123,7 @@
   <div class="modal-overlay" id="labAssignmentModal">
     <div class="modal" style="max-width:700px;max-height:90vh;overflow-y:auto;">
       <div class="modal-header">
-        <div class="modal-title">Lab Batch Assignment</div>
+        <div class="modal-title">Lab/Tutorial Batch Assignment</div>
         <button class="modal-close" onclick="closeLabAssignmentModal()">×</button>
       </div>
       <div style="padding:20px;">
@@ -145,7 +145,7 @@
         </div>
 
         <div id="labSubjectsArea" style="display:none;">
-          <label style="font-weight:700;font-size:0.95rem;color:#1a237e;margin-bottom:12px;display:block;">Assign Faculty to Lab Batches</label>
+          <label style="font-weight:700;font-size:0.95rem;color:#1a237e;margin-bottom:12px;display:block;">Assign Faculty to Lab/Tutorial Batches</label>
           <div id="labSubjectsContainer"></div>
         </div>
 
@@ -228,7 +228,7 @@
         try { canTeach = JSON.parse(f.subjects_can_teach || '[]'); } catch {}
         const subjectNames = canTeach.map(id => {
           const s = allSubjects.find(s => String(s.id) === String(id));
-          return s ? (s.name + (s.type === 'lab' ? ' 🔬' : '')) : null;
+          return s ? (s.name + (s.type === 'lab' ? ' 🔬' : s.type === 'tutorial' ? ' 📖' : '')) : null;
         }).filter(Boolean);
         const roleLabel = f.role === 'hod_mentor' ? 'HOD (Mentor)' : f.role === 'hod_admin' ? 'HOD (Admin)' : 'Faculty';
         const roleBadge = f.role !== 'faculty' ? 'badge-hod' : 'badge-faculty';
@@ -283,7 +283,7 @@
               <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer;padding:3px 4px;border-radius:4px;${isSelected ? 'background:#e8eaf6;' : ''}">
                 <input type="checkbox" value="${s.id}" ${isSelected ? 'checked' : ''} style="cursor:pointer;"
                   onchange="this.closest('label').style.background=this.checked?'#e8eaf6':''">
-                <span>${s.name}${s.type==='lab' ? ' <span style="background:#e8f5e9;color:#2e7d32;font-size:0.68rem;font-weight:700;padding:1px 5px;border-radius:8px;">LAB</span>' : ''}</span>
+                <span>${s.name}${s.type==='lab' ? ' <span style="background:#e8f5e9;color:#2e7d32;font-size:0.68rem;font-weight:700;padding:1px 5px;border-radius:8px;">LAB</span>' : s.type==='tutorial' ? ' <span style="background:#e8eaf6;color:#3949ab;font-size:0.68rem;font-weight:700;padding:1px 5px;border-radius:8px;">TUT</span>' : ''}</span>
               </label>`;
             }).join('')}
           </div>
@@ -486,7 +486,7 @@
         ]);
         
         const deptSubjects = await subRes.json();
-        const labSubjects = deptSubjects.filter(s => s.type === 'lab');
+        const labSubjects = deptSubjects.filter(s => s.type === 'lab' || s.type === 'tutorial');
         const assignments = await assignRes.json();
         const allSections = await secRes.json();
         

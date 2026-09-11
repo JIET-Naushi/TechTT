@@ -1379,7 +1379,7 @@ router.get('/lab-entries/:sectionId', requireAuth, async (req, res) => {
       JOIN time_slots ts ON te.time_slot_id = ts.id
       LEFT JOIN faculty f ON te.faculty_id = f.id
       LEFT JOIN rooms r ON te.room_id = r.id
-      WHERE te.section_id = $1 AND s.type = 'lab'
+      WHERE te.section_id = $1 AND s.type IN ('lab', 'tutorial')
       ORDER BY s.name, te.day_of_week, ts.slot_number, te.subsection
     `, [req.params.sectionId]);
 
@@ -1881,9 +1881,9 @@ router.post('/generate', requireAuth, async (req, res) => {
         assignedFaculty[a.subject_id][a.batch_name] = a.faculty_id;
       }
 
-      // ── Separate theory/BTU and lab subjects ─────────────────────────────
-      const theorySubjects = subjects.filter(s => s.type !== 'lab');
-      const allLabSubjects = subjects.filter(s => s.type === 'lab');
+      // ── Separate theory/BTU and lab/tutorial subjects ─────────────────────────────
+      const theorySubjects = subjects.filter(s => s.type === 'theory');
+      const allLabSubjects = subjects.filter(s => s.type === 'lab' || s.type === 'tutorial');
 
       // ── Determine if this section is a BTU section ─────────────────────
       // BTU section: name contains "BTU" (case-insensitive)
@@ -2485,8 +2485,8 @@ router.post('/generate', requireAuth, async (req, res) => {
         if (!subjects2.length) break;
 
         const isBtu2 = /btu/i.test(section.name);
-        const theoryS2 = subjects2.filter(s => s.type !== 'lab');
-        const labS2    = subjects2.filter(s => s.type === 'lab');
+        const theoryS2 = subjects2.filter(s => s.type === 'theory');
+        const labS2    = subjects2.filter(s => s.type === 'lab' || s.type === 'tutorial');
         const regLabs2 = labS2.filter(s => s.category !== 'btu');
         const btuLabs2 = labS2.filter(s => s.category === 'btu');
         const labSubjs2 = isBtu2 ? [...btuLabs2] : [...regLabs2];

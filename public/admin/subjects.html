@@ -94,6 +94,7 @@
             <select id="subjectType" class="form-control">
               <option value="theory">Theory</option>
               <option value="lab">Lab</option>
+              <option value="tutorial">Tutorial</option>
             </select>
           </div>
         </div>
@@ -116,7 +117,7 @@
         </div>
         <!-- Preferred Lab Rooms — only relevant for lab subjects -->
         <div class="form-group" id="labRoomGroup" style="display:none;">
-          <label>Preferred Lab Rooms <span style="font-size:0.75rem;color:#888;">(tick one or more; generator tries them in order)</span></label>
+          <label>Preferred Rooms <span style="font-size:0.75rem;color:#888;">(tick one or more; generator tries them in order)</span></label>
           <div id="labRoomCheckboxes"
                style="max-height:160px;overflow-y:auto;border:1.5px solid #c5cae9;border-radius:6px;padding:8px 10px;background:#f8f9ff;display:flex;flex-direction:column;gap:6px;">
             <span class="text-muted" style="font-size:0.82rem;">No rooms available</span>
@@ -210,7 +211,7 @@
           <td>${s.credits}</td>
           <td>${s.hours_per_week}</td>
           <td style="font-size:0.78rem;">
-            ${s.type === 'lab'
+            ${(s.type === 'lab' || s.type === 'tutorial')
               ? (() => {
                   let ids = [];
                   try { ids = Array.isArray(s.preferred_lab_room_ids) ? s.preferred_lab_room_ids : JSON.parse(s.preferred_lab_room_ids || '[]'); } catch {}
@@ -256,14 +257,14 @@
         try { checkedIds = Array.isArray(subject.preferred_lab_room_ids) ? subject.preferred_lab_room_ids : JSON.parse(subject.preferred_lab_room_ids || '[]'); } catch {}
         checkedIds = checkedIds.map(id => parseInt(id)).filter(id => !isNaN(id));
         rebuildRoomCheckboxes(checkedIds);
-        document.getElementById('labRoomGroup').style.display = subject.type === 'lab' ? 'block' : 'none';
+        document.getElementById('labRoomGroup').style.display = (subject.type === 'lab' || subject.type === 'tutorial') ? 'block' : 'none';
       }
       document.getElementById('modalOverlay').classList.add('active');
     }
 
     // Show/hide lab room checkboxes based on subject type
     document.getElementById('subjectType').addEventListener('change', function() {
-      document.getElementById('labRoomGroup').style.display = this.value === 'lab' ? 'block' : 'none';
+      document.getElementById('labRoomGroup').style.display = (this.value === 'lab' || this.value === 'tutorial') ? 'block' : 'none';
     });
 
     function closeModal() { document.getElementById('modalOverlay').classList.remove('active'); }
