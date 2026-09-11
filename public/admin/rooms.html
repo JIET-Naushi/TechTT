@@ -73,6 +73,7 @@
             <select id="roomType" class="form-control">
               <option value="classroom">Classroom</option>
               <option value="lab">Lab</option>
+              <option value="tutorial">Tutorial Room</option>
               <option value="seminar">Seminar Hall</option>
               <option value="conference">Conference Room</option>
             </select>
@@ -106,8 +107,8 @@
       renderTable();
     }
 
-    const typeIcons = { classroom: '🏫', lab: '🔬', seminar: '🎤', conference: '🤝' };
-    const typeBadgeColors = { classroom: '#e3f2fd', lab: '#e8f5e9', seminar: '#fff3e0', conference: '#f3e5f5' };
+    const typeIcons = { classroom: '🏫', lab: '🔬', tutorial: '📖', seminar: '🎤', conference: '🤝' };
+    const typeBadgeColors = { classroom: '#e3f2fd', lab: '#e8f5e9', tutorial: '#e8eaf6', seminar: '#fff3e0', conference: '#f3e5f5' };
 
     function renderTable() {
       document.getElementById('roomCount').textContent = `${rooms.length} rooms/locations`;

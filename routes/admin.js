@@ -1692,8 +1692,8 @@ router.post('/generate', requireAuth, async (req, res) => {
     const allFaculty  = await query("SELECT * FROM faculty WHERE role IN ('faculty','hod_mentor','hod_admin') AND department_id=$1", [deptId]);
     const allRooms    = await query('SELECT * FROM rooms WHERE department_id=$1', [deptId]);
     const classrooms  = allRooms.filter(r => r.type === 'classroom');
-    // Use dedicated lab rooms; fall back to classrooms if none configured
-    const labRoomsRaw = allRooms.filter(r => r.type === 'lab');
+    // Use dedicated lab/tutorial rooms; fall back to classrooms if none configured
+    const labRoomsRaw = allRooms.filter(r => r.type === 'lab' || r.type === 'tutorial');
     const labs        = labRoomsRaw.length > 0 ? labRoomsRaw : classrooms;
 
     // ── Load generation constraints ───────────────────────────────────────────

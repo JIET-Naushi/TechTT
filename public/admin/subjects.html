@@ -168,6 +168,7 @@
       box.innerHTML = allRooms.map(r => {
         const checked = checkedIds.includes(r.id) ? 'checked' : '';
         const label   = r.type === 'lab' ? `${r.name} <span style="font-size:0.7rem;color:#1565c0;font-weight:600;">[Lab]</span>`
+                                         : r.type === 'tutorial' ? `${r.name} <span style="font-size:0.7rem;color:#3949ab;font-weight:600;">[Tutorial Room]</span>`
                                          : `${r.name} <span style="font-size:0.7rem;color:#555;">[Classroom]</span>`;
         return `<label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;cursor:pointer;padding:3px 0;">
           <input type="checkbox" value="${r.id}" ${checked}
