@@ -1308,19 +1308,6 @@ router.post('/lab-assignments', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Section not in your department' });
 
     if (faculty_id) {
-      // Check if this faculty is already assigned to another batch of the same subject
-      const existing = await queryOne(`
-        SELECT batch_name FROM lab_assignments
-        WHERE section_id = $1 AND subject_id = $2 AND faculty_id = $3 AND batch_name != $4
-        LIMIT 1
-      `, [section_id, subject_id, faculty_id, batch_name]);
-
-      if (existing) {
-        return res.status(400).json({ 
-          error: `Faculty is already assigned to batch ${existing.batch_name} of this subject. Each faculty can teach only one batch per lab subject.`
-        });
-      }
-
       await run(`
         INSERT INTO lab_assignments (section_id, subject_id, batch_name, faculty_id)
         VALUES ($1, $2, $3, $4)
