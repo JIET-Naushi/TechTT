@@ -665,7 +665,7 @@
             const sel = document.querySelector(
               `select[onchange="saveLabAssignment(${sectionId}, ${subj.id}, '${batch}', this.value)"]`
             );
-            if (sel) sel.value = fid;
+            if (sel) sel.value = String(fid);
           }
         }
       }
@@ -679,15 +679,16 @@
           section_id: sectionId,
           subject_id: subjectId,
           batch_name: batchName,
-          faculty_id: facultyId ? parseInt(facultyId) : null
+          faculty_id: facultyId ? parseInt(facultyId) : null,
+          department_id: deptId
         })
       });
+      const d = await res.json();
       if (!res.ok) {
-        const d = await res.json();
         showAlert(d.error || 'Error saving assignment', 'error');
+      } else {
+        showAlert('Assignment saved', 'success');
       }
-      // Subtle visual confirmation without full reload
-      showAlert('Assignment saved', 'success');
     }
 
     async function clearAllLabAssignments() {
