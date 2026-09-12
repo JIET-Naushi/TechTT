@@ -1912,32 +1912,22 @@ router.post('/generate', requireAuth, async (req, res) => {
 
       // ══════════════════════════════════════════════════════════════════════
       // SCHEDULE LAB SUBJECTS:
-      //   Each session → batches with DIFFERENT faculty run simultaneously.
-      //   Batches sharing the SAME faculty get SEPARATE sequential slots.
-      //   hours_per_week respected: a 4hr/week lab gets 2 separate sessions.
+      //   hours_per_week / 2 = number of weekly sessions (each session = 2 consecutive slots).
+      //   Batches with DIFFERENT faculty → all run in the SAME 2-slot block simultaneously.
+      //   Batches sharing the SAME faculty → each gets its OWN 2-slot block (different day/slot).
       // ══════════════════════════════════════════════════════════════════════
 
-      // Helper: auto-resolve faculty for a batch subject if no pre-assignment or lock
+      // Helper: resolve faculty for a batch — tries to give DIFFERENT faculty per batch
       const resolveLabFaculty = (subj, batchName, excludeFacIds) => {
-        // 1. Pre-assigned in lab_assignments
         const preId = (assignedFaculty[subj.id] || {})[batchName];
-        if (preId) {
-          const pre = allFaculty.find(f => f.id === preId);
-          if (pre) return pre;
-        }
-        // 2. Subject lock constraint
+        if (preId) { const pre = allFaculty.find(f => f.id === preId); if (pre) return pre; }
         const locked = getLockedFaculty(subj.id, section.id);
         if (locked && !excludeFacIds.has(locked.id)) return locked;
-        // 3. Auto-find: eligible faculty who can teach this subject, not in excludeFacIds
-        const eligible = allFaculty.filter(f =>
-          canTeach(f, subj.id) && !isFacultyOverLoaded(f.id) && !excludeFacIds.has(f.id)
-        );
-        const sorted = shuffle(eligible).sort((a,b) => facultyTheoryCount[a.id] - facultyTheoryCount[b.id]);
-        return sorted[0] || null;
+        const eligible = allFaculty.filter(f => canTeach(f, subj.id) && !isFacultyOverLoaded(f.id) && !excludeFacIds.has(f.id));
+        return shuffle(eligible).sort((a,b) => facultyTheoryCount[a.id]-facultyTheoryCount[b.id])[0] || null;
       };
 
-      // resolveLabFacultyAny: like resolveLabFaculty but ALLOWS reusing already-used faculty
-      // (used for tutorial where same faculty can teach all batches of same subject)
+      // Helper: resolve faculty with no exclusion (allows same faculty multiple batches)
       const resolveLabFacultyAny = (subj, batchName) => {
         const preId = (assignedFaculty[subj.id] || {})[batchName];
         if (preId) { const pre = allFaculty.find(f => f.id === preId); if (pre) return pre; }
@@ -1947,165 +1937,162 @@ router.post('/generate', requireAuth, async (req, res) => {
         return shuffle(eligible).sort((a,b) => facultyTheoryCount[a.id]-facultyTheoryCount[b.id])[0] || null;
       };
 
-      // scheduleLabTutorial: place one slot-block for a group of batches simultaneously.
-      // Returns true if placed. hoursNeeded = consecutive slots required.
-      const scheduleLabTutorial = async (subj, batchGroup, hoursNeeded, prefRoomIds, separateRooms) => {
-        const sortedDays = [...days].sort((a, b) => dayLabLoad[a] - dayLabLoad[b]);
+      // Find a free consecutive slot block of `size` slots on a given day
+      const findFreeBlock = (day, size) => {
+        const freeSlots = filteredSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`));
+        let cur = [];
+        for (const sl of freeSlots) {
+          if (cur.length === 0 || sl.slot_number === cur[cur.length-1].slot_number + 1) {
+            cur.push(sl);
+            if (cur.length === size) return cur;
+          } else {
+            cur = [sl];
+            if (cur.length === size) return cur;
+          }
+        }
+        return null;
+      };
+
+      // Place a group of batches in a single slot block on any free day
+      // separateRooms=true → each batch gets its own lab room
+      // separateRooms=false → all batches share one room
+      const placeGroup = async (subj, batchGroup, blockSize, prefRoomIds, separateRooms) => {
+        const sortedDays = [...days].sort((a,b) => dayLabLoad[a]-dayLabLoad[b]);
         for (const day of sortedDays) {
-          const freeSlots = filteredSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`));
-          if (freeSlots.length < hoursNeeded) continue;
-
-          const groups = [];
-          let cur = [freeSlots[0]];
-          for (let i = 1; i < freeSlots.length; i++) {
-            if (freeSlots[i].slot_number === freeSlots[i-1].slot_number + 1) cur.push(freeSlots[i]);
-            else { if (cur.length >= hoursNeeded) groups.push([...cur]); cur = [freeSlots[i]]; }
-          }
-          if (cur.length >= hoursNeeded) groups.push(cur);
-
-          for (const group of groups) {
-            for (let start = 0; start <= group.length - hoursNeeded; start++) {
-              const candidate = group.slice(start, start + hoursNeeded);
-
-              // All assigned faculty must be free at every candidate slot
-              const allFacFree = batchGroup.every(({ faculty: bf }) => {
-                if (!bf) return true;
-                return candidate.every(sl => isFacultyFree(day, sl.id, bf.id) && !isFacultyUnavailable(day, sl.id, bf.id));
-              });
-              if (!allFacFree) continue;
-
-              // Assign rooms
-              let rooms;
-              if (separateRooms) {
-                const usedLabIds = new Set();
-                rooms = [];
-                let ok = true;
-                for (const { batchName } of batchGroup) {
-                  let available = null;
-                  for (const prefId of prefRoomIds) {
-                    if (usedLabIds.has(prefId)) continue;
-                    const pr = labs.find(r => r.id === prefId);
-                    if (pr && candidate.every(sl => isRoomFree(day, sl.id, pr.id))) { available = pr; break; }
-                  }
-                  if (!available) available = labs.filter(r => !usedLabIds.has(r.id) && candidate.every(sl => isRoomFree(day, sl.id, r.id))).sort((a,b) => roomUsageCount[a.id]-roomUsageCount[b.id])[0];
-                  if (!available) { ok = false; break; }
-                  rooms.push(available); usedLabIds.add(available.id);
-                }
-                if (!ok) continue;
-              } else {
-                let chosenRoom = null;
-                for (const prefId of prefRoomIds) {
-                  const pr = labs.find(r => r.id === prefId);
-                  if (pr && candidate.every(sl => isRoomFree(day, sl.id, pr.id))) { chosenRoom = pr; break; }
-                }
-                if (!chosenRoom) chosenRoom = labs.filter(r => candidate.every(sl => isRoomFree(day, sl.id, r.id))).sort((a,b) => roomUsageCount[a.id]-roomUsageCount[b.id])[0];
-                if (!chosenRoom) continue;
-                rooms = batchGroup.map(() => chosenRoom);
+          const block = findFreeBlock(day, blockSize);
+          if (!block) continue;
+          // Check all faculty are free for all slots in block
+          const allFacFree = batchGroup.every(({ faculty: bf }) => {
+            if (!bf) return true;
+            return block.every(sl => isFacultyFree(day, sl.id, bf.id) && !isFacultyUnavailable(day, sl.id, bf.id));
+          });
+          if (!allFacFree) continue;
+          // Assign rooms
+          let rooms;
+          if (separateRooms) {
+            const used = new Set();
+            rooms = [];
+            let ok = true;
+            for (let i = 0; i < batchGroup.length; i++) {
+              let r = null;
+              for (const pid of prefRoomIds) {
+                if (used.has(pid)) continue;
+                const pr = labs.find(rm => rm.id === pid);
+                if (pr && block.every(sl => isRoomFree(day, sl.id, pr.id))) { r = pr; break; }
               }
-
-              for (let bi = 0; bi < batchGroup.length; bi++) {
-                const { batchName, faculty: bf } = batchGroup[bi];
-                const room = rooms[bi];
-                for (const sl of candidate) {
-                  await run('INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-                    [section.id, sl.id, day, subj.id, bf ? bf.id : null, room.id, batchName]);
-                  if (bf) markFaculty(day, sl.id, bf.id);
-                  markRoom(day, sl.id, room.id);
-                }
-                roomUsageCount[room.id]++;
-              }
-              for (const sl of candidate) { usedSlots.add(`${day}_${sl.id}`); dayLabLoad[day]++; dayLoad[day]++; }
-              return true;
+              if (!r) r = labs.filter(rm => !used.has(rm.id) && block.every(sl => isRoomFree(day, sl.id, rm.id))).sort((a,b) => roomUsageCount[a.id]-roomUsageCount[b.id])[0];
+              if (!r) { ok = false; break; }
+              rooms.push(r); used.add(r.id);
             }
+            if (!ok) continue;
+          } else {
+            let r = null;
+            for (const pid of prefRoomIds) {
+              const pr = labs.find(rm => rm.id === pid);
+              if (pr && block.every(sl => isRoomFree(day, sl.id, pr.id))) { r = pr; break; }
+            }
+            if (!r) r = labs.filter(rm => block.every(sl => isRoomFree(day, sl.id, rm.id))).sort((a,b) => roomUsageCount[a.id]-roomUsageCount[b.id])[0];
+            if (!r) continue;
+            rooms = batchGroup.map(() => r);
           }
+          // Insert
+          for (let bi = 0; bi < batchGroup.length; bi++) {
+            const { batchName, faculty: bf } = batchGroup[bi];
+            const room = rooms[bi];
+            for (const sl of block) {
+              await run('INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+                [section.id, sl.id, day, subj.id, bf ? bf.id : null, room.id, batchName]);
+              if (bf) markFaculty(day, sl.id, bf.id);
+              markRoom(day, sl.id, room.id);
+            }
+            roomUsageCount[room.id]++;
+          }
+          for (const sl of block) { usedSlots.add(`${day}_${sl.id}`); dayLabLoad[day]++; dayLoad[day]++; }
+          return true;
         }
         return false;
       };
 
-      // ══════════════════════════════════════════════════════════════════════
-      // SCHEDULE LAB SUBJECTS:
-      //   hours_per_week / 2 = number of sessions (each session = 2 consecutive slots).
-      //   Per session: batches with DIFFERENT faculty → same slot simultaneously.
-      //   Batches sharing SAME faculty → sequential separate slot-blocks.
-      // ══════════════════════════════════════════════════════════════════════
+      // Schedule lab subjects
       for (const subj of labOnlySubjects) {
-        const hoursPerSession = 2; // each lab session is always 2 consecutive slots
+        const blockSize = 2; // each lab session = 2 consecutive slots
         const totalHours = subj.hours_per_week || 2;
-        const numSessions = Math.max(1, Math.round(totalHours / hoursPerSession));
+        const numSessions = Math.max(1, Math.round(totalHours / blockSize));
         let prefRoomIds = [];
         try { const raw = subj.preferred_lab_room_ids; prefRoomIds = (Array.isArray(raw) ? raw : JSON.parse(raw || '[]')).map(id => parseInt(id)).filter(id => !isNaN(id)); } catch {}
 
-        // Resolve UNIQUE faculty per batch (different batches need different faculty for simultaneous placement)
+        // Resolve distinct faculty per batch
         const batchFaculties = [];
-        const usedFacSet = new Set();
+        const used = new Set();
         for (let bi = 0; bi < numSubsections; bi++) {
-          const bf = resolveLabFaculty(subj, batchNames[bi], usedFacSet);
+          const bf = resolveLabFaculty(subj, batchNames[bi], used);
           batchFaculties.push({ batchName: batchNames[bi], faculty: bf });
-          if (bf) usedFacSet.add(bf.id);
+          if (bf) used.add(bf.id);
         }
 
-        // For each required session, partition batches into simultaneous groups
-        // (no two in same group share the same non-null faculty)
-        for (let session = 0; session < numSessions; session++) {
-          const remaining = [...batchFaculties];
-          while (remaining.length > 0) {
-            const seenFacIds = new Set();
-            const simGroup = [], nextRound = [];
-            for (const b of remaining) {
+        for (let s = 0; s < numSessions; s++) {
+          // Partition: batches with DIFFERENT faculty → same block; same faculty → separate blocks
+          const rem = [...batchFaculties];
+          while (rem.length > 0) {
+            const seen = new Set();
+            const grp = [], next = [];
+            for (const b of rem) {
               const fid = b.faculty ? b.faculty.id : null;
-              if (fid === null || !seenFacIds.has(fid)) { simGroup.push(b); if (fid !== null) seenFacIds.add(fid); }
-              else nextRound.push(b);
+              if (fid === null || !seen.has(fid)) { grp.push(b); if (fid !== null) seen.add(fid); }
+              else next.push(b);
             }
-            const placed = await scheduleLabTutorial(subj, simGroup, hoursPerSession, prefRoomIds, true);
-            if (!placed) console.warn(`Cannot place lab [${subj.name}] session ${session+1} group for section ${section.name}`);
-            remaining.splice(0, remaining.length, ...nextRound);
+            if (!(await placeGroup(subj, grp, blockSize, prefRoomIds, true)))
+              console.warn(`Cannot place lab [${subj.name}] session ${s+1} for section ${section.name}`);
+            rem.splice(0, rem.length, ...next);
           }
         }
       }
 
       // ══════════════════════════════════════════════════════════════════════
       // SCHEDULE TUTORIAL SUBJECTS:
-      //   All batches get the SAME subject simultaneously.
-      //   Faculty per batch: pre-assigned → lock → auto (can reuse same faculty).
-      //   Batches sharing SAME faculty → separate sequential slot-blocks.
-      //   Batches with DIFFERENT faculty → same slot simultaneously.
-      //   hours_per_week = total contact hours (each session = 1 slot).
+      //   hours_per_week = number of weekly occurrences (each = 1 slot).
+      //   Each occurrence: try to give DIFFERENT faculty per batch so ALL batches
+      //   run in the SAME slot simultaneously.
+      //   If same faculty must teach multiple batches → those batches get
+      //   SEPARATE sequential single slots (different times, same or different days).
       // ══════════════════════════════════════════════════════════════════════
       for (const subj of tutorialOnlySubjects) {
-        const hoursPerSession = 1; // tutorial = 1 slot per session
+        const blockSize = 1; // tutorial = 1 slot per occurrence
         const numSessions = Math.max(1, subj.hours_per_week || 1);
         let prefRoomIds = [];
         try { const raw = subj.preferred_lab_room_ids; prefRoomIds = (Array.isArray(raw) ? raw : JSON.parse(raw || '[]')).map(id => parseInt(id)).filter(id => !isNaN(id)); } catch {}
 
-        // Resolve faculty per batch — try different faculty first (enables same-slot placement)
+        // Resolve faculty: prefer DIFFERENT faculty per batch for simultaneous placement
         const batchFaculties = [];
-        const usedFacSet = new Set();
+        const used = new Set();
         for (let bi = 0; bi < numSubsections; bi++) {
-          let bf = resolveLabFaculty(subj, batchNames[bi], usedFacSet);
+          let bf = resolveLabFaculty(subj, batchNames[bi], used);
           if (!bf) bf = resolveLabFacultyAny(subj, batchNames[bi]); // fallback: allow reuse
           batchFaculties.push({ batchName: batchNames[bi], faculty: bf });
-          if (bf) usedFacSet.add(bf.id);
+          if (bf) used.add(bf.id);
         }
 
-        for (let session = 0; session < numSessions; session++) {
-          const remaining = [...batchFaculties];
-          while (remaining.length > 0) {
-            const seenFacIds = new Set();
-            const simGroup = [], nextRound = [];
-            for (const b of remaining) {
+        for (let s = 0; s < numSessions; s++) {
+          // Partition: batches with DIFFERENT faculty → same slot; same faculty → separate slots
+          const rem = [...batchFaculties];
+          while (rem.length > 0) {
+            const seen = new Set();
+            const grp = [], next = [];
+            for (const b of rem) {
               const fid = b.faculty ? b.faculty.id : null;
-              if (fid === null || !seenFacIds.has(fid)) { simGroup.push(b); if (fid !== null) seenFacIds.add(fid); }
-              else nextRound.push(b);
+              if (fid === null || !seen.has(fid)) { grp.push(b); if (fid !== null) seen.add(fid); }
+              else next.push(b);
             }
-            const placed = await scheduleLabTutorial(subj, simGroup, hoursPerSession, prefRoomIds, false);
-            if (!placed) console.warn(`Cannot place tutorial [${subj.name}] session ${session+1} for section ${section.name}`);
-            remaining.splice(0, remaining.length, ...nextRound);
+            if (!(await placeGroup(subj, grp, blockSize, prefRoomIds, false)))
+              console.warn(`Cannot place tutorial [${subj.name}] session ${s+1} for section ${section.name}`);
+            rem.splice(0, rem.length, ...next);
           }
         }
-      } // end for tutorialOnlySubjects
-
+      } // end for tutorialOnlySubjects          if (pre) return pre;
+        }
+        // 2. Subject lock constraint
       // ── Schedule THEORY subjects — all theory subjects, spread evenly ──
-      const MAX_THEORY = isBtuSection ? 7 : 999; // unused cap — all theory subjects scheduled
+      const MAX_THEORY = isBtuSection ? 7 : 999; // unused
       let theoryTokens = [];
       for (const subj of cappedTheory) {
         for (let i = 0; i < (subj.hours_per_week || 1); i++) {
