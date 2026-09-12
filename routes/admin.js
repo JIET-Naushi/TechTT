@@ -1956,8 +1956,9 @@ router.post('/generate', requireAuth, async (req, res) => {
       // Place a group of batches in a single slot block on any free day
       // separateRooms=true → each batch gets its own lab room
       // separateRooms=false → all batches share one room
-      const placeGroup = async (subj, batchGroup, blockSize, prefRoomIds, separateRooms) => {
-        const sortedDays = [...days].sort((a,b) => dayLabLoad[a]-dayLabLoad[b]);
+      // excludeDays → set of days to skip (used to spread same-faculty tutorial batches across days)
+      const placeGroup = async (subj, batchGroup, blockSize, prefRoomIds, separateRooms, excludeDays = new Set()) => {
+        const sortedDays = [...days].filter(d => !excludeDays.has(d)).sort((a,b) => dayLabLoad[a]-dayLabLoad[b]);
         for (const day of sortedDays) {
           const block = findFreeBlock(day, blockSize);
           if (!block) continue;
@@ -2008,6 +2009,7 @@ router.post('/generate', requireAuth, async (req, res) => {
             roomUsageCount[room.id]++;
           }
           for (const sl of block) { usedSlots.add(`${day}_${sl.id}`); dayLabLoad[day]++; dayLoad[day]++; }
+          excludeDays.add(day); // mark this day used for this session's group
           return true;
         }
         return false;
@@ -2073,8 +2075,9 @@ router.post('/generate', requireAuth, async (req, res) => {
         }
 
         for (let s = 0; s < numSessions; s++) {
-          // Partition: batches with DIFFERENT faculty → same slot; same faculty → separate slots
+          // Partition: batches with DIFFERENT faculty → same slot; same faculty → separate slots on different days
           const rem = [...batchFaculties];
+          const usedDaysThisSession = new Set(); // prevent same-faculty batches on same day
           while (rem.length > 0) {
             const seen = new Set();
             const grp = [], next = [];
@@ -2083,14 +2086,13 @@ router.post('/generate', requireAuth, async (req, res) => {
               if (fid === null || !seen.has(fid)) { grp.push(b); if (fid !== null) seen.add(fid); }
               else next.push(b);
             }
-            if (!(await placeGroup(subj, grp, blockSize, prefRoomIds, false)))
-              console.warn(`Cannot place tutorial [${subj.name}] session ${s+1} for section ${section.name}`);
+            const placed = await placeGroup(subj, grp, blockSize, prefRoomIds, false, usedDaysThisSession);
+            if (!placed) console.warn(`Cannot place tutorial [${subj.name}] session ${s+1} for section ${section.name}`);
             rem.splice(0, rem.length, ...next);
           }
         }
-      } // end for tutorialOnlySubjects          if (pre) return pre;
-        }
-        // 2. Subject lock constraint
+      } // end for tutorialOnlySubjects
+
       // ── Schedule THEORY subjects — all theory subjects, spread evenly ──
       const MAX_THEORY = isBtuSection ? 7 : 999; // unused
       let theoryTokens = [];
