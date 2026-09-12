@@ -648,7 +648,10 @@
                       data-section="${sectionId}" data-subject="${subj.id}" data-batch="${batch}"
                       onchange="saveLabAssignment(${sectionId}, ${subj.id}, '${batch}', this.value)">
                       <option value="">— Auto assign —</option>
-                      ${facultyOptions}
+                      ${facultyOptions.replace(
+                        `value="${fid}"`,
+                        fid ? `value="${fid}" selected` : `value=""`
+                      )}
                     </select>
                   </div>`;
               }).join('')}
@@ -687,8 +690,18 @@
       });
       const d = await res.json();
       if (!res.ok) {
+        // Restore the select to previous value and show error
+        const sel = document.querySelector(
+          `select[data-section="${sectionId}"][data-subject="${subjectId}"][data-batch="${batchName}"]`
+        );
+        if (sel) sel.value = '';
         showAlert(d.error || 'Error saving assignment', 'error');
       } else {
+        // Ensure select stays on the chosen value
+        const sel = document.querySelector(
+          `select[data-section="${sectionId}"][data-subject="${subjectId}"][data-batch="${batchName}"]`
+        );
+        if (sel) sel.value = facultyId ? String(facultyId) : '';
         showAlert('Assignment saved', 'success');
       }
     }
