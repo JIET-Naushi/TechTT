@@ -2118,6 +2118,7 @@ router.post('/generate', requireAuth, async (req, res) => {
           }
         }
         if (!placed) console.warn(`Warning: Could not place tutorial [${subj.name}] for section ${section.name}`);
+      } // end for tutorialOnlySubjects
 
       // ── Schedule THEORY subjects (max 6 for regular, max 7 for BTU, spread evenly) ──
       const MAX_THEORY = isBtuSection ? 7 : 6;
