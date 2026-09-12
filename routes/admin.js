@@ -1891,21 +1891,14 @@ router.post('/generate', requireAuth, async (req, res) => {
       // - Non-BTU sections: ONLY regular labs
       const labSubjects = isBtuSection ? [...btuLabs] : [...regularLabs];
 
-      // Eligible theory for this section:
-      // - BTU sections: BTU subjects (guaranteed) + regular subjects
-      // - Non-BTU sections: only regular subjects (max 6)
+      // Eligible theory for this section — NO hard cap, use all theory subjects
       let cappedTheory;
       if (isBtuSection && btuTheory.length > 0) {
-        // BTU subjects come first (guaranteed), then top regular subjects to fill to 7
         const remainingSlots = Math.max(0, 7 - btuTheory.length);
-        const topRegular = [...regularTheory]
-          .sort((a, b) => (b.credits || 0) - (a.credits || 0))
-          .slice(0, remainingSlots);
+        const topRegular = [...regularTheory].sort((a, b) => (b.credits || 0) - (a.credits || 0)).slice(0, remainingSlots);
         cappedTheory = [...btuTheory, ...topRegular];
       } else {
-        cappedTheory = [...regularTheory]
-          .sort((a, b) => (b.credits || 0) - (a.credits || 0))
-          .slice(0, 6);
+        cappedTheory = [...regularTheory].sort((a, b) => (b.credits || 0) - (a.credits || 0));
       }
 
       // ── Slot tracking ──────────────────────────────────────────────────────
@@ -2084,11 +2077,15 @@ router.post('/generate', requireAuth, async (req, res) => {
         let prefRoomIds = [];
         try { const raw = subj.preferred_lab_room_ids; prefRoomIds = (Array.isArray(raw) ? raw : JSON.parse(raw || '[]')).map(id => parseInt(id)).filter(id => !isNaN(id)); } catch {}
 
-        // Resolve faculty per batch — same faculty CAN be reused across batches for tutorial
-        const batchFaculties = batchNames.map(bn => ({
-          batchName: bn,
-          faculty: resolveLabFacultyAny(subj, bn)
-        }));
+        // Resolve faculty per batch — try different faculty first (enables same-slot placement)
+        const batchFaculties = [];
+        const usedFacSet = new Set();
+        for (let bi = 0; bi < numSubsections; bi++) {
+          let bf = resolveLabFaculty(subj, batchNames[bi], usedFacSet);
+          if (!bf) bf = resolveLabFacultyAny(subj, batchNames[bi]); // fallback: allow reuse
+          batchFaculties.push({ batchName: batchNames[bi], faculty: bf });
+          if (bf) usedFacSet.add(bf.id);
+        }
 
         for (let session = 0; session < numSessions; session++) {
           const remaining = [...batchFaculties];
@@ -2101,14 +2098,14 @@ router.post('/generate', requireAuth, async (req, res) => {
               else nextRound.push(b);
             }
             const placed = await scheduleLabTutorial(subj, simGroup, hoursPerSession, prefRoomIds, false);
-            if (!placed) console.warn(`Cannot place tutorial [${subj.name}] session ${session+1} group for section ${section.name}`);
+            if (!placed) console.warn(`Cannot place tutorial [${subj.name}] session ${session+1} for section ${section.name}`);
             remaining.splice(0, remaining.length, ...nextRound);
           }
         }
       } // end for tutorialOnlySubjects
 
-      // ── Schedule THEORY subjects (max 6 for regular, max 7 for BTU, spread evenly) ──
-      const MAX_THEORY = isBtuSection ? 7 : 6;
+      // ── Schedule THEORY subjects — all theory subjects, spread evenly ──
+      const MAX_THEORY = isBtuSection ? 7 : 999; // unused cap — all theory subjects scheduled
       let theoryTokens = [];
       for (const subj of cappedTheory) {
         for (let i = 0; i < (subj.hours_per_week || 1); i++) {
