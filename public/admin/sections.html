@@ -605,7 +605,8 @@
       ]);
       const allSubjects   = await subRes.json();
       allFaculty          = await facRes.json();
-      const assignments   = await assignRes.json();
+      const assignRaw     = await assignRes.json().catch(() => []);
+      const assignments   = Array.isArray(assignRaw) ? assignRaw : [];
 
       // Map subject+batch → faculty_id
       const assignMap = {};
@@ -644,6 +645,7 @@
                       Batch ${batch}
                     </div>
                     <select class="form-control" style="font-size:0.82rem;"
+                      data-section="${sectionId}" data-subject="${subj.id}" data-batch="${batch}"
                       onchange="saveLabAssignment(${sectionId}, ${subj.id}, '${batch}', this.value)">
                       <option value="">— Auto assign —</option>
                       ${facultyOptions}
@@ -656,14 +658,14 @@
 
       document.getElementById('labAssignContent').innerHTML = html;
 
-      // Set saved values AFTER inserting selects into DOM
+      // Set saved values AFTER inserting selects into DOM using data attributes
       for (const subj of labSubjects) {
         for (const batch of batchNames) {
           const key = `${subj.id}_${batch}`;
           const fid = assignMap[key];
           if (fid) {
             const sel = document.querySelector(
-              `select[onchange="saveLabAssignment(${sectionId}, ${subj.id}, '${batch}', this.value)"]`
+              `select[data-section="${sectionId}"][data-subject="${subj.id}"][data-batch="${batch}"]`
             );
             if (sel) sel.value = String(fid);
           }
