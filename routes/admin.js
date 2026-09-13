@@ -1938,19 +1938,25 @@ router.post('/generate', requireAuth, async (req, res) => {
       };
 
       // Find a free consecutive slot block of `size` slots on a given day
-      const findFreeBlock = (day, size) => {
+      // Returns ALL possible blocks, not just the first
+      const findFreeBlocks = (day, size) => {
         const freeSlots = filteredSlots.filter(sl => !usedSlots.has(`${day}_${sl.id}`));
+        const blocks = [];
         let cur = [];
         for (const sl of freeSlots) {
           if (cur.length === 0 || sl.slot_number === cur[cur.length-1].slot_number + 1) {
             cur.push(sl);
-            if (cur.length === size) return cur;
           } else {
+            if (cur.length >= size) {
+              for (let s = 0; s <= cur.length - size; s++) blocks.push(cur.slice(s, s + size));
+            }
             cur = [sl];
-            if (cur.length === size) return cur;
           }
         }
-        return null;
+        if (cur.length >= size) {
+          for (let s = 0; s <= cur.length - size; s++) blocks.push(cur.slice(s, s + size));
+        }
+        return blocks;
       };
 
       // Place a group of batches in a single slot block on any free day
@@ -1960,8 +1966,8 @@ router.post('/generate', requireAuth, async (req, res) => {
       const placeGroup = async (subj, batchGroup, blockSize, prefRoomIds, separateRooms, excludeDays = new Set()) => {
         const sortedDays = [...days].filter(d => !excludeDays.has(d)).sort((a,b) => dayLabLoad[a]-dayLabLoad[b]);
         for (const day of sortedDays) {
-          const block = findFreeBlock(day, blockSize);
-          if (!block) continue;
+          const blocks = findFreeBlocks(day, blockSize);
+          for (const block of blocks) {
           // Check all faculty are free for all slots in block
           const allFacFree = batchGroup.every(({ faculty: bf }) => {
             if (!bf) return true;
@@ -2009,8 +2015,9 @@ router.post('/generate', requireAuth, async (req, res) => {
             roomUsageCount[room.id]++;
           }
           for (const sl of block) { usedSlots.add(`${day}_${sl.id}`); dayLabLoad[day]++; dayLoad[day]++; }
-          excludeDays.add(day); // mark this day used for this session's group
+          excludeDays.add(day);
           return true;
+          } // end for block of blocks
         }
         return false;
       };
@@ -2491,7 +2498,7 @@ router.post('/generate', requireAuth, async (req, res) => {
           const rem = Math.max(0, 7 - btuTh2.length);
           capped2 = [...btuTh2, ...[...regTh2].sort((a,b)=>(b.credits||0)-(a.credits||0)).slice(0,rem)];
         } else {
-          capped2 = [...regTh2].sort((a,b)=>(b.credits||0)-(a.credits||0)).slice(0,6);
+          capped2 = [...regTh2].sort((a,b)=>(b.credits||0)-(a.credits||0)); // no cap
         }
 
         let numSubs2 = section.lab_subsections || 2;
@@ -2507,98 +2514,62 @@ router.post('/generate', requireAuth, async (req, res) => {
           aFac2[a.subject_id][a.batch_name] = a.faculty_id;
         }
 
-        const used2  = new Set();
+        const used2  = new Set(); // kept for retry theory pass
         const dLoad2 = Object.fromEntries(days.map(d=>[d,0]));
         const dLab2  = Object.fromEntries(days.map(d=>[d,0]));
 
-        // Re-schedule labs — same session/rotation logic as the main generation loop
-        const labTokens2 = [];
-        for (const subj of labSubjs2) {
-          labTokens2.push({ subj, hoursNeeded: subj.hours_per_week || 2 });
-        }
-        const sessions2 = [];
-        for (let i = 0; i < labTokens2.length; i += numSubs2) {
-          sessions2.push(labTokens2.slice(i, i + numSubs2));
-        }
-
-        for (const sessionSubjects2 of sessions2) {
-          const hrs = Math.max(...sessionSubjects2.map(t => t.hoursNeeded));
-
-          let labPlaced2 = false;
-          for (const day of [...days].sort((a,b)=>dLab2[a]-dLab2[b])) {
-            if (labPlaced2) break;
-            const fs2 = filteredSlots.filter(sl=>!used2.has(`${day}_${sl.id}`));
-            if (fs2.length < hrs) continue;
-            const grps2 = [];
-            let c2 = [fs2[0]];
-            for (let i=1;i<fs2.length;i++) {
-              if (fs2[i].slot_number===fs2[i-1].slot_number+1) c2.push(fs2[i]);
-              else { if(c2.length>=hrs) grps2.push([...c2]); c2=[fs2[i]]; }
+        // Re-run lab and tutorial scheduling using the same placeGroup helper as the main pass
+        // This ensures consistent hours_per_week handling and no old algorithm
+        const labOnly2   = labSubjs2.filter(s => s.type === 'lab');
+        const tutOnly2   = labSubjs2.filter(s => s.type === 'tutorial');
+        const aFac2used2 = new Set();
+        for (const subj of labOnly2) {
+          const blockSize2 = 2;
+          const numSess2 = Math.max(1, Math.round((subj.hours_per_week || 2) / blockSize2));
+          let pRoomIds2 = [];
+          try { const raw = subj.preferred_lab_room_ids; pRoomIds2 = (Array.isArray(raw) ? raw : JSON.parse(raw || '[]')).map(id => parseInt(id)).filter(id => !isNaN(id)); } catch {}
+          const bFacs2 = [];
+          const usedF2 = new Set();
+          for (let bi = 0; bi < numSubs2; bi++) {
+            const preId2 = (aFac2[subj.id] || {})[bNames2[bi]];
+            let bf2 = preId2 ? allFaculty.find(f => f.id === preId2) : null;
+            if (!bf2) { const lk2 = getLockedFaculty(subj.id, section.id); if (lk2 && !usedF2.has(lk2.id)) bf2 = lk2; }
+            if (!bf2) { const el2 = allFaculty.filter(f => canTeach(f, subj.id) && !isFacultyOverLoaded(f.id) && !usedF2.has(f.id)); bf2 = shuffle(el2)[0] || null; }
+            bFacs2.push({ batchName: bNames2[bi], faculty: bf2 });
+            if (bf2) usedF2.add(bf2.id);
+          }
+          for (let s2 = 0; s2 < numSess2; s2++) {
+            const rem2 = [...bFacs2];
+            while (rem2.length > 0) {
+              const seen2 = new Set(); const grp2 = [], nxt2 = [];
+              for (const b of rem2) { const fid2 = b.faculty ? b.faculty.id : null; if (fid2 === null || !seen2.has(fid2)) { grp2.push(b); if (fid2 !== null) seen2.add(fid2); } else nxt2.push(b); }
+              await placeGroup(subj, grp2, blockSize2, pRoomIds2, true);
+              rem2.splice(0, rem2.length, ...nxt2);
             }
-            if (c2.length>=hrs) grps2.push(c2);
-            for (const g2 of grps2) {
-              if (labPlaced2) break;
-              for (let s2=0;s2<=g2.length-hrs;s2++) {
-                const cand2 = g2.slice(s2,s2+hrs);
-
-                // Resolve faculty per batch for this session
-                const bFacList2 = [];
-                for (let bi=0;bi<numSubs2;bi++) {
-                  const token2 = sessionSubjects2[bi];
-                  if (!token2) { bFacList2.push(null); continue; }
-                  const sj2 = token2.subj;
-                  const pre2 = aFac2[sj2.id] || {};
-                  const bn = bNames2[bi];
-                  let bFac2 = null;
-                  if (pre2[bn]) { const p = allFaculty.find(f=>f.id===pre2[bn]); if(p) bFac2=p; }
-                  if (!bFac2) {
-                    const locked2 = getLockedFaculty(sj2.id, section.id);
-                    if (locked2) bFac2 = locked2;
-                  }
-                  // Auto-find faculty if still null
-                  if (!bFac2) {
-                    const usedFacIds2 = new Set(bFacList2.filter(Boolean).map(f => f.id));
-                    const elig2 = allFaculty.filter(f => canTeach(f, sj2.id) && !isFacultyOverLoaded(f.id) && !usedFacIds2.has(f.id));
-                    bFac2 = shuffle(elig2).sort((a,b) => facultyTheoryCount[a.id]-facultyTheoryCount[b.id])[0] || null;
-                  }
-                  bFacList2.push(bFac2);
-                }
-
-                // Check all assigned faculty are free
-                const allFacFree2 = bFacList2.every((bf, bi) => {
-                  if (!bf) return true;
-                  return cand2.every(sl => isFacultyFree(day,sl.id,bf.id) && !isFacultyUnavailable(day,sl.id,bf.id));
-                });
-                if (!allFacFree2) continue;
-
-                // Find separate lab rooms for each batch
-                const usedLabIds2 = new Set();
-                const bRooms2 = [];
-                let roomsOk2 = true;
-                for (let bi=0;bi<numSubs2;bi++) {
-                  const aLab2 = labs.filter(r=>!usedLabIds2.has(r.id)&&cand2.every(sl=>isRoomFree(day,sl.id,r.id))).sort((a,b)=>roomUsageCount[a.id]-roomUsageCount[b.id])[0];
-                  if (!aLab2) { roomsOk2=false; break; }
-                  bRooms2.push(aLab2); usedLabIds2.add(aLab2.id);
-                }
-                if (!roomsOk2) continue;
-
-                // Place each batch with its own subject, faculty, room
-                for (let bi=0;bi<numSubs2;bi++) {
-                  const token2 = sessionSubjects2[bi];
-                  if (!token2) continue;
-                  const sj2 = token2.subj;
-                  const bn=bNames2[bi]; const bf=bFacList2[bi]; const lr=bRooms2[bi];
-                  for (const sl of cand2) {
-                    await run('INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-                      [section.id,sl.id,day,sj2.id,bf ? bf.id : null,lr.id,bn]);
-                    if (bf) markFaculty(day,sl.id,bf.id);
-                    markRoom(day,sl.id,lr.id);
-                  }
-                  roomUsageCount[lr.id]++;
-                }
-                for (const sl of cand2) { used2.add(`${day}_${sl.id}`); dLab2[day]++; dLoad2[day]++; }
-                labPlaced2=true; break;
-              }
+          }
+        }
+        for (const subj of tutOnly2) {
+          const numSess2 = Math.max(1, subj.hours_per_week || 1);
+          let pRoomIds2 = [];
+          try { const raw = subj.preferred_lab_room_ids; pRoomIds2 = (Array.isArray(raw) ? raw : JSON.parse(raw || '[]')).map(id => parseInt(id)).filter(id => !isNaN(id)); } catch {}
+          const bFacs2 = [];
+          const usedF2 = new Set();
+          for (let bi = 0; bi < numSubs2; bi++) {
+            const preId2 = (aFac2[subj.id] || {})[bNames2[bi]];
+            let bf2 = preId2 ? allFaculty.find(f => f.id === preId2) : null;
+            if (!bf2) { const lk2 = getLockedFaculty(subj.id, section.id); if (lk2 && !usedF2.has(lk2.id)) bf2 = lk2; }
+            if (!bf2) { const el2 = allFaculty.filter(f => canTeach(f, subj.id) && !isFacultyOverLoaded(f.id) && !usedF2.has(f.id)); bf2 = shuffle(el2)[0] || null; if (!bf2) { const el2b = allFaculty.filter(f => canTeach(f, subj.id) && !isFacultyOverLoaded(f.id)); bf2 = shuffle(el2b)[0] || null; } }
+            bFacs2.push({ batchName: bNames2[bi], faculty: bf2 });
+            if (bf2) usedF2.add(bf2.id);
+          }
+          for (let s2 = 0; s2 < numSess2; s2++) {
+            const rem2 = [...bFacs2];
+            const excDays2 = new Set();
+            while (rem2.length > 0) {
+              const seen2 = new Set(); const grp2 = [], nxt2 = [];
+              for (const b of rem2) { const fid2 = b.faculty ? b.faculty.id : null; if (fid2 === null || !seen2.has(fid2)) { grp2.push(b); if (fid2 !== null) seen2.add(fid2); } else nxt2.push(b); }
+              await placeGroup(subj, grp2, 1, pRoomIds2, false, excDays2);
+              rem2.splice(0, rem2.length, ...nxt2);
             }
           }
         }
