@@ -2485,7 +2485,7 @@ router.post('/generate', requireAuth, async (req, res) => {
           aFac2[a.subject_id][a.batch_name] = a.faculty_id;
         }
 
-        const used2  = new Set(); // kept for retry theory pass
+        const used2  = new Set(); // no longer used for lab — use retryUsedSlots
         const dLoad2 = Object.fromEntries(days.map(d=>[d,0]));
         const dLab2  = Object.fromEntries(days.map(d=>[d,0]));
 
@@ -2557,7 +2557,6 @@ router.post('/generate', requireAuth, async (req, res) => {
         const daySubj2 = Object.fromEntries(days.map(d=>[d,new Set()]));
         const tgt2     = Math.ceil(tokens2.length/days.length);
         const prefR2   = sectionRoomMap[section.id];
-
         // Clear any previous section+subject faculty assignments for this section before retry
         // so the retry picks fresh (but then consistent) faculty per subject
         for (const subj of capped2) {
@@ -2568,14 +2567,14 @@ router.post('/generate', requireAuth, async (req, res) => {
         while (p2<tokens2.length && att2<tokens2.length*days.length*filteredSlots.length*20) {
           att2++;
           const subj = tokens2[p2];
-          const sDays2 = [...days].filter(d=>!daySubj2[d].has(subj.id)).sort((a,b)=>dLoad2[a]-dLoad2[b]);
+          const sDays2 = [...days].filter(d=>!daySubj2[d].has(subj.id)).sort((a,b)=>retryDayLoad[a]-retryDayLoad[b]);
           if (!sDays2.length) { p2++; continue; }
           let placed2b = false;
           for (const day of sDays2) {
             if (placed2b) break;
-            if (dLoad2[day]>=tgt2+1 && sDays2.some(d=>dLoad2[d]<tgt2)) continue;
+            if (retryDayLoad[day]>=tgt2+1 && sDays2.some(d=>retryDayLoad[d]<tgt2)) continue;
             const pref2 = allRooms.find(r => parseInt(r.id) === parseInt(prefR2));
-            const fSlots2Raw = filteredSlots.filter(sl=>!used2.has(`${day}_${sl.id}`));
+            const fSlots2Raw = filteredSlots.filter(sl=>!retryUsedSlots.has(`${day}_${sl.id}`));
             const fSlots2 = pref2
               ? [...shuffle(fSlots2Raw.filter(sl=>isRoomFree(day,sl.id,pref2.id))),
                  ...shuffle(fSlots2Raw.filter(sl=>!isRoomFree(day,sl.id,pref2.id)))]
@@ -2633,8 +2632,8 @@ router.post('/generate', requireAuth, async (req, res) => {
               await run('INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
                 [section.id,slot.id,day,subj.id,cF2.id,cR2.id]);
               markFaculty(day,slot.id,cF2.id); markRoom(day,slot.id,cR2.id);
-              used2.add(`${day}_${slot.id}`); daySubj2[day].add(subj.id);
-              dLoad2[day]++; facultyTheoryCount[cF2.id]++;
+              retryUsedSlots.add(`${day}_${slot.id}`); daySubj2[day].add(subj.id);
+              retryDayLoad[day]++; facultyTheoryCount[cF2.id]++;
               setSectionSubjectFaculty(section.id, subj.id, cF2.id);
               markSubjectFaculty(subj.id, cF2.id);
               p2++; placed2b=true; break;
@@ -2644,7 +2643,7 @@ router.post('/generate', requireAuth, async (req, res) => {
           if (!placed2b) {
             for (const day of sDays2) {
               if (placed2b) break;
-              const fSlots2b = shuffle(filteredSlots.filter(sl=>!used2.has(`${day}_${sl.id}`)));
+              const fSlots2b = shuffle(filteredSlots.filter(sl=>!retryUsedSlots.has(`${day}_${sl.id}`)));
               for (const slot of fSlots2b) {
                 const lockedF2r = getLockedFaculty(subj.id, section.id);
                 let cF2;
@@ -2672,8 +2671,8 @@ router.post('/generate', requireAuth, async (req, res) => {
                 await run('INSERT INTO timetable_entries (section_id,time_slot_id,day_of_week,subject_id,faculty_id,room_id,subsection) VALUES ($1,$2,$3,$4,$5,$6,NULL)',
                   [section.id,slot.id,day,subj.id,cF2.id,cR2b.id]);
                 markFaculty(day,slot.id,cF2.id); markRoom(day,slot.id,cR2b.id);
-                used2.add(`${day}_${slot.id}`); daySubj2[day].add(subj.id);
-                dLoad2[day]++; facultyTheoryCount[cF2.id]++;
+                retryUsedSlots.add(`${day}_${slot.id}`); daySubj2[day].add(subj.id);
+                retryDayLoad[day]++; facultyTheoryCount[cF2.id]++;
                 setSectionSubjectFaculty(section.id,subj.id,cF2.id);
                 markSubjectFaculty(subj.id,cF2.id);
                 p2++; placed2b=true; break;
