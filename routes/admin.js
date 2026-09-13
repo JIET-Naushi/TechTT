@@ -2489,9 +2489,11 @@ router.post('/generate', requireAuth, async (req, res) => {
         const dLoad2 = Object.fromEntries(days.map(d=>[d,0]));
         const dLab2  = Object.fromEntries(days.map(d=>[d,0]));
 
-        // ctx for placeGroup — reuses the section's main usedSlots/dayLabLoad/dayLoad
-        // (busy marks were already cleared above before retry)
-        const ctx2 = { section, usedSlots, dayLabLoad, dayLoad };
+        // ctx for placeGroup — fresh slot tracking for this retry
+        const retryUsedSlots  = new Set();
+        const retryDayLabLoad = Object.fromEntries(days.map(d=>[d,0]));
+        const retryDayLoad    = Object.fromEntries(days.map(d=>[d,0]));
+        const ctx2 = { section, usedSlots: retryUsedSlots, dayLabLoad: retryDayLabLoad, dayLoad: retryDayLoad };
 
         // Re-run lab and tutorial scheduling using the same placeGroup helper as the main pass
         const labOnly2   = labSubjs2.filter(s => s.type === 'lab');
