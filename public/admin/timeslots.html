@@ -231,7 +231,7 @@
       const res = await fetch(`/api/admin/timeslots/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ start_time: start, end_time: end })
+        body: JSON.stringify({ start_time: start, end_time: end, department_id: deptId })
       });
       const data = await res.json();
       if (res.ok) { showAlert('Slot updated', 'success'); await loadSlots(); }
@@ -244,7 +244,7 @@
       const res = await fetch(`/api/admin/timeslots/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_break: newBreak })
+        body: JSON.stringify({ is_break: newBreak, department_id: deptId })
       });
       const data = await res.json();
       if (res.ok) { showAlert(newBreak ? 'Marked as break' : 'Marked as active', 'success'); await loadSlots(); }
@@ -254,7 +254,11 @@
     async function deleteSlot(id) {
       const s = slots.find(s => s.id === id);
       if (!confirm(`Delete P${s.slot_number} (${s.start_time}–${s.end_time})?`)) return;
-      const res = await fetch(`/api/admin/timeslots/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/admin/timeslots/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ department_id: deptId })
+      });
       const data = await res.json();
       if (res.ok) { showAlert(data.message, 'success'); await loadSlots(); }
       else showAlert(data.error, 'error');
@@ -272,7 +276,7 @@
       const res = await fetch('/api/admin/timeslots', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slot_number: parseInt(num), start_time: start, end_time: end, is_break: parseInt(brk) })
+        body: JSON.stringify({ slot_number: parseInt(num), start_time: start, end_time: end, is_break: parseInt(brk), department_id: deptId })
       });
       const data = await res.json();
       if (res.ok) {
