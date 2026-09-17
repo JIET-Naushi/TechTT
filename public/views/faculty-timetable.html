@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -9,7 +9,7 @@
 </head>
 <body>
   <header class="header no-print">
-    <div class="logo">🎓 <span id="headerDept">JIET</span></div>
+    <div class="logo"><img src="/images/jiet-logo.svg" alt="JIET" class="header-logo"></div>
     <nav>
       <a href="/index.html">Home</a>
       <a href="/views/class-timetable.html">Class</a>
@@ -71,7 +71,6 @@
     fetch('/api/settings').then(r => r.json()).then(s => {
       const dept = s.department_name || 'Department of Technology';
       const college = s.college_name || 'JIET Universe';
-      document.getElementById('headerDept').textContent = `🎓 ${college}`;
       document.getElementById('printDeptName').textContent = dept;
     }).catch(() => {});
 
